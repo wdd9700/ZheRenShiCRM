@@ -53,3 +53,14 @@ Frappe CRM 原生 `Data Import` 一次只处理一个 DocType，且只在"更新
 `python tools/crm/selftest_guard.py` 可本地自检（含"合法前缀 + 真实样式载荷必须拒绝"）。
 原因：M6 已用两个真实 Sales User 的 HTTP 请求证实 FCRM Note 私密 detail/PUT 均 200、activities 泄漏未共享 note，
 因此**不要把真实客户资料放进本目录的导入路径**。
+
+## 受控复验样例（同样全是合成数据）
+
+| 文件 | 身份前缀 | 用途 |
+|---|---|---|
+| `m5-synthetic-six-columns.csv` | M5 | 历史样例；在本站点已导入过，重跑应 **0 新增**（验证旧 16 位键兼容） |
+| `m5-synthetic-acceptance.csv` | M5UI2 | 首跑验收：2 企业/3 联系人/4 需求/1 文件内重复/3 错误行；重跑 0 新增 |
+| `m5-synthetic-write-failure.csv` | M5TXN | 事务隔离：第 1 行企业名 149 字符超出 Data 上限，写入期必失败；用于验证第 2 行仍成功、`CRM Lead Source` 未被首行回滚吞掉 |
+
+三份文件的 SHA-256 都写死在 `tools/crm/m5_guard.py` 的 `TRUSTED_SAMPLES` 里，
+`preview`/`apply` 只接受与清单完全一致的内容——改一个字符就会被拒，没有旁路开关。

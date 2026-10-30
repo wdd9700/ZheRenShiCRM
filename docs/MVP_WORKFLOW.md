@@ -336,6 +336,80 @@ apps/m5_import_app/
 ④CRLF+BOM 同内容被接受（摘要按 LF 归一）；⑤`import_key` 仍为 16 位（AST 断言）；
 ⑥`apply_row` 内调用 `ensure_source`（AST 断言）。输出 `PASS`；四个脚本 `py_compile` 通过。
 
-**仍未复验**：以上修复未在共享实例端到端执行（M7 独占中）。需向 tower 申请窗口验证
-"样例首跑 2 企业/3 联系人/4 需求、重跑 0 新增、旧 16 位键兼容、首行注入失败后后续行仍成功、
-工作流所有写目标来源校验"，通过后再申请复审；在此之前 M5 不申请完成。
+**仍未复验**：以上修复未在共享实例端到端执行（窗口先归 M6、后归 M7）。复验方案见第 10 节；
+其中"首行失败隔离"用**仓库内已登记的失败样例**触发，不改样例内容、不放宽闸门。通过前 M5 不申请完成。
+
+## 10. 复验方案（待授权窗口；当前不执行）
+
+> 修正说明（回应 tower 21:15）：先前方案写的"把某行 Company 置空来制造失败"与可信摘要闸门自相矛盾——
+> 改样例会失配被拒，放宽闸门又等于拆掉防护。现改为**在仓库里预先登记一个专门的失败样例**，
+> 失败由数据本身确定性触发（写入期超长），闸门保持原样、没有生产旁路开关。
+> 同样，"首跑 2 企业/3 联系人/4 需求"不能拿历史样例硬套：该样例在本站点已导入过，重跑按设计应 **0 新增**；
+> 首跑验收改用**新身份的新样例**，两套对象互不复用、互不覆盖。
+
+### 10.1 三个受控样例（均已登记 SHA-256，改动即被拒）
+
+| 样例 | 用途 | 预期 |
+|---|---|---|
+| `samples/m5-synthetic-six-columns.csv`（历史，M5 前缀） | 幂等/兼容：旧 16 位键仍能命中 | preview 5 跳过 + 3 错误行；apply **0 新增** |
+| `samples/m5-synthetic-acceptance.csv`（新，M5UI2 前缀） | 首跑验收：全新对象，不与历史记录复用 | 2 企业 / 3 联系人 / 4 需求 / 1 文件内重复 / 3 错误行；二次 apply 0 新增 |
+| `samples/m5-synthetic-write-failure.csv`（新，M5TXN 前缀） | 事务隔离：第 1 行企业名 149 字符（Data 上限 140），写入期确定性失败 | 第 1 行失败且无残留对象；第 2 行仍成功；`CRM Lead Source` 仍存在 |
+
+三者的关系：可信清单按文件逐一登记（`m5_guard.TRUSTED_SAMPLES`），身份前缀不同、对象名不同，
+所以既不会误复用历史 M5 对象，也不需要改动任何既有载荷。
+
+### 10.2 具体命令（窗口内按序执行，全部在容器内）
+
+```sh
+# 0) 只读准备：复制脚本与三个样例
+docker cp tools/crm/m5_import.py        crm-mvp-v15-backend-1:/tmp/m5/
+docker cp tools/crm/m5_guard.py         crm-mvp-v15-backend-1:/tmp/m5/
+docker cp tools/crm/m5_workflow_demo.py crm-mvp-v15-backend-1:/tmp/m5/
+docker cp samples/ crm-mvp-v15-backend-1:/tmp/m5/samples/
+
+# 1) 历史样例：幂等与旧 key 兼容
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_import.py preview --csv /tmp/m5/samples/m5-synthetic-six-columns.csv
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_import.py apply --csv /tmp/m5/samples/m5-synthetic-six-columns.csv --confirm   # 期望 0 新增
+
+# 2) 验收样例：首跑 + 重跑
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_import.py preview --csv /tmp/m5/samples/m5-synthetic-acceptance.csv
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_import.py apply --csv /tmp/m5/samples/m5-synthetic-acceptance.csv --confirm     # 2/3/4
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_import.py apply --csv /tmp/m5/samples/m5-synthetic-acceptance.csv --confirm     # 0 新增
+
+# 3) 事务隔离样例：首行失败、次行成功、Source 存活
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_import.py apply --csv /tmp/m5/samples/m5-synthetic-write-failure.csv --confirm
+
+# 4) 工作流（只操作既有 M5 受控对象，逐目标校验）
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python   /tmp/m5/m5_workflow_demo.py --confirm
+
+# 5) 只读收据
+docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 ../env/bin/python -c "
+import frappe, json
+frappe.init(site='crm.localhost', sites_path='.'); frappe.connect()
+print(json.dumps({
+ 'm5ui2_orgs': frappe.db.count('CRM Organization', {'organization_name': ['like', 'M5UI2样例%']}),
+ 'm5ui2_contacts': frappe.db.count('Contact', {'company_name': ['like', 'M5UI2样例%']}),
+ 'm5ui2_leads': frappe.db.count('CRM Lead', {'organization': ['like', 'M5UI2样例%']}),
+ 'm5txn_leads': frappe.db.count('CRM Lead', {'organization': ['like', 'M5TXN%']}),
+ 'source_exists': bool(frappe.db.exists('CRM Lead Source', 'M5导入样例')),
+ 'email_queue': frappe.db.count('Email Queue'), 'communications': frappe.db.count('Communication'),
+ 'webhooks': frappe.db.count('Webhook'), 'notifications': frappe.db.count('Notification'),
+}, ensure_ascii=False, default=str))
+frappe.destroy()"
+```
+
+### 10.3 断言与失败处理
+
+- 步骤 1：输出 `企业=0 联系人=0 需求=0 需求跳过=5 错误行=3`；若出现新增，说明旧 16 位键未命中 → 停止并报告，不改算法。
+- 步骤 2：首跑输出 2/3/4（1 文件内重复、3 错误行）；重跑 `0/0/0`。
+- 步骤 3：结果 JSON 中第 1 行 `状态=失败`（异常含长度/字段信息），第 2 行 `状态=成功`；
+  且 `M5TXN` 只有第 2 行的企业/联系人/需求，`source_exists=true`（证明 Source 未被首行回滚吞掉）。
+- 步骤 4：两商机 `已存在`、阶段无新变更、任务 `已存在`、无新评论；若出现新评论/任务说明幂等退化。
+- 任一断言不符，只收集输出并回报，不删除数据、不改闸门、不重跑覆盖。
+- 保留物：`M5UI2`/`M5TXN` 前缀合成记录与相关 `Data Import`/备注，均不删除，作为复验证据。
+
+### 10.4 本轮已完成的替代验证（不能替代实例复验）
+
+- 本地 `selftest_guard.py`：三个可信样例摘要全部命中；真实样式载荷、单点改动被拒；CRLF+BOM 归一；
+  16 位历史键断言；`apply_row` 自保 `Source` 断言（AST 仅作补充，**不作为**事务失败的真实证明）。
+- 事务失败隔离的真实验证只能在窗口内由 10.2 步骤 3 完成。

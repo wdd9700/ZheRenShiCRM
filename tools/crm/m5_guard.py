@@ -21,6 +21,12 @@ from pathlib import Path
 # 新增样例必须先在仓库提交，再把摘要写死在这里，禁止运行时由用户文件自证。
 TRUSTED_SAMPLES = {
 	"m5-synthetic-six-columns.csv": "fd6b9b8e363ea83d210265dcc801c3fb0723421b146bdb76eaeb6903d6493bd3",
+	# 受控验收样例：全新身份（M5UI2 前缀），用于演示"首跑 2 企业/3 联系人/4 需求"，
+	# 不改动上面的历史样例载荷，也不与既有 M5 记录复用对象。
+	"m5-synthetic-acceptance.csv": "0a4ceb0681736d290daadb2c4f3cfac6c72009813ddb3ea733334364a04e6814",
+	# 事务失败隔离样例：第一行企业名 149 字符（超出 Data 字段 140），写入期确定性报错；
+	# 用来验证"首行失败不会连带回滚 Source、后续有效行仍成功"，不靠放宽闸门。
+	"m5-synthetic-write-failure.csv": "ee223d7f4167911472cd2f41ae10714f6d58741521b3f1e55d078050d2e5124e",
 }
 
 SYNTHETIC_COMPANY_PREFIX = "M5"

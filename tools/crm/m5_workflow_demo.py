@@ -104,6 +104,19 @@ def verified_deal(deal_name, lead, company):
 	return None
 
 
+VERIFIED_TARGETS = set()
+
+
+def register_verified(doctype, name):
+	VERIFIED_TARGETS.add((doctype, name))
+
+
+def require_verified_target(doctype, name):
+	"""所有写操作前的最后一道闸门：目标必须已通过受控样例校验。"""
+	if (doctype, name) not in VERIFIED_TARGETS:
+		raise ValueError(f"拒绝写入：{doctype} {name!r} 未经受控样例身份/关系校验")
+
+
 def deal_for_lead(lead):
 	return frappe.db.get_value("CRM Deal", {"lead": lead}, "name")
 
@@ -122,6 +135,7 @@ def comment_exists(reference_doctype, reference_docname, content):
 
 
 def ensure_comment(reference_doctype, reference_docname, content, apply):
+	require_verified_target(reference_doctype, reference_docname)
 	if comment_exists(reference_doctype, reference_docname, content):
 		return "已存在"
 	if not apply:
@@ -142,13 +156,22 @@ def ensure_comment(reference_doctype, reference_docname, content, apply):
 
 
 def ensure_task(title, reference_docname, due_date, priority, description, apply):
-	existing = frappe.db.get_value(
+	"""只允许在**已验证商机**上加任务，且标题不得与其他对象的任务同名，避免误改别人的任务。"""
+	require_verified_target("CRM Deal", reference_docname)
+	same_title = frappe.get_all(
 		"CRM Task",
-		{"title": title, "reference_doctype": "CRM Deal", "reference_docname": reference_docname},
-		"name",
+		filters={"title": title},
+		fields=["name", "reference_doctype", "reference_docname"],
 	)
-	if existing:
-		return existing, "已存在"
+	foreign = [
+		row
+		for row in same_title
+		if row.reference_doctype != "CRM Deal" or row.reference_docname != reference_docname
+	]
+	if foreign:
+		raise ValueError(f"拒绝写入：标题 {title!r} 已被其他对象使用：{foreign}")
+	if same_title:
+		return same_title[0].name, "已存在"
 	if not apply:
 		return None, "将新建"
 	task = frappe.get_doc(
@@ -174,6 +197,7 @@ STAGE_RANK = {status: index for index, status in enumerate(STAGE_ORDER)}
 
 def shift_status(deal_name, statuses, apply):
 	"""只向前推进阶段：目标阶段必须晚于当前阶段，重复执行不会回退或重复推进。"""
+	require_verified_target("CRM Deal", deal_name)
 	doc = frappe.get_doc("CRM Deal", deal_name)
 	current_rank = STAGE_RANK.get(doc.status, -1)
 	applied = []
@@ -230,6 +254,8 @@ def main(argv=None):
 			report["error"] = "受控合成线索不完整：" + "；".join(err for err in (err_a, err_b) if err)
 			print(json.dumps(report, ensure_ascii=False, indent=1))
 			return 1
+		register_verified("CRM Lead", lead_a)
+		register_verified("CRM Lead", lead_b)
 
 		deals = {}
 		for label, lead, sample in (("A", lead_a, SAMPLE_A), ("B", lead_b, SAMPLE_B)):
@@ -241,6 +267,7 @@ def main(argv=None):
 					print(json.dumps(report, ensure_ascii=False, indent=1))
 					return 1
 				deals[label] = (existing, "已存在")
+				register_verified("CRM Deal", existing)
 				continue
 			if not apply:
 				deals[label] = (None, "将转换")
@@ -254,6 +281,7 @@ def main(argv=None):
 				report["error"] = problem
 				print(json.dumps(report, ensure_ascii=False, indent=1))
 				return 1
+			register_verified("CRM Deal", deals[label][0])
 		report["steps"]["deals"] = {k: {"name": v[0], "state": v[1]} for k, v in deals.items()}
 		if not apply:
 			print(json.dumps(report, ensure_ascii=False, indent=1))
@@ -318,6 +346,8 @@ def main(argv=None):
 			contact = None
 			contact_change = f"拒绝修改：{contact_problem}"
 		else:
+			register_verified("Contact", contact)
+			require_verified_target("Contact", contact)
 			doc = frappe.get_doc("Contact", contact)
 			if doc.designation != "生产经理":
 				doc.designation = "生产经理"

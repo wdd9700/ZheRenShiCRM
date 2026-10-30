@@ -55,7 +55,14 @@ def expect_rejected(path, rows, label):
 
 
 def main():
-	# 1. 仓库样例命中可信清单
+	# 1. 三个仓库样例都必须命中可信清单，且清单里的文件都在仓库里
+	samples_dir = SAMPLE.parent
+	assert len(TRUSTED_SAMPLES) == 3, f"可信清单数量异常：{TRUSTED_SAMPLES}"
+	for name, expected in TRUSTED_SAMPLES.items():
+		path = samples_dir / name
+		assert path.is_file(), f"可信清单指向不存在的文件：{name}"
+		assert normalized_digest(path) == expected, f"摘要与清单不符：{name}"
+		assert require_trusted_sample(path, load(path)) == name
 	digest = normalized_digest(SAMPLE)
 	assert digest in TRUSTED_SAMPLES.values(), f"样例摘要未在可信清单：{digest}"
 	assert trusted_sample_name(SAMPLE) == "m5-synthetic-six-columns.csv"
@@ -112,7 +119,7 @@ def main():
 		raise AssertionError("require_synthetic 应抛错")
 
 	print(
-		"PASS: 可信摘要命中；真实样式载荷/单点改动被拒；CRLF+BOM 归一；"
+		"PASS: 三个可信样例摘要命中；真实样式载荷/单点改动被拒；CRLF+BOM 归一；"
 		"16 位历史键未变；apply_row 自保 Source；行级标记仍生效"
 	)
 	return 0
