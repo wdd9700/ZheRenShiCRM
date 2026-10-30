@@ -98,6 +98,7 @@ xerj autoindex P:\CRM --prefix crm-main --state-dir P:\CRM\.tower\xerj\state\crm
 - 仅绑定 `127.0.0.1`，不使用 `--insecure`，不绑定 `0.0.0.0`，不开放公网。
 - 仅索引 `P:\CRM`；`.git`、`.tower`（含所有 worktree）由隐藏规则排除。脚本按固定根启动，不会误扫其他盘或目录。
 - 保持默认 API-key 认证；不要打印、提交或外传 `admin.key`。节点首次启动的 stderr 可能包含一次性 console setup 链接，日志同样不要外传。
+- `-Foreground` 会把节点 stdout/stderr 直接打到终端；首次启动或换用全新运行时，输出可能包含一次性 setup 链接/token。不要在会被记录、转录或共享的会话中使用：优先后台启动，只查看受保护日志路径。
 - 当前语料只有项目文档，没有客户数据。这是 **loopback 实验模式**；一旦引入真实客户资料，必须重新评估认证、加密、保留期与访问边界，不能把当前实验当生产安全方案。
 - 不启用 neural/proxy 嵌入、不下载模型、不启用 MCP、不提交 feedback。
 

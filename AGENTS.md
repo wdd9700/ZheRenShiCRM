@@ -72,7 +72,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-s
 
 Migration: stop the node, copy `data\`, `state\`, and `logs\` from `.tower\xerj` to a new absolute directory, set `XERJ_CRM_HOME` to that directory before starting, then verify with `-Map` and a known query. Scripts never delete the old directory or any index; keep both until verification passes.
 
-Security boundaries: never print or commit `admin.key`; do not share node logs (the first launch log may contain a one-time console setup link); keep the node on loopback and default auth; do not enable neural/proxy embeddings, MCP, external feedback, or model downloads. The current corpus contains project documents only — this loopback setup is an experiment, not a production security boundary for real customer data.
+Security boundaries: never print or commit `admin.key`; do not share node logs (the first launch log may contain a one-time console setup link); do not capture or share `-Foreground` output on a fresh runtime for the same reason; keep the node on loopback and default auth; do not enable neural/proxy embeddings, MCP, external feedback, or model downloads. The current corpus contains project documents only — this loopback setup is an experiment, not a production security boundary for real customer data.
 
 Consult `xerj --help` and relevant subcommand help when needed. Avoid loading extensive documentation into context unnecessarily.
 

@@ -59,11 +59,16 @@ while ((Get-Date) -lt $deadline) {
 }
 
 if (-not $ready) {
-    if (-not $process.HasExited) {
+    $exited = $process.HasExited
+    $status = if ($exited) {
+        'process exited before listening'
+    } else {
+        'process did not listen within 30s and was stopped'
+    }
+    if (-not $exited) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
-    $errTail = if (Test-Path -LiteralPath $errLog) { Get-Content -LiteralPath $errLog -Tail 15 } else { @() }
-    throw "XERJ node did not become ready on port $XerjPort. stderr: $($errTail -join ' | ')"
+    throw "XERJ node did not become ready on port $XerjPort ($status). Inspect protected logs: $outLog and $errLog. Log contents are not printed because they may contain a one-time console setup token."
 }
 
 $keyDeadline = (Get-Date).AddSeconds(10)
