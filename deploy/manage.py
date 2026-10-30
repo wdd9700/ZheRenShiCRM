@@ -1,9 +1,11 @@
 import argparse
+import hashlib
 import http.cookiejar
 import json
 import os
 from pathlib import Path
 import secrets
+import stat
 import shutil
 import subprocess
 import sys
@@ -13,14 +15,83 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parent
-ENV = ROOT / ".env"
+ENV = ROOT / ".runtime" / ".env"
+if not ENV.exists():
+    ENV = ROOT / ".env"
 SITE = "crm.localhost"
 BASE_URL = "http://127.0.0.1:8088"
 
 
+def plain_path(path, file=False):
+    for component in (path, *path.parents):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise RuntimeError("Runtime handoff refuses symlinks and reparse points")
+    if file:
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise RuntimeError("Runtime handoff requires ordinary, non-hardlinked files")
+
+
+def handoff_runtime(target_dir, secure_runtime_dir):
+    if os.name != "nt":
+        raise RuntimeError("Run runtime handoff with native Windows Python/PowerShell for Windows ACL enforcement; not through WSL/DrvFS")
+    target = Path(target_dir)
+    if not target.is_absolute() or ".." in target.parts or target.drive.startswith("\\\\"):
+        raise RuntimeError("Runtime handoff requires an explicit absolute local deploy directory")
+    plain_path(target)
+    if not target.is_dir() or target.name != "deploy" or target.resolve() == ROOT:
+        raise RuntimeError("Target must be another checkout's existing deploy directory")
+    git = shutil.which("git")
+    powershell = shutil.which("powershell.exe")
+    if not git or not powershell:
+        raise RuntimeError("Runtime handoff requires existing Git and Windows PowerShell")
+
+    def git_result(*args):
+        return subprocess.run([git, "-C", str(target.parent), *args], capture_output=True, text=True)
+
+    root = git_result("rev-parse", "--show-toplevel")
+    if root.returncode or Path(root.stdout.strip()).resolve() != target.parent.resolve():
+        raise RuntimeError("Target deploy directory must be directly inside a Git checkout root")
+    for name in ("manage.py", "compose.yml", "handoff-runtime.ps1"):
+        path = target / name
+        plain_path(path, file=True)
+        tracked = git_result("ls-files", "--error-unmatch", "--", f"deploy/{name}")
+        if tracked.returncode or hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).digest() != hashlib.sha256((ROOT / name).read_bytes().replace(b"\r\n", b"\n")).digest():
+            raise RuntimeError("Target deployment code must already be tracked and match this handoff version; merge first")
+    if (target / ".env").exists() or (target / ".env").is_symlink():
+        raise RuntimeError("Target has a legacy deploy/.env; stop and reconcile existing materials explicitly, without overwriting")
+    for relative in (".runtime/.env", ".runtime/image.env"):
+        if git_result("check-ignore", "--quiet", "--no-index", "--", f"deploy/{relative}").returncode:
+            raise RuntimeError("Each target runtime path must be Git-ignored before handoff")
+        if git_result("ls-files", "--error-unmatch", "--", f"deploy/{relative}").returncode != 1:
+            raise RuntimeError("Target runtime materials must not be tracked")
+        path = target / relative
+        plain_path(path)
+        if path.exists():
+            plain_path(path, file=True)
+    for path in (ENV, ROOT / ".runtime" / "image.env"):
+        plain_path(path, file=True)
+    command = [powershell, "-NoProfile", "-NonInteractive", "-File", str(ROOT / "handoff-runtime.ps1"), "-SourceDir", str(ROOT), "-SourceEnv", str(ENV), "-TargetDir", str(target)]
+    if secure_runtime_dir:
+        command.append("-SecureRuntimeDir")
+    copied = subprocess.run(command, capture_output=True, text=True)
+    if copied.returncode:
+        raise RuntimeError("Runtime handoff path/ACL/content check or exclusive copy failed; no source removed or existing file overwritten; retain partial targets for investigation")
+    for action in ("check", "smoke"):
+        result = subprocess.run([sys.executable, str(target / "manage.py"), action], cwd=target.parent, capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError(f"Runtime copied privately but target {action} failed; do not clean source worktree or reinitialize the site")
+        print(f"PASS: target {action}")
+    print("PASS: runtime handoff verified from target; source retained; no credential text or digest logged")
+
+
 def read_env():
     if not ENV.is_file():
-        raise RuntimeError("Run init-env first; deploy/.env is missing")
+        raise RuntimeError("Local credentials missing; hand off existing runtime materials for an existing site, never regenerate its passwords")
     values = {}
     for line in ENV.read_text(encoding="utf-8").splitlines():
         if line.strip() and not line.lstrip().startswith("#"):
@@ -166,11 +237,20 @@ def main():
     parser = argparse.ArgumentParser(description="Isolated, loopback-only Frappe CRM sandbox")
     parser.add_argument(
         "action",
-        choices=("init-env", "build", "check", "pull", "create-site", "install-app", "up", "status", "stop", "smoke", "smoke-data"),
+        choices=("init-env", "build", "check", "pull", "create-site", "install-app", "up", "status", "stop", "smoke", "smoke-data", "handoff-runtime"),
     )
     parser.add_argument("--proxy", help="Authorized credential-free loopback build proxy")
+    parser.add_argument("--target-dir", help="Absolute target checkout deploy directory; handoff-runtime only")
+    parser.add_argument("--secure-runtime-dir", action="store_true", help="Explicitly restrict only an existing target .runtime directory ACL; no recursive ACL changes")
     args = parser.parse_args()
     action = args.action
+    if action == "handoff-runtime":
+        if not args.target_dir:
+            parser.error("handoff-runtime requires --target-dir")
+        handoff_runtime(args.target_dir, args.secure_runtime_dir)
+        return
+    if args.target_dir or args.secure_runtime_dir:
+        parser.error("handoff options are only valid with handoff-runtime")
     if action == "init-env":
         init_env()
         return

@@ -63,6 +63,9 @@
 - **最终烟测追加**：原站点install-app crm成功exit0；9长驻服务运行，DBhealthy、两Redis PONG，bench version已在运行容器再次核验。WSL与Windows真实pong/Administrator登录会话/CRM HTML+JS资产通过；合成REST/CSRF Lead `CRM-LEAD-2026-00001`写读、重复烟测复用同ID通过。D-003可接受为本地基座部署修复；D-002仍须业务/团队权限/恢复验证，不是完整MVP完成。详细前后site_config哈希、授权保活到期、一次探针越界及残留资源见deploy/README.md。
 - **D-002后续纠正**：前段“Framework待测/网络失败/唯一新增包”是早期时点记录；当前Framework15.125.0已测、标准skopeo代理下载成功，另经授权安装skopeo+依赖与Buildx（固定版本见README），未改系统服务/全局代理。新增8小时有限WSL保活是获批临时开发保障，生命周期根因未证实；非生产部署方案。
 
+- **独审R1交接修复**：唯一P2指出忽略运行材料仍绑定临时wt-3，原文档长期使用该路径的建议不成立。选择显式本机`handoff-runtime --target-dir`，目标必须先有合并后匹配的跟踪代码及忽略规则；私有`.runtime`存放两文件，原子不覆盖复制、保护ACL、源保留、正文/摘要不输出，自动目标check/smoke。采用专用私有目录而非收紧整个deploy/递归ACL，保持团队代码和WSL访问边界。预合并仅演练私有fixture；合并后主checkout实际交接、Windows/WSL验收及tower确认是清理wt-3前强制门槛，未执行前不得称迁移完成。不生成新密码/站点、不删源或改主checkout产品代码。实现和验证见deploy/README.md。
+- **R1修复验证追加**：最终工具在私有Git fixture真实复制后，目标Windows和第一Ubuntu的check/smoke均通过；目标Ubuntu status仍见原项目。重复调用不改字节/mtime，公共deploy ACL不变；冲突、未忽略/已跟踪、代码/路径异常、硬链接与正常/断裂junction、不安全目标ACL及父DeleteChild均拒绝。显式仅保护专用目录后WSL可读；Git CRLF代码和含空格路径亦真实通过，运行材料不转换。源保留、凭据正文/摘要未输出，无新增用户决策；实际主checkout交接仍未执行，须合并后按README门槛完成。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]

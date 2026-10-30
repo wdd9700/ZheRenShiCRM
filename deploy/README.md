@@ -44,7 +44,7 @@ python3 deploy/manage.py smoke-data # 显式写一条合成Lead，再读回；�
 
 `create-site`仅全新站点一次性使用，固定命名防止误重复。本轮已有Framework站点曾因官方镜像缺crm失败，恢复用`python3 deploy/manage.py install-app`，**不是再次create-site**。该命令也保留固定命名一次性容器；失败应先调查、不要盲目反复执行。
 
-访问 `http://127.0.0.1:8088/crm`，用户`Administrator`；密码仅在本机`deploy/.env`的`ADMIN_PASSWORD`安全查看，勿贴聊天。`smoke`校验pong、真实登录、会话身份、CRM HTML及JavaScript资产；`smoke-data`再通过登录会话/CSRF和标准REST写读合成Lead，不是业务/团队权限验收。
+访问 `http://127.0.0.1:8088/crm`，用户`Administrator`；凭据仅留本机，交接后位于私有`deploy/.runtime/.env`，旧部署兼容`deploy/.env`；不要打印或贴出密码正文。`smoke`校验pong、真实登录、会话身份、CRM HTML及JavaScript资产；`smoke-data`再通过登录会话/CSRF和标准REST写读合成Lead，不是业务/团队权限验收。
 
 ## 授权安装与下载恢复
 
@@ -89,7 +89,42 @@ docker load -i deploy/.runtime/crm-v1.90.0.oci.tar
 
 曾观察容器StartedAt随短WSL调用变化、RestartCount=0，Docker ActiveEnterTimestamp也更新；尚未证明是WSL空闲退出还是Docker生命周期变化。2026-10-31 03:42:40+08获tower批准启动仅第一发行版的有限保活：`wsl.exe -d Ubuntu-24.04 --exec /bin/sh -lc 'exec sleep 28800'`。任务`bash-8c1k70ne`、Windows PID65128、Ubuntu PID2262，预计**11:42:40+08到期**，非生产服务机制；到期后短WSL命令结束可能再次失去持续访问。未修改.wslconfig或服务。保活后03:42:48与03:44:51两次检查后端/前端/DB StartedAt均保持19:42:21Z、RestartCount0，Windows HTTP通过。
 
-开发时可保持第一Ubuntu终端活动并运行`python3 deploy/manage.py up`后烟测；勿重复启动保活进程，先检查已有PID。迁移到正式持续运行服务方式后才撤掉临时保活。合并代码不会搬运原工作树忽略的`.env`/image.env，后续任务应使用`P:/CRM/.tower/worktrees/wt-3/deploy/`的本地运行材料；不要复制秘密进Git。
+开发时可保持第一Ubuntu终端活动并运行`python3 deploy/manage.py up`后烟测；勿重复启动保活进程，先检查已有PID。迁移到正式持续运行服务方式后才撤掉临时保活。
+
+### 运行材料交接：合并后、清理工作树前的强制门槛
+
+Git合并不搬运忽略的运行材料。**后续正式运行入口是主checkout `P:/CRM/deploy`，不能长期依赖wt-3。以下实际交接必须在本修复合并后执行；预合并只允许在私有fixture演练，fixture成功不代表主checkout已交接。** 未完成全部门槛不得清理源工作树或继续把迁移标为完成。
+
+在本机Windows原生Python中，从保留的源部署目录显式执行（不通过WSL运行交接命令）：
+
+```powershell
+python P:\CRM\.tower\worktrees\wt-3\deploy\manage.py handoff-runtime --target-dir P:\CRM\deploy
+```
+
+- 只将现有凭据文件（优先源`.runtime/.env`，兼容旧`deploy/.env`）与`.runtime/image.env`按不透明字节复制到**目标`deploy/.runtime/.env`与`deploy/.runtime/image.env`**；不解析或输出正文，不输出摘要，不经网络，不生成新密码，不复制数据库/缓存/产品代码，不删除或修改源文件。
+- 目标必须是本地固定磁盘上的绝对`deploy`目录、位于Git根下；三个部署代码文件必须已跟踪且与源版本一致，因此必须先正常合并，工具不会预合并改主checkout。两份目标运行材料逐个验证Git忽略且未跟踪；拒绝链接/junction/reparse点、硬链接及异常路径。
+- PowerShell辅助脚本只创建专用私有`.runtime`目录和文件，DACL关闭继承，仅当前Windows SID、SYSTEM、Administrators可访问；**不修改跟踪的deploy目录或递归ACL**。检查父目录不能让其他主体删除/替换私有目录或夺取其权限；不满足则失败，不扩大权限绕过。
+- 已有安全且字节一致的目标材料保持原样，可重复交接；任一异值、不安全目标文件或旧目标`deploy/.env`均拒绝，不静默覆盖/合并/遮蔽。若只有已存在的空`.runtime`目录继承ACL不安全，可显式追加`--secure-runtime-dir`，仅收紧该目录自身、不递归或修改已有文件ACL；不是忽略文件冲突的开关。冲突需先由tower核实，不重新初始化、不自行删除文件。
+- 创建用带私有ACL的`CreateNew`及排他文件句柄，内部核对复制前后字节一致。失败可能留下受保护的部分目标；保留两端供调查，不自动删除或覆盖重试。
+- 复制后命令自动从**目标manage.py**运行Windows `check`及`smoke`，只报告步骤PASS/失败，不转发子进程正文。两步全通过才报告handoff成功。目标使用私有`.runtime/.env`，旧源`deploy/.env`仍兼容；不要手工另建一份凭据使入口混乱。
+
+合并后交接记录必须逐项写明（不含秘密、摘要或会话）：
+
+1. 合并后的目标代码版本、源/目标路径，以及上述handoff命令返回0、目标Windows `check`和`smoke`均PASS。若失败，停止交接，保留源；**对现有卷禁止`init-env`、`create-site`/`new-site`或重新生成密码**。
+2. 从目标主checkout执行以下第一Ubuntu只读验收，确认Windows私有ACL没有阻断WSL。不能用Everyone权限放宽来修复失败：
+
+   ```sh
+   MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 --exec /bin/sh -lc 'cd /mnt/p/CRM && python3 deploy/manage.py check && python3 deploy/manage.py smoke'
+   ```
+
+3. 从第一Ubuntu的目标checkout运行`python3 deploy/manage.py status`，核验仍为`crm-mvp-v15`及原镜像/命名卷、入口仍是`127.0.0.1:8088`；Windows默认Docker daemon不可达，不把Windows `status`当运行态入口。不重建站点、不重启服务来制造验收成功。确认两端文件保留、目标材料未被Git跟踪或提交。
+4. tower记录以上真实主checkout结果并明确后续任务改用`P:/CRM/deploy`；完成前源worktree必须保留，完成后是否清理仍按原删除授权流程决定，工具本身从不清理。
+
+本轮私有Git fixture已验证：真实复制后目标Windows与WSL `check/smoke`通过、目标Ubuntu `status`仍看到原项目；重复交接两文件字节/mtime不变，源字节与第一次安全副本相同且原时间戳保留，公共deploy目录ACL前后不变。异值、单一路径未忽略、已跟踪材料、代码不匹配、相同/相对目标、硬链接、正常及断裂junction、不安全已有文件/目录以及父DeleteChild权限均被拒绝；显式仅收紧`.runtime`后Windows/WSL仍可读。最终版本还在含空格路径、公开部署代码为Git CRLF checkout的目标真实交接成功，并通过目标Windows/WSL `check/smoke`：代码比较仅规范化LF/CRLF，实际运行材料始终保持原字节。脚本正文/摘要未输出。首次fixture最后误用Windows `status`未通过，改为实际Ubuntu运行入口后通过；另一次测试捕获Docker Unicode输出遇GBK解码，改验证器UTF-8捕获后通过，均未改服务或放宽ACL。
+
+验证材料保留在忽略的`deploy/.runtime/`下：`handoff-r1-20261031-040740/`、`handoff-r1-cases-20261031-041011/`、`handoff-r1-final-20261031-041606/`以及最终CRLF/空格路径目标`handoff-r1-crlf-20261031-041736/checkout with spaces/deploy/`。成功副本均使用私有ACL，不提交、不作为正式入口。
+
+**实际主checkout交接和上述四项验收仍是合并后必做、尚未执行的交付门槛。** fixture成功不代表实际迁移已完成，不得据此清理wt-3。
 
 ## 后续业务任务的只读入口
 
