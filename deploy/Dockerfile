@@ -19,6 +19,20 @@ RUN env/bin/pip install --no-deps --no-build-isolation -e apps/resource_import &
     env/bin/python -c "import resource_import; print(resource_import.__version__)" && \
     printf 'frappe\ncrm\nresource_import\n' > sites/apps.txt
 
+COPY --chown=frappe:frappe apps/team_access apps/team_access
+RUN env/bin/pip install --no-deps -e apps/team_access && \
+    printf 'frappe\ncrm\nresource_import\nteam_access\n' > sites/apps.txt
+RUN --network=none bench build --app team_access && \
+    cp -a sites/assets/. assets/ && \
+    env/bin/python -c "import crm, resource_import, team_access; print(crm.__version__, resource_import.__version__, team_access.__version__)" && \
+    test -s apps/team_access/team_access/public/access.js && \
+    test -s apps/team_access/team_access/public/page.js && \
+    bench version
+
+ARG RESOURCE_IMPORT_REVISION=working-tree
+ARG TEAM_ACCESS_REVISION=working-tree
 LABEL org.opencontainers.image.source="https://github.com/frappe/crm" \
       org.opencontainers.image.revision="36bd8859f2a6345a620477bc708d0546e8c3f08a" \
-      org.opencontainers.image.version="1.90.0-resource-import-0.1.0"
+      org.opencontainers.image.version="1.90.0-team-access-0.1.0" \
+      crm.resource-import.revision="${RESOURCE_IMPORT_REVISION}" \
+      crm.team-access.revision="${TEAM_ACCESS_REVISION}"
