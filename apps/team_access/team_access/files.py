@@ -1,59 +1,48 @@
 import frappe
 from frappe.core.doctype.file.file import File
 
-from team_access.permissions import PRIVATE_TYPES, can_reference, deny, get_record
-
-
-def private_root(doctype, name):
-    seen = set()
-    while doctype and name and (doctype, str(name)) not in seen and len(seen) < 12:
-        if doctype in PRIVATE_TYPES:
-            return doctype, name
-        if doctype not in ("Comment", "Communication"):
-            return None
-        seen.add((doctype, str(name)))
-        parent = get_record(doctype, name)
-        if not parent:
-            return None
-        doctype, name = parent.get("reference_doctype"), parent.get("reference_name")
-    return None
+from team_access.permissions import can_reference, deny, get_record
 
 
 def private_target(doctype, name):
-    return bool(private_root(doctype, name))
+    from team_access.references import private_roots
+
+    return bool(private_roots(doctype, name))
 
 
 def activity_roots(doc):
     from team_access.permissions import MAX_ROWS
+    from team_access.references import private_roots
 
-    roots = set()
-    root = private_root(doc.get("attached_to_doctype"), doc.get("attached_to_name"))
-    if root:
-        roots.add(root)
+    roots = private_roots(doc.get("attached_to_doctype"), doc.get("attached_to_name"))
     if doc.get("file_url"):
         aliases = frappe.get_all("File", filters={"file_url": doc.file_url}, fields=["attached_to_doctype", "attached_to_name"], limit_page_length=MAX_ROWS + 1)
         if len(aliases) > MAX_ROWS:
             deny()
         for alias in aliases:
-            root = private_root(alias.attached_to_doctype, alias.attached_to_name)
-            if root:
-                roots.add(root)
+            roots.update(private_roots(alias.attached_to_doctype, alias.attached_to_name))
     return roots
 
 
 def validate_attachment(doc):
-    root = private_root(doc.get("attached_to_doctype"), doc.get("attached_to_name"))
-    if any(source != root for source in activity_roots(doc)):
-        raise frappe.PermissionError("Private activity file URLs cannot be reused outside their original activity")
+    from team_access.permissions import can_contribute
+    from team_access.references import private_roots
+
+    roots = private_roots(doc.get("attached_to_doctype"), doc.get("attached_to_name"))
+    if activity_roots(doc) != roots:
+        raise frappe.PermissionError("Private activity file URLs cannot be reused outside their original activities")
     old = get_record("File", doc.get("name"))
-    old_root = private_root(old.get("attached_to_doctype"), old.get("attached_to_name")) if old else None
-    if old_root and old_root != root:
+    old_roots = private_roots(old.get("attached_to_doctype"), old.get("attached_to_name")) if old else set()
+    if old_roots and (old_roots != roots or any(old.get(key) != doc.get(key) for key in ("attached_to_doctype", "attached_to_name", "file_url"))):
         raise frappe.PermissionError("Private activity attachments cannot be detached or reparented through the document API")
-    if not root:
+    if not roots:
         return
-    target = get_record(*root)
-    if not old and target and target.get("custom_team_visibility") == "Shared":
-        raise frappe.PermissionError("Shared text-only activities do not accept attachments; use a separate Private record")
+    for root in roots:
+        target = get_record(*root)
+        if not old and target.get("custom_team_visibility") == "Shared":
+            raise frappe.PermissionError("Shared text-only activities do not accept attachments; use a separate Private record")
+        if frappe.session.user != "Administrator" and not can_contribute(*root, frappe.session.user):
+            deny()
     url = str(doc.get("file_url") or "")
     if str(doc.get("is_private")) not in ("1", "True") or (url and not url.startswith("/private/files/")):
         raise frappe.PermissionError("Private activity attachments must use local private storage")
@@ -62,6 +51,10 @@ def validate_attachment(doc):
 
 
 class ActivityFile(File):
+    def notify_update(self):
+        if not activity_roots(self):
+            return super().notify_update()
+
     def before_insert(self):
         validate_attachment(self)
         super().before_insert()

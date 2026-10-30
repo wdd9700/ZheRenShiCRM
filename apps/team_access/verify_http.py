@@ -184,6 +184,69 @@ def prepare_history(a, maintenance, f):
     f["history"], f["history_communications"] = history, communications
 
 
+def prepare_legacy(a, b, maintenance, f):
+    require(f.get("legacy_shares") and not f.get("legacy_graph") and f["prefix"].startswith("M8-"), "fresh pre-install legacy graph fixture required")
+    graph = {"todos": {}}
+    for key, dt in (("note", "FCRM Note"), ("task", "CRM Task")):
+        target = success(a.resource(dt, f[key]), "legacy target owner read")
+        require(target["owner"] == a.user and target["title"].startswith(f["prefix"]) and "custom_team_visibility" not in target, "legacy-prepare requires pre-install M8 activities; never bypass installed guards")
+        marker = f["prefix"] + "-LEGACY-TODO-" + key
+        todo = create(maintenance, "ToDo", {"owner": a.user, "allocated_to": b.user, "assigned_by": a.user, "reference_type": dt, "reference_name": f[key], "description": marker, "status": "Open"})
+        graph["todos"][key] = {"name": todo["name"], "marker": marker}
+        values = {"title": f["prefix"] + "-FILE-" + key, "content" if dt == "FCRM Note" else "description": f["prefix"] + "-FILE-ROOT-" + key, "reference_doctype": "CRM Lead", "reference_docname": f["shared_parent"]}
+        if dt == "CRM Task":
+            values.update(status="Todo", priority="Medium")
+        root = create(a, dt, values)
+        graph[key] = root["name"]
+    marker = f["prefix"] + "-TIMELINE-ONLY-MULTI-ROOT"
+    linked = create(maintenance, "Communication", {"communication_type": "Communication", "communication_medium": "Other", "subject": marker, "content": marker, "reference_doctype": "CRM Lead", "reference_name": f["shared_parent"], "timeline_links": [{"link_doctype": "FCRM Note", "link_name": graph["note"]}, {"link_doctype": "CRM Task", "link_name": graph["task"]}]})
+    graph["communication"] = {"name": linked["name"], "marker": marker}
+    file_marker = f["prefix"] + "-LEGACY-PRIVATE-BYTES"
+    original = create(a, "File", {"file_name": f["prefix"] + "-private-original.txt", "content": base64.b64encode(file_marker.encode()).decode(), "decode": 1, "is_private": 1, "attached_to_doctype": "Communication", "attached_to_name": linked["name"]})
+    alias = create(b, "File", {"file_name": f["prefix"] + "-private-alias.txt", "file_url": original["file_url"], "is_private": 1, "attached_to_doctype": "CRM Lead", "attached_to_name": f["shared_parent"]})
+    require(alias["owner"] == b.user and alias["file_url"] == original["file_url"], "legacy foreign-owner same-URL alias prepared")
+    graph["file"] = {key: original[key] for key in ("name", "file_name", "file_url")}
+    graph["alias"] = {key: alias[key] for key in ("name", "file_name", "file_url")}
+    graph["file_marker"] = file_marker
+    require(file_marker.encode() in success_bytes(b.request("GET", original["file_url"]), "pre-install alias byte reproduction"), "legacy alias baseline reproduces before extension")
+    ordinary = create(a, "File", {"file_name": f["prefix"] + "-ordinary-parent.txt", "content": f["prefix"] + "-FORMAL-FILE", "is_private": 1, "attached_to_doctype": "CRM Lead", "attached_to_name": f["shared_parent"]})
+    graph["ordinary_file"] = {key: ordinary[key] for key in ("name", "file_name", "file_url")}
+    f["legacy_graph"] = graph
+
+
+def verify_legacy(a, b, f):
+    graph = f.get("legacy_graph")
+    require(graph and set(graph.get("todos", {})) == {"note", "task"}, "pre-install legacy-prepare is required for old ToDo and foreign-owner URL alias")
+    for key, dt in (("note", "FCRM Note"), ("task", "CRM Task")):
+        root = success(a.resource(dt, graph[key]), "legacy attachment root owner read")
+        require(root["owner"] == a.user and root["title"].startswith(f["prefix"]), "refuse mutation of non-M8 attachment roots")
+    hidden = [graph["communication"]["name"], graph["communication"]["marker"], graph["file_marker"]]
+    for key in ("file", "alias"):
+        hidden.extend(graph[key].values())
+        denied(b.resource("File", graph[key]["name"]), "old alias metadata cannot bypass canonical roots")
+        clean(b.resource("File", params={"fields": ["name", "file_name", "file_url"], "filters": {"name": graph[key]["name"]}}), hidden, "old alias File list")
+    denied(b.request("GET", graph["file"]["file_url"]), "old foreign-owner alias cannot expose private bytes")
+    require(graph["file_marker"].encode() in success_bytes(a.request("GET", graph["file"]["file_url"]), "owner private bytes"), "owner attachment positive")
+    gallery = {"dt": "CRM Lead", "dn": f["shared_parent"], "filters": [["File", "name", "in", [graph["alias"]["name"], graph["ordinary_file"]["name"]]]]}
+    clean(b.rpc("frappe.desk.form.load.get_filtered_attachments", gallery), hidden, "dt/dn Attachment Gallery hides old URL alias metadata")
+    require(graph["ordinary_file"]["file_name"].encode() in success_bytes(b.rpc("frappe.desk.form.load.get_filtered_attachments", gallery), "ordinary parent gallery"), "ordinary parent attachment remains visible")
+    for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo", "frappe.desk.form.load.get_communications"):
+        clean(b.rpc(method, {"doctype": "CRM Lead", "name": f["shared_parent"]}), hidden, "parent native response hides timeline-only multi-root Communication and alias")
+    success(update(a, "FCRM Note", graph["note"], {"custom_team_collaborator": b.user}), "grant only first attachment root")
+    denied(b.request("GET", graph["file"]["file_url"]), "one of two activity roots cannot grant bytes")
+    success(update(a, "CRM Task", graph["task"], {"assigned_to": b.user}), "grant second attachment root")
+    require(graph["file_marker"].encode() in success_bytes(b.request("GET", graph["file"]["file_url"]), "all roots grant private bytes"), "all-root collaborator attachment positive")
+    success(update(a, "CRM Task", graph["task"], {"assigned_to": ""}), "revoke second attachment root")
+    denied(b.request("GET", graph["file"]["file_url"]), "same-session multi-root revocation")
+    success(update(a, "FCRM Note", graph["note"], {"custom_team_collaborator": ""}), "restore attachment root privacy")
+    for key, dt in (("note", "FCRM Note"), ("task", "CRM Task")):
+        todo = graph["todos"][key]
+        denied(b.resource("ToDo", todo["name"]), "legacy allocated_to cannot read private historical assignment")
+        clean(b.resource("ToDo", params={"fields": ["name", "description"], "filters": {"name": todo["name"]}}), [todo["name"], todo["marker"]], "legacy ToDo list")
+        require(todo["marker"].encode() in success_bytes(a.resource("ToDo", todo["name"]), "current writer ToDo positive"), "owner sees historical assignment")
+    print("PASS old foreign-owner same-URL alias metadata/bytes/gallery; timeline-only multi-root intersection and revoke; legacy ToDo detail/list negatives and owner positives")
+
+
 def communication(session, doctype, name, content):
     return session.rpc("frappe.core.doctype.communication.email.make", {"doctype": doctype, "name": name, "content": content, "subject": content, "communication_type": "Communication", "communication_medium": "Other", "send_email": 0}, True)
 
@@ -208,12 +271,26 @@ def verify_history(a, b, f):
                 require(any(row.get("name") == history[bucket]["name"] and history[bucket]["marker"] in row.get("content", "") for row in info.get(bucket, [])), "owner sees each native history bucket")
         require(linked["marker"].encode() in success_bytes(a.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), "owner linked Communication aggregate"), "owner sees linked private Communication")
         clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), forbidden, "private Communication cannot leak through parent timeline link")
+        todo = f["legacy_graph"]["todos"][key]
+        forbidden.extend((todo["name"], todo["marker"]))
+        for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo", "frappe.desk.form.load.get_communications"):
+            args = {"doctype": "CRM Lead", "name": f["shared_parent"]}
+            clean(b.rpc(method, args), forbidden, "Private history hidden from native parent docinfo and communications")
+            require(linked["marker"].encode() in success_bytes(a.rpc(method, args), "owner parent linked history"), "parent native owner history positive")
         current = f["prefix"] + "-SHARED-CURRENT-" + key
         body_field = "content" if dt == "FCRM Note" else "description"
         success(update(a, dt, f[key], {body_field: current, "custom_team_visibility": "Shared"}), "publish synthetic current text for history checks")
         require(current.encode() in success_bytes(b.resource(dt, f[key]), "shared current text"), "shared current text remains visible")
         for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo"):
             clean(b.rpc(method, {"doctype": dt, "name": f[key]}), forbidden, "Shared reader sees no historical Comment bucket or Communication")
+        for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo", "frappe.desk.form.load.get_communications"):
+            clean(b.rpc(method, {"doctype": "CRM Lead", "name": f["shared_parent"]}), forbidden, "Shared history stays private through native parent responses")
+        denied(b.resource("ToDo", todo["name"]), "Shared-only legacy allocated_to cannot read historical description")
+        clean(b.rpc("crm.api.doc.get_assigned_users", {"doctype": dt, "name": f[key]}), [b.user], "Shared-only assignment users hidden")
+        for user_session in (a, b):
+            denied(user_session.rpc("frappe.realtime.can_subscribe_doc", {"doctype": dt, "docname": f[key]}), "private activity socket subscription disabled even for owner")
+        success(b.rpc("frappe.realtime.can_subscribe_doc", {"doctype": "CRM Lead", "docname": f["shared_parent"]}), "ordinary parent subscription remains allowed")
+        denied(b.rpc("frappe.client.get_value", {"doctype": dt, "filters": f[key], "fieldname": "_comments"}), "raw historical comment cache cannot be selected")
         clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), forbidden, "Shared current text does not publish linked private Communication")
         formal_marker = f["prefix"] + "-FORMAL-COMM-" + key
         success(communication(a, "CRM Lead", f["shared_parent"], formal_marker), "ordinary formal Communication allowed")
@@ -268,6 +345,7 @@ def verify(a, b, f):
     denied(b.rpc("crm.api.activities.get_activities", {"name": f["private_parent"]}), "private parent activities")
     clean(b.rpc("frappe.desk.search.search_link", {"doctype": "FCRM Note", "txt": f["prefix"]}), hidden, "link candidates")
     print("PASS private REST/native/list/count/search/CSV/activities in two real sessions")
+    verify_legacy(a, b, f)
     verify_history(a, b, f)
 
     public = f["prefix"] + "-PUBLIC-CURRENT"
@@ -319,7 +397,7 @@ def verify(a, b, f):
     print("PASS comments/mentions/notifications/private attachment download and mutation checks")
     require(f.get("legacy_shares"), "legacy DocShare OR negative was not prepared; do not label full boundary acceptance")
     print("PASS legacy DocShare OR rows did not bypass any tested boundary")
-    print("MANUAL REQUIRED: native CRM editors, sharing UI, CSP, PWA cache, Call Log/integration routes, converted Lead/Deal communication timeline, automatic Email links, direct Version detail and exports, upload variants, and restart cache invalidation; this script is not complete UI acceptance.")
+    print("MANUAL REQUIRED: native CRM editors/sharing/CSP/PWA, Call/integration, converted Lead/Deal and automatic Email links, Version details/exports, upload variants, real socket revoke/open/close after full restart, Deleted Document private snapshot detail/list/export/single+bulk restore (including maintenance-role/admin application denial and formal-parent positive), and restart cache invalidation; not complete UI acceptance.")
 
 
 def success_bytes(response, label):
@@ -328,18 +406,19 @@ def success_bytes(response, label):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Two real Sales Users verify access; history-prepare uses an existing authorized maintenance account only for synthetic Comment setup. No Administrator login or ORM.")
-    parser.add_argument("mode", choices=("prepare", "history-prepare", "verify"))
+    parser = argparse.ArgumentParser(description="Two real Sales Users verify access; preparation uses an existing authorized maintenance account for synthetic history only. No Administrator login or ORM.")
+    parser.add_argument("mode", choices=("prepare", "history-prepare", "legacy-prepare", "verify"))
     parser.add_argument("--base-url", default="http://127.0.0.1:8088")
     parser.add_argument("--site", default="crm.localhost")
     parser.add_argument("--user-a", required=True)
     parser.add_argument("--user-b", required=True)
-    parser.add_argument("--history-user", help="existing non-Administrator System Manager; history-prepare only")
+    parser.add_argument("--history-user", help="existing non-Administrator System Manager; history-prepare/legacy-prepare only")
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument("--legacy-shares", action="store_true", help="prepare before extension installation to exercise pre-existing DocShare OR rows")
     args = parser.parse_args()
     require(args.user_a != args.user_b and "Administrator" not in (args.user_a, args.user_b), "two different Sales Users required")
-    if args.mode == "history-prepare":
+    preparing_history = args.mode in ("history-prepare", "legacy-prepare")
+    if preparing_history:
         require(bool(args.history_user) and args.history_user not in ("Administrator", args.user_a, args.user_b), "separate existing maintenance account required")
     parsed = urllib.parse.urlsplit(args.base_url)
     require(parsed.scheme in ("http", "https") and not parsed.username and not parsed.password, "no credentials in URL")
@@ -356,14 +435,17 @@ def main():
     else:
         fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
         require(fixture["user_a"] == a.user and fixture["user_b"] == b.user, "fixture session identities")
-        if args.mode == "history-prepare":
+        if preparing_history:
             password = os.environ.get("TEAM_ACCESS_PASSWORD_HISTORY") or getpass.getpass("Existing history maintenance account password: ")
             maintenance = Session(args.base_url, args.site, args.history_user, password, purpose="history")
             del password
-            prepare_history(a, maintenance, fixture)
+            if args.mode == "history-prepare":
+                prepare_history(a, maintenance, fixture)
+            else:
+                prepare_legacy(a, b, maintenance, fixture)
             with args.fixture.open("w", encoding="utf-8") as stream:
                 json.dump(fixture, stream)
-            print("PASS four independent Comment history buckets prepared through authorized HTTP; no roles or accounts changed")
+            print("PASS synthetic history preparation through authorized HTTP; no roles or accounts changed")
         else:
             verify(a, b, fixture)
 

@@ -7,12 +7,25 @@ ACL_FIELDS = ("owner", "reference_doctype", "reference_docname", "custom_team_vi
 
 def validate(doc, method=None):
     user = frappe.session.user
+    if doc.doctype == "Deleted Document":
+        from team_access.deleted import permitted_snapshot
+
+        if not permitted_snapshot(doc, user):
+            deny()
     if user == "Administrator" or frappe.flags.in_install or frappe.flags.in_migrate:
         return
     if doc.doctype == "DocShare" and doc.get("share_doctype") in PROTECTED:
         deny()
     if doc.doctype not in PROTECTED:
         return
+    from team_access.references import GRAPH_TYPES, history_permitted, private_roots
+
+    old = get_record(doc.doctype, doc.get("name"))
+    if doc.doctype in GRAPH_TYPES:
+        if not history_permitted(doc, user):
+            deny()
+        if old and (not history_permitted(old, user) or private_roots(doc=old) != private_roots(doc=doc)):
+            deny()
     if doc.doctype in PRIVATE_TYPES:
         validate_private(doc, user)
     elif doc.doctype in ("CRM Notification", "Notification Log"):
@@ -43,8 +56,11 @@ def validate(doc, method=None):
             deny()
     elif doc.doctype == "ToDo" and doc.get("reference_type") in PRIVATE_TYPES:
         target = get_record(doc.reference_type, doc.get("reference_name"))
-        if not target or target.owner != user or not permitted(target, doc.get("allocated_to")):
+        if not target or target.owner != user:
             deny()
+        if not old or any(old.get(key) != doc.get(key) for key in ("allocated_to", "description")):
+            if not can_contribute(target.doctype, target.name, doc.get("allocated_to")):
+                deny()
     elif doc.doctype == "CRM Call Log":
         if not permitted(doc, user, "write"):
             deny()
@@ -77,11 +93,11 @@ def validate_private(doc, user):
         raise frappe.ValidationError("Shared activities require a readable CRM Lead or CRM Deal")
     doc.custom_team_visibility = visibility
     if visibility == "Shared":
-        from team_access.files import private_root
+        from team_access.references import private_roots
         from team_access.permissions import MAX_ROWS
 
         files = frappe.get_all("File", fields=["attached_to_doctype", "attached_to_name"], limit_page_length=MAX_ROWS + 1)
-        attached = any(private_root(file.attached_to_doctype, file.attached_to_name) == (doc.doctype, doc.name) for file in files)
+        attached = any((doc.doctype, str(doc.name)) in private_roots(file.attached_to_doctype, file.attached_to_name) for file in files)
         content = (doc.get("content") or "") + (doc.get("description") or "")
         if len(files) > MAX_ROWS or attached or "/private/files/" in content:
             raise frappe.ValidationError("Shared publishes current text only; remove private attachment references or keep this activity Private")
@@ -93,5 +109,5 @@ def validate_private(doc, user):
 
 
 def on_trash(doc, method=None):
-    if doc.doctype in PROTECTED and frappe.session.user != "Administrator" and not permitted(doc, ptype="delete"):
+    if doc.doctype in PROTECTED and (frappe.session.user != "Administrator" or doc.doctype == "Deleted Document") and not permitted(doc, ptype="delete"):
         deny()

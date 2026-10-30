@@ -1,7 +1,7 @@
 (() => {
   if (window.teamActivityAccessLoaded) return
   window.teamActivityAccessLoaded = true
-  const message = '正式共享沟通：Comment 将向父记录读者发布。私人内容请使用 Private Note；Private 仍允许明确协作者及任务受派人读写。'
+  const message = '正式共享沟通：Comment 将向父记录读者发布。私人内容请使用 Private Note；Private 仍允许明确协作者及任务受派人读写。Note/Task及私域历史/附件无实时刷新或查看者名单，保存或撤权后请手动刷新；原生历史缓存计数可能不可用。'
   function annotate() {
     for (const editor of document.querySelectorAll('[contenteditable="true"], textarea')) {
       if (editor.closest('#team-activities') || editor.dataset.teamAccessNotice) continue

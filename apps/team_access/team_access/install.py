@@ -11,11 +11,12 @@ def preflight():
     if frappe.__version__ != "15.125.0" or crm.__version__ != "1.90.0":
         frappe.throw("Team Access 0.1 requires Frappe 15.125.0 and CRM 1.90.0; audit before upgrading.")
     from team_access.files import private_target
-    from team_access.hooks import override_whitelisted_methods
+    from team_access.hooks import override_doctype_class, override_whitelisted_methods
 
-    file_overrides = frappe.get_hooks("override_doctype_class", {}).get("File", [])
-    if any(value != "team_access.files.ActivityFile" for value in file_overrides):
-        frappe.throw("A conflicting File controller override requires security review before installing Team Access.")
+    controllers = frappe.get_hooks("override_doctype_class", {})
+    for doctype, replacement in override_doctype_class.items():
+        if any(value != replacement for value in controllers.get(doctype, [])):
+            frappe.throw("A conflicting activity controller override requires security review before installing Team Access.")
     existing_overrides = frappe.get_hooks("override_whitelisted_methods", {})
     for method, replacement in override_whitelisted_methods.items():
         if any(value != replacement for value in existing_overrides.get(method, [])):

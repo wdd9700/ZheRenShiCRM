@@ -22,11 +22,28 @@ doc_events = {
     "Communication": {"validate": "team_access.events.validate"},
 }
 
-override_doctype_class = {"File": "team_access.files.ActivityFile"}
+override_doctype_class = {
+    "File": "team_access.files.ActivityFile",
+    "FCRM Note": "team_access.realtime.ActivityNote",
+    "CRM Task": "team_access.realtime.ActivityTask",
+    "Comment": "team_access.realtime.ActivityComment",
+    "Communication": "team_access.realtime.ActivityCommunication",
+    "ToDo": "team_access.realtime.ActivityToDo",
+    "Version": "team_access.realtime.ActivityVersion",
+    "CRM Notification": "team_access.realtime.ActivityNotification",
+    "Notification Log": "team_access.realtime.ActivityNotificationLog",
+    "CRM Call Log": "team_access.realtime.ActivityCall",
+}
 
 override_whitelisted_methods = {
+    "frappe.realtime.can_subscribe_doc": "team_access.realtime.can_subscribe_doc",
+    "frappe.core.doctype.deleted_document.deleted_document.restore": "team_access.deleted.restore",
+    "frappe.core.doctype.deleted_document.deleted_document.bulk_restore": "team_access.deleted.bulk_restore",
     "frappe.desk.form.load.getdoc": "team_access.docinfo.getdoc",
     "frappe.desk.form.load.get_docinfo": "team_access.docinfo.get_docinfo",
+    "frappe.desk.form.load.get_filtered_attachments": "team_access.docinfo.get_filtered_attachments",
+    "frappe.desk.form.load.get_communications": "team_access.docinfo.get_communications",
+    "crm.api.doc.get_assigned_users": "team_access.docinfo.get_assigned_users",
     "crm.api.activities.get_activities": "team_access.api.get_activities",
     "crm.api.doc.get_data": "team_access.api.get_data",
     "crm.api.doc.get_linked_docs_of_document": "team_access.api.get_linked_docs",

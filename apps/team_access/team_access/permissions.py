@@ -4,7 +4,7 @@ PRIVATE_TYPES = ("FCRM Note", "CRM Task")
 PARENTS = ("CRM Lead", "CRM Deal")
 PROTECTED = PRIVATE_TYPES + (
     "CRM Call Log", "Comment", "Communication", "File", "Version",
-    "CRM Notification", "Notification Log", "ToDo", "Dynamic Link",
+    "CRM Notification", "Notification Log", "ToDo", "Dynamic Link", "Deleted Document",
 )
 MAX_ROWS = 2000
 READ_TYPES = (None, "read", "select", "print", "email", "export", "report")
@@ -45,7 +45,9 @@ def can_contribute(doctype, name, user, seen=()):
 
 
 def private_links_permitted(doc, user, seen=()):
-    return all(can_contribute(link.get("link_doctype"), link.get("link_name"), user, seen) for link in doc.get("timeline_links", []) if link.get("link_doctype") in PRIVATE_TYPES)
+    from team_access.references import history_permitted
+
+    return history_permitted(doc, user, seen)
 
 
 def parent_readable(doc, user, seen=()):
@@ -57,6 +59,10 @@ def parent_readable(doc, user, seen=()):
 
 def permitted(doc, user=None, ptype="read", seen=()):
     user = user or frappe.session.user
+    if doc.doctype == "Deleted Document":
+        from team_access.deleted import permitted_snapshot
+
+        return bool(user and user != "Guest" and permitted_snapshot(doc, user))
     if user == "Administrator":
         return True
     if not user or user == "Guest":
@@ -67,7 +73,9 @@ def permitted(doc, user=None, ptype="read", seen=()):
         return False
     seen = (*seen, key)
     reading = ptype in READ_TYPES
-    if dt == "Communication" and not private_links_permitted(doc, user, seen):
+    from team_access.references import GRAPH_TYPES, history_permitted
+
+    if dt in GRAPH_TYPES and not history_permitted(doc, user, seen):
         return False
     if dt in PRIVATE_TYPES:
         if not parent_readable(doc, user, seen):
@@ -96,8 +104,7 @@ def permitted(doc, user=None, ptype="read", seen=()):
 
         dt_ref, name = doc.get("attached_to_doctype"), doc.get("attached_to_name")
         for root in activity_roots(doc):
-            target = get_record(*root)
-            if not target or not permitted(target, user, "write", seen):
+            if not can_contribute(*root, user, seen):
                 return False
         if dt_ref or name:
             return can_reference(dt_ref, name, user, seen) and (reading or user == doc.get("owner"))
@@ -134,7 +141,7 @@ def permitted(doc, user=None, ptype="read", seen=()):
 
 
 def has_permission(doc, ptype=None, user=None, **kwargs):
-    if doc.doctype not in PROTECTED or (user or frappe.session.user) == "Administrator":
+    if doc.doctype not in PROTECTED or ((user or frappe.session.user) == "Administrator" and doc.doctype != "Deleted Document"):
         return None
     if ptype == "create":
         if doc.doctype in PRIVATE_TYPES and not parent_readable(doc, user or frappe.session.user):
@@ -158,7 +165,7 @@ def allowed_names(doctype, user=None):
 
 
 def query_condition(user=None, doctype=None):
-    if doctype not in PROTECTED or (user or frappe.session.user) == "Administrator":
+    if doctype not in PROTECTED or ((user or frappe.session.user) == "Administrator" and doctype != "Deleted Document"):
         return ""
     names = allowed_names(doctype, user)
     if not names:

@@ -21,8 +21,6 @@ FILTER_METHODS = {
 
 
 def guard():
-    if frappe.session.user == "Administrator":
-        return
     request = frappe.local.request
     parts = [unquote(p) for p in request.path.strip("/").split("/")]
     args = frappe.form_dict
@@ -31,7 +29,21 @@ def guard():
         parts = []
     if not method and "method" in parts and parts[0] == "api":
         method = parts[parts.index("method") + 1] if len(parts) > parts.index("method") + 1 else method
-    doctype = args.get("doctype")
+    doctype = args.get("doctype") or args.get("dt") or args.get("reference_doctype")
+    from team_access.deleted import METHODS as snapshot_methods
+
+    payload = args.get("doc") or args.get("docs") or args.get("document")
+    values = payload if isinstance(payload, dict) else {}
+    if isinstance(payload, str) and payload.lstrip().startswith(("{", "[")):
+        values = frappe.parse_json(payload)
+    if method in snapshot_methods or (isinstance(values, dict) and values.get("doctype") == "Deleted Document"):
+        doctype = "Deleted Document"
+    if frappe.session.user == "Administrator" and doctype != "Deleted Document" and "Deleted Document" not in parts:
+        return
+    if method in ("run_doc_method", "runserverobj", "frappe.handler.run_doc_method", "frappe.handler.runserverobj", "frappe.api.v2.run_doc_method") or parts[:4] == ["api", "v2", "method", "run_doc_method"]:
+        values = frappe.parse_json(args.get("docs") or args.get("document")) if args.get("docs") or args.get("document") else {}
+        if doctype in PROTECTED or (isinstance(values, dict) and values.get("doctype") in PROTECTED):
+            deny()
     if not args.get("cmd") and parts[:3] == ["api", "v2", "method"] and len(parts) >= 5:
         doctype = parts[3]
         if doctype in PROTECTED:
@@ -54,7 +66,7 @@ def guard():
                 deny()
         if (doctype in PROTECTED or parent in PROTECTED) and parent and parent != doctype:
             deny()
-    target_name = args.get("name") or args.get("docname")
+    target_name = args.get("name") or args.get("docname") or args.get("dn") or args.get("reference_name")
     if parts[:2] == ["api", "resource"] or parts[:3] == ["api", "v1", "resource"]:
         offset = 2 if parts[1] == "resource" else 3
         if len(parts) > offset:
@@ -75,10 +87,16 @@ def guard():
         doctype = "FCRM Note"
     if method in ("frappe.desk.form.utils.update_comment", "frappe.desk.form.utils.delete_comment"):
         doctype = "Comment"
+    from team_access.permissions import PARENTS
+    from team_access.responses import reject_raw_fields
+
+    if doctype in (*PROTECTED, *PARENTS):
+        frappe.local.team_access_doctype = doctype
+        reject_raw_fields(args)
     if method == "upload_file" or (method and method.endswith(".upload_file")):
         from team_access.files import private_target
 
-        if private_target(doctype, args.get("docname")):
+        if private_target(doctype, target_name):
             if str(args.get("is_private", "0")) != "1" or args.get("file_url") or args.get("method"):
                 raise frappe.PermissionError("Activity attachments require a direct private upload")
     safe_methods = {
@@ -86,7 +104,9 @@ def guard():
         "frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo", "frappe.desk.form.load.getdoctype",
         "frappe.desk.form.linked_with.get", "frappe.desk.notifications.get_open_count",
         "frappe.desk.form.utils.update_comment", "frappe.desk.form.utils.delete_comment", "upload_file",
-        "frappe.core.doctype.communication.email.make",
+        "frappe.core.doctype.communication.email.make", "crm.api.comment.add_comment", "frappe.desk.form.utils.add_comment",
+        "frappe.desk.form.load.get_filtered_attachments", "frappe.desk.form.load.get_communications",
+        "frappe.realtime.can_subscribe_doc",
         "crm.fcrm.doctype.fcrm_note.fcrm_note.set_pinned", "crm.api.doc.get_data",
         "crm.api.doc.get_linked_docs_of_document", "crm.api.doc.add_seen", "crm.api.doc.get_assigned_users",
         "crm.api.doc.get_quick_filters", "crm.api.doc.get_fields", "crm.api.doc.get_filterable_fields",
@@ -94,6 +114,7 @@ def guard():
         "crm.fcrm.doctype.crm_fields_layout.crm_fields_layout.get_fields_layout",
         "crm.fcrm.doctype.crm_fields_layout.crm_fields_layout.get_sidepanel_sections",
     }
+    safe_methods.update(snapshot_methods)
     if doctype in PROTECTED and method and not field and method not in safe_methods:
         if not method.startswith(("team_access.api.", "frappe.desk.form.assign_to.")):
             raise frappe.PermissionError("This activity endpoint has not been reviewed; use the activity access page")
@@ -150,6 +171,9 @@ def guard():
 def after_request(response=None):
     if not response:
         return
+    from team_access.responses import sanitize_response
+
+    sanitize_response(response)
     path = frappe.local.request.path
     if path == "/crm" or path.startswith("/crm/"):
         if response.mimetype == "text/html" and response.status_code == 200:
