@@ -1,7 +1,11 @@
-"""M5 六列企业资源 CSV 的**合成数据**预览→确认适配器（参考实现，非生产入口）。
+"""M5 六列企业资源 CSV 的**历史合成验证**适配器（参考实现，非生产入口）。
 
-用途：验证导入语义与幂等思路，已被 M7 的网页导入取代。**只允许合成数据**：
-企业名不以 `M5` 开头或姓名不以 `样例` 开头的输入会被直接拒绝（`m5_guard.py`，无旁路开关）。
+用途：验证导入语义与幂等思路，已被 M7 的网页导入取代。写入闸门（`m5_guard.py`，无旁路开关）：
+
+1. 文件内容必须与仓库固定合成样例**完全一致**（可信 SHA-256 清单，不接受调用方自报摘要）；
+2. 行级：企业名须以 `M5` 开头、姓名须以 `样例` 开头。
+
+任何改动的联系方式/产品/需求/来源都会改变摘要而被拒绝；`preview` 同样受限并明确标注"不是真实数据路径"。
 原因：M6 已用两个真实 Sales User 的 HTTP 请求证实 FCRM Note 私密 detail/PUT 均 200（跨用户越权），
 activities 会泄漏未共享的 note —— 因此本脚本写入的原文备注不能承载真实客户资料。
 
@@ -17,8 +21,8 @@ activities 会泄漏未共享的 note —— 因此本脚本写入的原文备�
 - 需求→CRM Lead（每条需求一条 Lead，状态 New；绝不创建商机）
 - 联系方式原文与来源行写入 FCRM Note，不覆盖解析后的字段
 - 只写入、不删除；重复执行同文件不产生重复记录
-- 幂等键是**截短的 SHA1 + 备注文本匹配**，只为合成库演示服务，**不得作为生产幂等方案**
-  （生产须用唯一字段 + 全长哈希，见 M7）
+- 幂等键沿用**历史 16 位截短 SHA1 + 备注文本匹配**（勿改长度，否则旧合成数据会重插），
+  它不是生产方案；M7 用唯一字段 + 完整 SHA-256 实现生产幂等
 """
 
 import argparse
@@ -31,7 +35,7 @@ import sys
 
 import frappe
 
-from m5_guard import BANNER, SyntheticInputError, require_synthetic
+from m5_guard import BANNER, PREVIEW_NOTE, SyntheticInputError, require_trusted_sample
 
 COLUMNS = ["序号", "姓名", "公司名称", "联系方式", "公司产品、服务", "需要的产品、服务"]
 IMPORT_SOURCE = "M5导入样例"
@@ -63,10 +67,11 @@ def emails(raw):
 
 
 def import_key(org, person, phone, email, requirement):
-	"""合成库演示用的幂等键：截短 SHA1 + 备注文本匹配。
+	"""历史合成数据的幂等键：**16 位截短 SHA1 + 备注文本匹配**，保持不变。
 
-	**不是生产方案**：截短 16 位碰撞面大，且靠备注文本检索定位既不可索引也不可靠。
-	生产实现必须用唯一字段存全长哈希（M7）。
+	沿用 16 位是为了让已有合成记录（备注里存的就是 16 位键）重跑仍然 0 新增；
+	改长度会让 find_lead() 找不到旧键并重插需求。它**不是生产方案**（碰撞面、依赖文本检索），
+	生产幂等由 M7 用唯一字段 + 完整 SHA-256 实现。
 	"""
 	identity = phone or email or f"{org}|{person}"
 	payload = "|".join([org, person, identity, requirement])
@@ -244,7 +249,9 @@ def make_note(title, body_lines, reference_doctype, reference_docname, key):
 	return note.name
 
 
-def apply_row(row, source, csv_name, owner):
+def apply_row(row, csv_name, owner):
+	# 每行都确保 Source 存在：该行失败回滚时只回滚本行，下一行会重建，不会级联失败
+	source = ensure_source()
 	record = row["record"]
 	org_name = record["公司名称"]
 	org = org_name if frappe.db.exists("CRM Organization", org_name) else None
@@ -336,12 +343,14 @@ def main(argv=None):
 		return EXIT_FATAL
 
 	print(BANNER)
+	if args.command == "preview":
+		print(PREVIEW_NOTE)
 	records = parse_file(args.csv)
 	if not records:
 		print("CSV 没有数据行")
 		return EXIT_FATAL
 	try:
-		require_synthetic(records)
+		require_trusted_sample(args.csv, records)
 	except SyntheticInputError as exc:
 		print(str(exc))
 		return EXIT_FATAL
@@ -364,7 +373,6 @@ def main(argv=None):
 		if args.command == "preview":
 			return EXIT_ROW_ERRORS if error_rows else EXIT_OK
 
-		source = ensure_source()
 		owner = args.owner or frappe.session.user
 		results = []
 		for row in plan_rows:
@@ -373,7 +381,7 @@ def main(argv=None):
 				results.append({"line": record["line"], "序号": record["序号"], "状态": "失败", "原因": "；".join(row["problems"])})
 				continue
 			try:
-				result = apply_row(row, source, args.csv.split("/")[-1], owner)
+				result = apply_row(row, args.csv.split("/")[-1], owner)
 				frappe.db.commit()
 				results.append({"line": record["line"], "序号": record["序号"], "状态": "成功", **result})
 			except Exception as exc:

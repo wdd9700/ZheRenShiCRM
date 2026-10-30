@@ -14,31 +14,94 @@
 """
 
 import argparse
+import hashlib
 import json
 import sys
 
 import frappe
 
-SYNTHETIC_ORG_PREFIX = "M5样例"
-SYNTHETIC_PERSON_PREFIX = "样例"
+# 受控合成样例（samples/m5-synthetic-six-columns.csv）里的固定身份。
+# 每个写目标都必须与这里的身份 + 历史导入键 + 完整关系一致，否则拒绝执行。
+SAMPLE_A = {
+	"requirement": "质检环节数字化与不良率追溯",
+	"company": "M5样例企业甲 智能制造",
+	"person": "样例张一",
+	"phone": "13800000001",
+}
+SAMPLE_B = {
+	"requirement": "冷链仓储温控监控",
+	"company": "M5样例企业乙 食品加工",
+	"person": "样例王三",
+	"phone": "13800000003",
+}
+SAMPLE_CONTACT_FOR_UPDATE = {
+	"person": "样例李二",
+	"company": "M5样例企业甲 智能制造",
+	"phone": "13800000002",
+}
 
-DEAL_A_REQUIREMENT = "质检环节数字化与不良率追溯"
-DEAL_B_REQUIREMENT = "冷链仓储温控监控"
 FOLLOW_UP_A = "M5跟进：给样例企业甲发送质检试点方案与报价"
 FOLLOW_UP_B = "M5跟进：确认样例企业乙冷链温控现场勘查时间"
 
 
-def lead_for(requirement):
+def historical_key(sample):
+	"""与 m5_import.py 一致的历史 16 位键（含'样例'来源标签），用于校验来源备注。"""
+	payload = "|".join([sample["company"], sample["person"], sample["phone"], sample["requirement"]])
+	return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def lead_for(sample):
+	"""按历史导入键定位 Lead，并逐项核对企业/姓名/手机号，不做前缀猜测。"""
+	marker = f"m5-import-key:{historical_key(sample)}"
 	notes = frappe.get_all(
 		"FCRM Note",
-		filters={
-			"reference_doctype": "CRM Lead",
-			"title": ["like", f"需求线索（导入）：{requirement}%"],
-		},
+		filters={"reference_doctype": "CRM Lead", "content": ["like", f"%{marker}%"]},
 		fields=["reference_docname"],
 		limit=1,
 	)
-	return notes[0].reference_docname if notes else None
+	if not notes:
+		return None, "未找到带该导入键的来源备注"
+	lead = notes[0].reference_docname
+	org, person, phone = frappe.db.get_value(
+		"CRM Lead", lead, ["organization", "first_name", "mobile_no"]
+	)
+	mismatch = [
+		f"{field}={actual!r}≠预期{expected!r}"
+		for field, actual, expected in (
+			("organization", org, sample["company"]),
+			("first_name", person, sample["person"]),
+			("mobile_no", phone, sample["phone"]),
+		)
+		if actual != expected
+	]
+	if mismatch:
+		return None, f"线索 {lead} 身份不符：{'；'.join(mismatch)}"
+	return lead, None
+
+
+def verified_contact(sample):
+	"""按手机号+企业+关联企业定位 Contact，拒绝同名但非目标的记录。"""
+	rows = frappe.get_all("Contact Phone", filters={"phone": sample["phone"]}, fields=["parent"])
+	candidates = []
+	for row in rows:
+		contact = frappe.get_doc("Contact", row.parent)
+		links = {link.link_name for link in contact.links if link.link_doctype == "CRM Organization"}
+		if (
+			contact.first_name == sample["person"]
+			and contact.company_name == sample["company"]
+			and sample["company"] in links
+		):
+			candidates.append(contact.name)
+	if len(candidates) != 1:
+		return None, f"期望 1 个受控联系人，实际 {len(candidates)} 个（手机号 {sample['phone']}）"
+	return candidates[0], None
+
+
+def verified_deal(deal_name, lead, company):
+	org, deal_lead = frappe.db.get_value("CRM Deal", deal_name, ["organization", "lead"])
+	if org != company or deal_lead != lead:
+		return f"商机 {deal_name} 关系不符：organization={org!r}、lead={deal_lead!r}"
+	return None
 
 
 def deal_for_lead(lead):
@@ -160,31 +223,23 @@ def main(argv=None):
 	report = {"mode": "apply" if apply else "dry-run", "steps": {}}
 	exit_code = 0
 	try:
-		lead_a = lead_for(DEAL_A_REQUIREMENT)
-		lead_b = lead_for(DEAL_B_REQUIREMENT)
+		lead_a, err_a = lead_for(SAMPLE_A)
+		lead_b, err_b = lead_for(SAMPLE_B)
 		report["steps"]["leads"] = {"A": lead_a, "B": lead_b}
 		if not lead_a or not lead_b:
-			report["error"] = "未找到导入产生的需求线索，请先运行 m5_import.py apply --confirm"
-			print(json.dumps(report, ensure_ascii=False, indent=1))
-			return 1
-
-		non_synthetic = []
-		for lead in (lead_a, lead_b):
-			org, person = frappe.db.get_value("CRM Lead", lead, ["organization", "first_name"])
-			if not (org or "").startswith(SYNTHETIC_ORG_PREFIX) or not (person or "").startswith(
-				SYNTHETIC_PERSON_PREFIX
-			):
-				non_synthetic.append({"lead": lead, "organization": org, "first_name": person})
-		if non_synthetic:
-			report["error"] = "拒绝执行：目标线索不是合成数据（企业名须以 M5样例 开头、姓名须以 样例 开头）"
-			report["non_synthetic"] = non_synthetic
+			report["error"] = "受控合成线索不完整：" + "；".join(err for err in (err_a, err_b) if err)
 			print(json.dumps(report, ensure_ascii=False, indent=1))
 			return 1
 
 		deals = {}
-		for label, lead in (("A", lead_a), ("B", lead_b)):
+		for label, lead, sample in (("A", lead_a, SAMPLE_A), ("B", lead_b, SAMPLE_B)):
 			existing = deal_for_lead(lead)
 			if existing:
+				problem = verified_deal(existing, lead, sample["company"])
+				if problem:
+					report["error"] = problem
+					print(json.dumps(report, ensure_ascii=False, indent=1))
+					return 1
 				deals[label] = (existing, "已存在")
 				continue
 			if not apply:
@@ -194,6 +249,11 @@ def main(argv=None):
 			doc.flags.ignore_permissions = True
 			deals[label] = (doc.convert_to_deal(), "转换为商机")
 			frappe.db.commit()
+			problem = verified_deal(deals[label][0], lead, sample["company"])
+			if problem:
+				report["error"] = problem
+				print(json.dumps(report, ensure_ascii=False, indent=1))
+				return 1
 		report["steps"]["deals"] = {k: {"name": v[0], "state": v[1]} for k, v in deals.items()}
 		if not apply:
 			print(json.dumps(report, ensure_ascii=False, indent=1))
@@ -252,9 +312,12 @@ def main(argv=None):
 		frappe.db.commit()
 
 		# 查询与修改验证：联系人职位、需求线索状态
-		contact = frappe.db.get_value("Contact", {"first_name": "样例李二"}, "name")
-		contact_change = "未找到联系人"
-		if contact:
+		contact, contact_problem = verified_contact(SAMPLE_CONTACT_FOR_UPDATE)
+		contact_change = "未修改"
+		if contact_problem:
+			contact = None
+			contact_change = f"拒绝修改：{contact_problem}"
+		else:
 			doc = frappe.get_doc("Contact", contact)
 			if doc.designation != "生产经理":
 				doc.designation = "生产经理"
@@ -263,6 +326,7 @@ def main(argv=None):
 				contact_change = "已更新为生产经理"
 			else:
 				contact_change = "已是生产经理"
+		lead_b_doc = frappe.get_doc("CRM Lead", lead_b)
 		lead_b_doc = frappe.get_doc("CRM Lead", lead_b)
 
 		report["steps"]["modifications"] = {

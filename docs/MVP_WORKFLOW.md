@@ -12,7 +12,7 @@
 |---|---|
 | 六列网页导入 | **不属于 M5**，已拆给 M7；M5 不提供 UI，不声称可用 |
 | M5 脚本用途 | 仅合成数据验证/参考实现；生产导入入口是 M7 |
-| 合成数据防护 | `tools/crm/m5_guard.py`：企业名须以 `M5` 开头、姓名须以 `样例` 开头，否则拒绝执行，无旁路开关；本地自检 `python tools/crm/selftest_guard.py` |
+| 合成数据防护 | `tools/crm/m5_guard.py`：①`preview`/`apply` 都只接受与仓库固定样例**完全一致**的归一化 SHA-256（摘要写死、不接受自报哈希）；②行级企业名以 `M5`、姓名以 `样例` 开头。无旁路开关；本地回归 `python tools/crm/selftest_guard.py`（含"合法前缀 + 真实样式载荷必须拒绝"） |
 | 安全前提（M6） | 两个真实 Sales User 的 HTTP 请求证实：FCRM Note 私密 detail/PUT 均返回 **200**（跨用户越权读取与改写），activities 也会返回未共享的 note。因此**联系方式原文/需求原文不得靠 FCRM Note 承载真实资料**，也解释了为什么 M5 旧路径只能跑合成数据 |
 | 完整 MVP 定义 | M7 网页导入 + M6 权限修复 + 视觉验收 + 备份恢复演练，缺一不可 |
 | 共享实例状态 | 现由 M7 独占部署；M5 不再对其执行写库或 HTTP 操作 |
@@ -77,12 +77,22 @@ row 4 → 失败  13700000003 / 邮箱 m5.ui.c@example.com is not a valid Phone 
 - 一条 CSV 只能建一种 DocType：企业、联系人、需求必须分别导入，且它们之间的关系（Lead→Organization 是 Data 文本，Deal→Organization 才是 Link）不会自动建立。
 - 没有去重/幂等，重复导入直接翻倍。
 
-## 3. 参考适配脚本：`tools/crm/m5_import.py`（仅合成数据；已被 M7 取代）
+## 3. 参考适配脚本：`tools/crm/m5_import.py`（历史合成工具；已被 M7 取代）
 
 容器内运行，Python 标准库 + 已安装的 frappe，无新依赖、无自定义字段、无数据库结构变更。
 
+**写入闸门（R1 修复后）**：`apply` 与 `preview` 都先过 `m5_guard.require_trusted_sample()`：
+
+1. 文件内容必须与仓库固定合成样例 `samples/m5-synthetic-six-columns.csv` 的**归一化 SHA-256 摘要**
+   完全一致（摘要写死在 `m5_guard.TRUSTED_SAMPLES`，**不接受调用方自报的任何哈希**）；
+2. 行级再校验企业名以 `M5`、姓名以 `样例` 开头。
+
+因此改过联系方式/产品/需求/来源的文件一律被拒；`preview` 额外打印"仅解析演示、不是真实数据路径"。
+`apply` 仍在 `--confirm` 后写库，且**每行**都调用 `ensure_source()`（R1 P2 修复：原先在循环前插入 Source
+但未提交，首行失败回滚会连带回滚 Source，导致后续行级联失败）。
+
 ```
-preview  只读，输出逐行计划与错误，退出码 0（无错误）/2（有错误行）/1（致命）
+preview  只读，输出逐行计划与错误，退出码 0（无错误）/2（有错误行）/1（致命或非可信输入）
 apply    真实写入，必须带 --confirm；退出码同上
 ```
 
@@ -93,7 +103,11 @@ apply    真实写入，必须带 --confirm；退出码同上
 | 公司名称 | `CRM Organization`（docname 即企业名） | 同名即复用 |
 | 联系方式 | 原文写入联系人 `FCRM Note`；解析出的手机号/邮箱写入 `phone_nos`/`email_ids` | 手机号按数字归一后匹配 |
 | 公司产品、服务 | `CRM Organization.company_description` | 复用时只读不覆盖 |
-| 需要的产品、服务 | **每条需求一条 `CRM Lead`**（`status=New`，`source=M5导入样例`）+ `FCRM Note` 保存需求原文 | 导入键 = SHA1(企业｜姓名｜手机号或邮箱｜需求原文) 前 16 位，写入备注 HTML 注释 `<!-- m5-import-key:… -->`，重跑按此跳过 |
+| 需要的产品、服务 | **每条需求一条 `CRM Lead`**（`status=New`，`source=M5导入样例`）+ `FCRM Note` 保存需求原文 | 导入键 = SHA1(企业｜姓名｜手机号或邮箱｜需求原文) **前 16 位**（历史算法，保持不动），写入备注 HTML 注释 `<!-- m5-import-key:… -->`，重跑按此跳过 |
+
+**幂等键说明（R1 P2 更正）**：代码始终是 16 位截短 SHA1，**没有**改成 40 位；改长度会让
+`find_lead()` 找不到旧备注并重插需求，所以刻意保持不变。它不是生产方案（碰撞面、依赖文本检索）——
+生产幂等由 M7 用唯一字段 + **完整 SHA-256** 实现。
 
 补充规则：
 
@@ -122,6 +136,15 @@ apply    真实写入，必须带 --confirm；退出码同上
 ## 4. 业务闭环演示：`tools/crm/m5_workflow_demo.py`（历史记录，仅合成数据）
 
 `--confirm` 才写库，缺省只读检查；重复执行不会重复建商机/评论/任务/阶段变更。
+
+**写目标来源校验（R1 修复后）**：不再用"名字前缀"或"按 first_name 猜"定位记录，而是逐项核验受控样例身份与关系：
+
+- Lead：按历史 16 位导入键（`m5-import-key:` 注释）定位，并核对 `organization` / `first_name` / `mobile_no` 与样例完全一致；
+- Contact：按 `Contact Phone` 精确手机号定位，且必须同时满足 `first_name`、`company_name` 与 `links`（Dynamic Link → 该企业）；不唯一即拒绝；
+- Deal：复用前核对 `lead` 与 `organization`；不匹配即中止；
+- Task：只按 `reference_docname == 已验证商机` 复用，不做标题猜测。
+
+任一校验失败都会输出原因并退出，不做写入。
 
 | 对象 | 真实结果 |
 |---|---|
@@ -191,7 +214,7 @@ tower 最终决定：六列网页导入与服务端安全写入**独立移交 M7
 已否决的做法（保留为历史，不再推荐）：
 
 - **浏览器逐条 `get_list`/`insert`**：并发幂等、失败原子性、权限、映射一致性都无法保证，**已否决**。
-- **截短 SHA1 + 备注文本匹配做幂等**：碰撞面大、依赖文本检索、与 M6 揭示的 note 越权问题叠加，**只能作为合成库演示**，不得作生产实现。
+- **截短 SHA1 + 备注文本匹配做幂等**：碰撞面大、依赖文本检索、与 M6 揭示的 note 越权问题叠加，**只能作为历史合成演示**（代码保持 16 位未升级，以免旧合成数据重跑重插），不得作生产实现；生产幂等由 M7 用唯一字段 + 完整 SHA-256。
 - **`uninstall-app` / 删除 Custom Field 作为回退**：会丢数据/丢审计，**不作为回退建议**；回退必须靠备份恢复 + 停用入口（见 6.7）。
 
 以下 6.1–6.6 是对 M7 的技术输入（机制核验、目录、事务、权限、schema），不是 M5 的实施承诺。
@@ -241,7 +264,7 @@ apps/m5_import_app/
 
 - `preview_import`：**只读**（不写库、不建 File），返回与 apply 相同的计划结构。
 - `apply_import`：一个请求 = **一个事务**。每行 `savepoint("m5_row")` → 写企业→联系人→CSV 备注→Lead（写 `custom_import_key`）→ `release_savepoint`；行内异常 `rollback(save_point="m5_row")` 并继续下一行；全部行处理完才 `commit()`。异常中断则整批回滚，用户重跑安全（与原生 Data Import 的逐行 commit 不同，避免半成品与"重启后不知道导到哪"）。
-- 幂等键：`sha1(企业归一|姓名|手机号或邮箱|需求归一)` **全长 40 位**，落在 `CRM Lead.custom_import_key`（`unique=1`）。先查后写；并发双击由唯一索引兜底 → 捕获 `DuplicateEntryError` 记为"已导入"（**不用备注文本解析，也不用截短哈希**）。
+- 幂等键：`sha256(企业归一|姓名|手机号或邮箱|需求归一)` **全长 64 位十六进制**，落在 `CRM Lead.custom_import_key`（`unique=1`）。先查后写；并发双击由唯一索引兜底 → 捕获 `DuplicateEntryError` 记为"已导入"（**不用备注文本解析，也不用历史 16 位截短 SHA1**）。
 - 企业：docname（`organization_name`）天然键；联系人：手机号归一 → 邮箱小写 → 姓名+企业，按候选值精确查询（不做全表缓存）；联系方式原文进 `Contact.custom_contact_raw`，解析失败的行直接报错。
 - `FCRM Note` 仍写一条人类可读来源备注（时间线可看），但**不再是幂等依据**；且因 M6 发现的 note 越权，**不得在其中放真实联系方式原文**（见 6.6 的字段分流）。
 
@@ -298,3 +321,21 @@ apps/m5_import_app/
 - 6.6 的字段批次落地（tower 排期、M6 快照之后）→ 重测需求筛选，并更新 M3 schema 交接。
 - 站点调度器/导入配置变化，或升级到带新导入 UI 的 CRM 版本 → 重测原生导入。
 - 备份/恢复演练与视觉验收完成后，才谈"完整 MVP"。
+
+## 9. R1 独审修复记录（2026-10-31）
+
+| 问题 | 修复 |
+|---|---|
+| P1：仅名字前缀不构成安全边界，真实样式载荷可被接受后写入越权 Note | `preview`/`apply` 均先过**仓库可信摘要闸门**：文件内容必须与提交样例归一化 SHA-256 完全一致（摘要写死在 `m5_guard.TRUSTED_SAMPLES`，不接受调用方自报哈希），任何联系方式/产品/需求/来源改动都会失配被拒；行级前缀检查降为第二层。`preview` 额外声明"仅解析演示、不是真实数据路径" |
+| P1：工作流只校验 Lead 前缀，Contact 按姓名猜、Deal 未逐项验证 | Lead 按历史导入键 + 三项身份核对；Contact 按手机号 + 姓名 + 企业 + Dynamic Link 唯一匹配；Deal 复用前核对 lead/organization；Task 只按已验证商机的 reference 复用。任一不符即中止 |
+| P2：交接声称"改为全长 SHA1"，代码仍是 16 位 | 保留 16 位历史算法（改长度会让旧合成数据重跑重插）；此前提交说明与交接中的"全长 SHA1"说法**作废**，以本文件与代码为准；生产幂等由 M7 用完整 SHA-256 |
+| P2：`ensure_source()` 在行循环前插入但未提交，首行失败会连带回滚并级联 | 改为 `apply_row()` **每行**调用 `ensure_source()`（幂等）；某行失败只回滚该行，后续行重建 Source |
+
+本地回归（不写共享实例）：`python tools/crm/selftest_guard.py` 覆盖
+①可信摘要命中；②"合法前缀 + 真实样式联系方式/需求"被拒；③只改一个手机号数字的副本被拒；
+④CRLF+BOM 同内容被接受（摘要按 LF 归一）；⑤`import_key` 仍为 16 位（AST 断言）；
+⑥`apply_row` 内调用 `ensure_source`（AST 断言）。输出 `PASS`；四个脚本 `py_compile` 通过。
+
+**仍未复验**：以上修复未在共享实例端到端执行（M7 独占中）。需向 tower 申请窗口验证
+"样例首跑 2 企业/3 联系人/4 需求、重跑 0 新增、旧 16 位键兼容、首行注入失败后后续行仍成功、
+工作流所有写目标来源校验"，通过后再申请复审；在此之前 M5 不申请完成。

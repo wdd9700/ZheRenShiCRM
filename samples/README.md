@@ -47,7 +47,9 @@ Frappe CRM 原生 `Data Import` 一次只处理一个 DocType，且只在"更新
 3. 同一文件重复导入会直接翻倍（实测同一 3 行文件两次导入产生 2 条同名同手机号线索）。
 
 真正避免重复、保留原文、把需求落位的产品入口是 **M7 的六列网页导入**（`resource_import`，部署测试中、未验收）。
-`tools/crm/m5_import.py` 只是合成数据参考实现：企业名须以 `M5` 开头、姓名须以 `样例` 开头，
-否则被 `tools/crm/m5_guard.py` 直接拒绝（`python tools/crm/selftest_guard.py` 可本地自检）。
+`tools/crm/m5_import.py` 只是历史合成实现：它只接受**与本文件完全一致**的内容
+（`tools/crm/m5_guard.py` 内写死的归一化 SHA-256 清单，不接受自报哈希），另加企业名以 `M5`、
+姓名以 `样例` 开头的行级检查；任何改动过的联系方式/产品/需求/来源都会被拒。
+`python tools/crm/selftest_guard.py` 可本地自检（含"合法前缀 + 真实样式载荷必须拒绝"）。
 原因：M6 已用两个真实 Sales User 的 HTTP 请求证实 FCRM Note 私密 detail/PUT 均 200、activities 泄漏未共享 note，
 因此**不要把真实客户资料放进本目录的导入路径**。
