@@ -73,6 +73,10 @@
 
 ### 执行前审查候选的离线复核
 
+ab8913f 执行前独审为 clean/hold（无P1/P2，不是合并批准），tower只授权采纳非阻断的archive预检加强：相对路径先用PurePosixPath消去`.`，等价文件路径或文件/目录类型冲突在提取前拒绝，重复的合法目录成员仍兼容。纯内存tar夹具通过空archive、合法目录及规范化内容摘要正例，10个重复/类型冲突/不安全路径反例均拒绝；AST和diff检查通过。未运行原生restore，不把最终inventory失败当提前拒绝。
+
+固定MariaDB digest `f1c56f035ed268a0d7c2c2e06dc879f6319b997cb434cf822a4cfd72a7aa184d` 的本地公开image只读inspect/save流解析证据（不创建/启动容器）显示：默认User未设置即root，mysql账号为999:999；固定入口 `file_env` :36读取_FILE、:38 export值、:39 unset_FILE，`docker_setup_env` :263处理root密码，`_main` :683先调用setup_env，:689才gosu mysql。因此uid1000的0700 keys目录与0400密码文件有静态兼容性依据：root先读，mysql重入继承值无需再次读_FILE；尚未实测实际挂载/初始化，不为UID假说放宽权限。公开入口SHA256 `63eb1c8d22816921a03ba4e3c20a8d8b96ed63aaf8c815d8af0f1a0b946c81da`；忽略目录 `deploy/.runtime/mariadb-fixed-public-evidence/public-manifest.json` 记录digest、层路径和三个公开文件摘要，无秘密或源运行卷。
+
 本候选先提交供安全审查并冻结，不代表M9完成，也不绕过M7/M8依赖门。标准可重复的离线命令如下（第一条在本worktree根目录，第二条只在第一Ubuntu渲染Compose；该image仅用于配置字符串检查，不启动旧镜像）：
 
 ```bash

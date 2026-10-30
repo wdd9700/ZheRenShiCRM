@@ -29,6 +29,7 @@ def digest(path):
 
 def archive_files(path, folder, source_site):
     result = {}
+    seen = {}
     with tarfile.open(path, "r:*") as archive:
         for member in archive:
             raw = member.name.rstrip("/").split("/")
@@ -36,10 +37,11 @@ def archive_files(path, folder, source_site):
                 raise RuntimeError("Unexpected backup archive path; native restore strip semantics must be reviewed")
             if not (member.isdir() or member.isfile()):
                 raise RuntimeError("Recovery refuses archive links and special files")
+            relative = PurePosixPath(*raw[2:]).as_posix()
+            if relative in seen and not (seen[relative] and member.isdir()):
+                raise RuntimeError("Duplicate or conflicting normalized path in backup archive")
+            seen[relative] = member.isdir()
             if member.isfile():
-                relative = "/".join(raw[2:])
-                if relative in result:
-                    raise RuntimeError("Duplicate file in backup archive")
                 value = hashlib.sha256()
                 with archive.extractfile(member) as stream:
                     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
