@@ -11,7 +11,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import time
 import urllib.request
 
 try:
@@ -244,73 +243,8 @@ def validate(config):
     return checks, sessions, token_holder.get("token")
 
 
-def webbridge(command, args):
-    body = json.dumps(
-        {"action": command, "args": args, "session": "crm-mvp-acceptance"}
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        "http://127.0.0.1:10086/command",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        envelope = json.loads(response.read().decode("utf-8"))
-    result = envelope.get("data", envelope)
-    if not envelope.get("ok", True) or not result.get("success", True):
-        raise RuntimeError(f"WebBridge {command} failed")
-    return result
-
-
-def browser_login(email, password):
-    session = Session(BASE_URL, email, password)
-    tabs = webbridge("list_tabs", {})
-    candidates = [
-        tab for tab in tabs.get("tabs", [])
-        if "127.0.0.1:8088" in tab.get("url", "")
-    ]
-    if not candidates:
-        raise RuntimeError("acceptance tab is unavailable")
-    selected = webbridge("find_tab", {"url": candidates[0]["url"]})
-    if selected.get("tabId") != 776603391:
-        raise RuntimeError("unexpected acceptance tab")
-    snapshot = webbridge("snapshot", {})
-    tree = str(snapshot.get("tree", ""))
-    refs = ("@e1000004", "@e1000005", "@e1000007")
-    final = snapshot
-    if all(ref in tree for ref in refs):
-        webbridge("fill", {"selector": refs[0], "value": email})
-        webbridge("fill", {"selector": refs[1], "value": password})
-        webbridge("click", {"selector": refs[2]})
-        time.sleep(3)
-        final = webbridge("snapshot", {})
-    if not final.get("url", "").endswith("/resource-import"):
-        sid = next(cookie.value for cookie in session.cookies if cookie.name == "sid")
-        webbridge("cdp", {"method": "Network.enable", "params": {}})
-        webbridge(
-            "cdp",
-            {
-                "method": "Network.setCookie",
-                "params": {
-                    "name": "sid", "value": sid, "domain": "127.0.0.1", "path": "/",
-                    "httpOnly": True, "secure": False,
-                },
-            },
-        )
-        for _ in range(2):
-            webbridge("navigate", {"url": BASE_URL + "/resource-import"})
-            time.sleep(3)
-            final = webbridge("snapshot", {})
-            if final.get("url", "").endswith("/resource-import"):
-                break
-    assert final.get("url", "").endswith("/resource-import"), "import page did not load"
-    print(f"PASS browser login {email} with System Manager; import page visible")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--webbridge-login", action="store_true")
-    parser.add_argument("--browser-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--container-action", choices=("configure", "set-enabled", "set-role"), help=argparse.SUPPRESS
     )
@@ -325,9 +259,6 @@ def main():
             raise SystemExit(2) from None
         return
     config = run_container()
-    if args.browser_only:
-        browser_login(SYSTEM_MANAGER, config["passwords"][SYSTEM_MANAGER])
-        return
     checks, sessions, receipt = validate(config)
     if sessions and SYSTEM_MANAGER in sessions and receipt:
         system = sessions[SYSTEM_MANAGER]
@@ -360,8 +291,6 @@ def main():
         finally:
             run_container("set-enabled", enabled=True)
     print(f"SUMMARY M7-negative pass={len(checks.passes)} fail={len(checks.failures)}")
-    if args.webbridge_login and not checks.failures:
-        browser_login(SYSTEM_MANAGER, config["passwords"][SYSTEM_MANAGER])
     if checks.failures:
         raise SystemExit(1)
 

@@ -180,7 +180,7 @@ Framework 的 `has_permission` 与 `DatabaseQuery.build_match_conditions` 都有
 
 ## 7. UI 视觉与后续验收
 
-本轮 M6 是 HTTP/API 验收，**团队双账号浏览器视觉和 JavaScript 交互未测试**。M7 仅完成合成 System Manager 登录及 `/resource-import` 页面就绪，未做导入提交或完整视觉验收。tower 接管后在同一浏览器会话实际点击 preview 得到 HTTP 403；该 UI 结果未被 12 项 API 通过覆盖，仍为独立待定位失败。释放后未再改角色/禁用，M6 User Permission 仅作用于 FCRM Note；需根据脱敏响应区分 CSRF/旧页面会话与 authorize 拒绝。修复后至少用两个隔离浏览器上下文验证：
+本轮 M6 是 HTTP/API 验收，**团队双账号浏览器视觉和 JavaScript 交互未测试**。M7 的标准 `/login` 路径未通过：`http://127.0.0.1:8088/frappe-web.bundle.js` 返回 404，登录 JS 未执行，按钮退化为 GET；早期 CDP 注入会话和后续 DOM 改为原生 POST/补 `usr`、`pwd` 都只是建立测试会话的临时绕行，不是产品修复。绕行后 preview 返回 200，页面显示 3 行、其中 1 行错误，未 apply；这不能替代标准登录和完整 UI 验收。资产链修复后必须在新的干净标签重验。修复后至少用两个隔离浏览器上下文验证：
 
 - 列表、全局搜索、仪表盘计数、最近记录、直接 URL、关联时间线和导出均无私域内容或数量侧漏。
 - A/B 看到的共享记录可协作，私有 Note/Task 不出现在 DOM、JS 响应或网络面板。
