@@ -1,6 +1,6 @@
 # Resource Import：受认证六列网页导入
 
-状态：M7设计在实施前记录（2026-10-31）；现已在tower协调窗口部署、管理员真实HTTP矩阵通过，非管理员实会话与网页视觉待验。对应 M5 实际源码 `tools/crm/m5_import.py` 与 `docs/MVP_WORKFLOW.md` 第6节；后者是建议，不是安全实现。
+状态：M7设计在实施前记录（2026-10-31）；管理员HTTP与M6最终12API负测通过（保留禁用账号原会话417泄堆栈历史FAIL及配置修复记录）。tower已在临时会话真实preview/apply验证三行成功/重复/错误，但标准/login的Framework资产映射丢失阻断交付；规范修复待真实构建部署及干净tab端到端验证，尚未完成。对应 M5 实际源码 `tools/crm/m5_import.py` 与 `docs/MVP_WORKFLOW.md` 第6节；后者是建议，不是安全实现。
 
 ### M6证据后的安全收敛（实施中即时追加）
 
@@ -23,7 +23,7 @@ M6已核对实际DocPerm/hooks：Sales User可广泛读写Organization/Contact�
 - 服务端唯一解析/计划/写入入口，客户端仅文件读取和文本节点渲染。
 - 六列准确表头（可重排），最大1MiB UTF-8、500数据行、每格10000字符；严格CSV，不截断原文。姓名/企业/需求必填。微信等不透明联系方式原文可保留；语法提取数字/邮箱用于候选及新联系人解析字段，不能据此认定同一人，姓名+企业也只产生候选，不自动合并。
 - 所有候选列表用 `frappe.get_list` 权限查询，返回的对象逐个检查read；不全表 get_all，不把不可读候选名称/详情放响应。已有联系人即便单一也需显式选择；不得在手机号/邮箱冲突时挑第一个。已有企业只精确名称匹配；用户须明确确认复用。不会修改复用联系人或企业（不偷偷增加关系或覆盖原文）。联系人与企业不匹配要求手工整理，不合并猜测。
-- preview POST不建File、不写业务库；只在现有Redis写15分钟随机不透明receipt（不保存CSV原文），绑定用户、session、来源、文件完整digest及共享确认；apply必须确认且receipt一次绑定同一会话/文件/选项，服务端重新解析、重新做权限/候选计划。receipt丢失/过期/篡改/跨会话/跨用户均fail closed并要求重新预览；不能把receipt替换成另一份内容。调用者身份 `.insert()`，不使用ignore_permissions/set_user。错误仅返回固定分类，不泄露异常正文、SQL或堆栈。
+- preview POST不建File、不写业务库；只在现有Redis写15分钟随机不透明receipt（不保存CSV原文），绑定用户、session、来源、文件完整digest及共享确认；apply必须确认且receipt一次绑定同一会话/文件/选项，服务端重新解析、重新做权限/候选计划。receipt丢失/过期/篡改/跨会话/跨用户均fail closed并要求重新预览；不能把receipt替换成另一份内容。调用者身份 `.insert()`，不使用ignore_permissions/set_user。进入应用handler后的错误仅返回固定分类，不泄露异常正文、SQL或堆栈；会话初始化等Framework前置异常另须配置官方站点错误响应安全基线，见下文。
 
 ## 幂等与事务（纠正M5建议）
 
@@ -76,3 +76,17 @@ M6已核对实际DocPerm/hooks：Sales User可广泛读写Organization/Contact�
 保留`M7HTTP001`合成资料3企业/4联系人/6Lead，不删除。网页样例`apps/resource_import/samples/m7-visual.csv`使用独立`M7VISUAL001`前缀，正常/重复/缺姓名/CSV公式前缀三行供视觉验收。管理员HTTP通过不等于真实文件控件/DOM安全显示/失败下载已验收；真实非管理员拒绝、角色撤回及网页视觉仍待外部回传。
 
 仅本地检查：Python AST、JS语法、无innerHTML、Windows原生runtime路径元数据守卫通过；实际页面JS在模拟DOM里驱动独立共享确认→预览→确认→失败结果/CSV，验证文本赋值、引号换行序列化与公式前缀加单引号，**不算浏览器验收**。CSV恰好1MiB/500行通过，超1字节/超1行拒绝，表头重排原文相同、来源/序号不影响完整hash。已清理本次生成的pycache及两份migrate输出日志，保留必要镜像lock/备份。tower要求结束本轮等待M6与浏览器回传，任务未完成、不调用TowerComplete，恢复后再补最终证据。
+
+## Framework前置错误与站点安全基线
+
+M6真实非管理员拒绝等9项通过；但禁用合成System Manager后，携带有效receipt的原会话apply返回417 ValidationError，含完整`exc`堆栈，历史安全断言FAIL。响应未含候选/业务原文、未写业务。只读Frappe15.125.0源码证实：`app.init_request`构造`HTTPRequest`→`LoginManager.make_session`→`Session.resume`→`validate_user`先校验enabled并抛异常，发生在导入handler、before_request及auth_hooks之前，因此局部disable_traceback不能覆盖此错误。
+
+tower选择官方本站`System Settings.allow_error_traceback=0`，不新增错误normalizer、不改核心。该字段默认1；`frappe.get_system_settings`从本站DB单例取值，不能用同名site_config键或仅关闭developer_mode冒充修复。新站点必须在烟测/业务验收前正常保存为0；已有实例由获批窗口操作者记录单一旧值、正常save、clear-cache，回退恢复该旧值。可复现操作及固定上游链接见`deploy/README.md`“站点错误响应安全基线”。这是DB站点设置和文档变化，无运行代码变化，当前镜像无须重建。
+
+官方V1响应即便关闭堆栈也无条件带`exc_type`；tower明确允许纯类型名，不允许真实`exc`/`exception`堆栈、文件路径/行号、调试内容、候选或私密正文。断言更正必须记录这个理由并保留旧FAIL，不将失败改写成历史通过。关闭会减少`errprint`的request-local列表及条件stdout，不能声称日志完全不变；>=500的独立错误snapshot（排除特定异常）和已启用的访问日志不由该开关关闭，417本来没有持久snapshot保证。M6最终独立矩阵12/12 PASS：旧设置1→0，disabled原会话417仅纯ValidationError及_server_messages、无堆栈，角色撤回另测403，匿名/跨用户拒绝与业务零写通过，账号enabled/System Manager已恢复。首次正常save因既有language/time_zone必填缺失拒绝且未提交，M6后用ignore_mandatory仅保存该目标字段、clear-cache；这是既有站点异常的定点处理，不是新站点部署默认操作。无create负例未测，不改全局DocPerm制造用例。我未参与实例修改。
+
+## 标准登录资产阻断与真实UI状态
+
+tower在临时已登录会话中真实上传/预览并勾独立确认apply，M7VISUAL001三行返回成功1、重复1（同Lead00033）、缺姓名错误1；企业/联系人原生链接可见，script/img恶意字符串确为文本节点而非元素。失败CSV按钮已点击，但实际落盘及内容、原生链接跳转和移动视觉尚待验收。此结果不等于标准登录通过。
+
+M6此前注入sid或改DOM表单POST/补usr/pwd name绕过了/login故障，不能作为交付步骤。标准/login请求`/frappe-web.bundle.js`404，$、frappe.call、frappe.login未定义，表单退化GET。M9隔离镜像和固定源码已确定：D003继承的CRM-only build未把base根assets.json预置到sites/assets，产生{}后覆盖官方32键映射；实际hash文件存在，非M8导致。规范Dockerfile改为build前完整preseed官方assets、build后校验映射与实际文件，smoke补Guest/login JS/CSS及Content-Type；不手写映射、不保留DOM workaround、不重编Framework。由M9先统一构建M7-only修复镜像，部署需tower窗口。**新干净tab不改DOM进行用户名密码登录→preview→apply前，M7继续阻断，不TowerComplete。**

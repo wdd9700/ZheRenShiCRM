@@ -35,6 +35,7 @@ python3 deploy/manage.py check
 python3 deploy/manage.py pull       # 只拉固定DB/Redis
 python3 deploy/manage.py create-site
 python3 deploy/manage.py up
+# 首次站点：先完成下方“站点错误响应安全基线”，再进行烟测/业务验收
 python3 deploy/manage.py status
 python3 deploy/manage.py smoke
 python3 deploy/manage.py smoke-data # 显式写一条合成Lead，再读回；重复调用复用，不删除
@@ -181,8 +182,49 @@ CRM_DEPLOY_RUNTIME_DIR=/mnt/p/CRM/deploy/.runtime python3 deploy/manage.py check
 1. 记录当前运行所有app服务镜像ID，保留旧镜像及活动`image.env`的exclusive备份；不覆盖旧备份。执行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost backup --with-files`，核对数据库/公私文件备份已存在（内容与摘要不贴日志）。备份创建不等于恢复演练通过。
 2. 核对候选`built-image.env`中的ID与实际构建对应。显式将候选活动锁激活（构建命令不替操作者做这一步）；先`manage.py check`，再`manage.py up`重建Python服务及frontend/websocket/configurator等共享同镜像服务。不可只重启backend而遗留旧worker模块路径。此步有短暂维护窗口。
 3. 运行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost install-app resource_import`（仅首次），随后`bench --site crm.localhost migrate`、`clear-cache`。版本化迁移只add缺失字段/唯一索引、遇字段冲突拒绝；已有数据和M5备注不变。重新migrate用于幂等检查。
-4. `manage.py smoke`核验原CRM，再显式运行下方HTTP合成核验。普通用户拒绝/浏览器视觉及下载由tower协调M6/浏览器验收；未完成不得标记完成。
+4. 完成下方“站点错误响应安全基线”，再用`manage.py smoke`核验原CRM并显式运行HTTP合成核验。普通用户拒绝/浏览器视觉及下载由tower协调M6/浏览器验收；未完成不得标记完成。
 5. 回退优先`bench --site crm.localhost set-config -p resource_import_disabled 1`并`clear-cache`关闭入口（`-p`确保JSON数值，不使用真值非空的字符串`"0"`），保留app记录、字段和全部资料，切到预备兼容回退镜像ID（旧CRM+可加载app包），重建同组服务。**不uninstall-app，不删Custom Field，不切缺app的旧镜像，不删卷/合成记录。** 修复后显式`set-config -p resource_import_disabled 0`再clear-cache。数据库恢复必须另行审批并在新站点演练，不在此流程中冒险覆盖现库。
+
+### 站点错误响应安全基线（新站点必做；已有实例须协调窗口）
+
+固定Frappe15.125.0的`System Settings.allow_error_traceback`默认1，会把部分Framework前置异常的堆栈返回浏览器。**首次`up`后、任何烟测/业务验收与业务资料写入前，必须将本站该项正常保存为0。** 已有实例先由tower指定唯一操作者并暂停其他验证/写入；本设置影响本站所有HTTP错误响应，不只是导入，不影响其他站点。现有导入镜像无需重建或重启；这不是app迁移自动配置。
+
+1. 以本站Administrator/System Manager打开`/app/system-settings`，在Advanced/Telemetry找到 **Show Full Error and Allow Reporting of Issues to the Developer**。只记录这个复选框原值，不导出整份设置或site config。
+2. 取消勾选并Save，让官方System Settings正常校验及保存；不要用`bench set-config allow_error_traceback 0`，该同名site_config键不被`get_system_settings`读取，也不要以developer_mode=0替代。若使用已授权bench console，等价操作只取单项并正常保存（不输出整个doc）：
+
+   ```sh
+   docker exec -it crm-mvp-v15-backend-1 bench --site crm.localhost console
+   ```
+
+   ```python
+   settings = frappe.get_doc("System Settings")
+   previous_traceback = int(settings.allow_error_traceback or 0)
+   print(previous_traceback)  # 仅记录这一个非敏感旧值，用于回退
+   settings.allow_error_traceback = 0
+   settings.save()
+   frappe.db.commit()
+   exit()
+   ```
+
+3. 第一Ubuntu中运行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost clear-cache`，再重新读取同一复选框确认0。不得读取/打印site_config或凭据来核验。
+4. 由独立验证者用合成账号重新测试：先正常preview，再禁用该账号并沿用原会话/有效receipt apply；Framework应仍拒绝401/403/417、无业务写，响应不得有真实`exc`/`exception`堆栈、文件路径/行号、调试内容、候选/私密正文。官方V1无条件保留纯`exc_type`（例如ValidationError），tower明确允许纯类型名；历史失败和断言更正原因须保留，不能静默把旧FAIL改PASS。恢复合成账号enabled；角色撤回是另一条负例，不能用禁用替代。
+5. 回退只能在新协调窗口，把这一个复选框恢复步骤1记录的原值、正常Save并clear-cache；若原值1会重新允许向客户端显示堆栈，必须显式评估，不把回退当常态。不要修改其他设置或全局DocPerm。
+
+日志影响不能声称完全不变：关闭会跳过`report_error`中`errprint`的request-local错误列表追加及条件stdout输出，客户端`exc`/异常末行和debug内容减少。`app.handle_exception`对>=500的`log_error_snapshot`独立于此开关，仍按异常排除规则记录服务端Error Log；417本来不进入该snapshot分支，不保证它已有持久堆栈日志。已启用的`enable_frappe_logger`请求访问日志独立，不自动启用额外日志、遥测或外部上报。需要新的安全审计日志时另行设计，不为保留调试方便重新暴露堆栈。
+
+固定官方源码：[Session校验](https://github.com/frappe/frappe/blob/v15.125.0/frappe/sessions.py)、[请求顺序与错误分支](https://github.com/frappe/frappe/blob/v15.125.0/frappe/app.py)、[响应开关与exc_type](https://github.com/frappe/frappe/blob/v15.125.0/frappe/utils/response.py)、[get_system_settings/errprint](https://github.com/frappe/frappe/blob/v15.125.0/frappe/__init__.py)、[官方字段及默认值](https://github.com/frappe/frappe/blob/v15.125.0/frappe/core/doctype/system_settings/system_settings.json)、[服务端snapshot](https://github.com/frappe/frappe/blob/v15.125.0/frappe/utils/error.py)。
+
+### 标准登录资产交付门槛
+
+已确认原M3→M7资产步骤存在缺陷：base根`assets/assets.json`有32键，但`sites/assets/assets.json`不存在；直接CRM-only build生成{}，再复制回根assets覆盖Framework映射。Framework hash文件本身仍在，Jinja缺映射才回退请求裸`/frappe-web.bundle.js`404。M9隔离network=none探针已对比base与M7确认，M8未加入，不归咎后续权限包。此前API登录/CRM Vite资产烟测漏掉标准/login，不能将其视为网页登录通过。
+
+规范Dockerfile在CRM build前将官方烤入assets预置到sites/assets，让官方esbuild合并既有映射，build后断言关键4bundle、全部旧键未丢及映射文件真实存在；不手写hash映射、不重新编Framework。`manage.py smoke`现在先用Guest访问/login，要求Framework哈希JS/CSS且逐一返回正确Content-Type，再测API认证和CRM资产。该HTTP检查仍不能代替JavaScript交互。
+
+修复镜像由单一构建操作者产出不可变ID；仍按上述维护窗口保留旧镜像/lock和备份，统一更新同组服务，clear-cache后核验。正式浏览器验收必须新干净tab、不注入sid、不改DOM form/method/name，正常用户名密码登录→CRM或/resource-import→真实文件preview→显式确认apply。旧临时会话中的导入成功不能替代该路径；未通过保持阻断。
+
+当前站点安全开关已由M6改1→0并独立12API负测通过。正常System Settings save曾被既有language/time_zone缺失阻断且未提交；M6后仅对该目标设置使用ignore_mandatory保存并clear-cache。不能把此例外写成通用绕过必填流程，新站点正常Save为首选；若被已有资料问题阻断，先停止并协调定点处理，不随意填造语言/时区。
+
+### HTTP合成核验
 
 HTTP操作核验（需要现有部署runtime，仅程序内部使用现有登录材料、不打印凭据；显式写入并保留M7合成资料）：
 

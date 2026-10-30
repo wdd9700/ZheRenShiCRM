@@ -66,6 +66,8 @@
 - **独审R1交接修复**：唯一P2指出忽略运行材料仍绑定临时wt-3，原文档长期使用该路径的建议不成立。选择显式本机`handoff-runtime --target-dir`，目标必须先有合并后匹配的跟踪代码及忽略规则；私有`.runtime`存放两文件，原子不覆盖复制、保护ACL、源保留、正文/摘要不输出，自动目标check/smoke。采用专用私有目录而非收紧整个deploy/递归ACL，保持团队代码和WSL访问边界。预合并仅演练私有fixture；合并后主checkout实际交接、Windows/WSL验收及tower确认是清理wt-3前强制门槛，未执行前不得称迁移完成。不生成新密码/站点、不删源或改主checkout产品代码。实现和验证见deploy/README.md。
 - **R1修复验证追加**：最终工具在私有Git fixture真实复制后，目标Windows和第一Ubuntu的check/smoke均通过；目标Ubuntu status仍见原项目。重复调用不改字节/mtime，公共deploy ACL不变；冲突、未忽略/已跟踪、代码/路径异常、硬链接与正常/断裂junction、不安全目标ACL及父DeleteChild均拒绝。显式仅保护专用目录后WSL可读；Git CRLF代码和含空格路径亦真实通过，运行材料不转换。源保留、凭据正文/摘要未输出，无新增用户决策；实际主checkout交接仍未执行，须合并后按README门槛完成。
 
+- **标准登录阻断与资产修复（M7回查）**：此前API密码登录/CRM Vite资产烟测遗漏Framework标准/login；浏览器实际请求裸`/frappe-web.bundle.js`404，jQuery/frappe.login未加载，表单退化GET。M9隔离network=none探针证实原base c3873的根assets.json有32键且目标hash文件存在，但sites/assets/assets.json不存在；M7 36a89两manifest均{}（M8未加入）。原D003 Dockerfile直接CRM-only build未preseed根manifest到sites/assets，esbuild无Framework入口后写{}，随后cp覆盖根manifest；M7原样继承该段，不能归咎M8。临时DOM改POST/name或注入sid不算标准登录验收。选择构建前复制官方既有assets到sites/assets，保留官方映射与hash产物，构建后强断言关键映射、原键不丢且目标文件存在；不手工映射、不重编Framework、不改上游。smoke增加Guest登录页JS/CSS及Content-Type检查；新干净tab正常表单登录→CRM/导入仍须独立浏览器验收。修复镜像由M9单一操作者先构建M7-only，部署仍需tower窗口，未验证前保持阻断。
+
 ### D-004｜受认证六列资源导入扩展（M7）
 
 - **日期/状态**：2026-10-31 / Provisional，实施前记录。
@@ -76,6 +78,9 @@
 - **置信度/证据缺口**：中。具体契约和纠正M5截断SHA1、异常处理、破坏回退风险见 `IMPORT_APP.md`；真实HTTP、并发、权限、原文和视觉尚未验证。未声称完整MVP/恢复完成。
 - **实施中M6证据修订**：Organization/Contact对Sales User默认广泛开放；Lead按owner/分配过滤，Manager全读；FCRM Note无父权限继承。因此入口收紧仅System Manager/Administrator、不写Note、不把产品原文写Organization；原文只保存Lead。姓名/解析联系值同样可能私密，页面必须独立默认不勾选的共享确认，preview/apply均验shared_consent；不接受共享则明确阻止，未支持仅私域Lead模式。本轮只用合成数据，管理员导入不等于团队私域问题已修好。
 - **实施实证修订（原文与receipt）**：Frappe Document._sanitize_content会清洗Long Text中的HTML；经tower批准只增5个Code verbatim字段作为产品/需求/联系方式/来源JSON/六列JSON权威原文，保留早期5个Long Text但新导入不写、不改类型/删列、不全局ignore_xss_filter，共14字段（Lead13+Contact1）。历史导入缺verbatim返回人工核验错误，不自动覆盖、不冒称原文完整。Code存储不等于HTML可安全显示，网页坚持textContent并验真实浏览器。本站无encryption_key导致签名preview500，改现有Redis15分钟256-bit不透明receipt，只存user/session/source/完整文件digest/共享确认，不存CSV；apply重新校验身份、权限、内容与候选。篡改/跨会话/丢失/过期fail closed，receipt期内可幂等重试/并发，最终防重仍由DB唯一约束+锁负责。
+- **会话撤销错误响应修订**：M6禁用合成System Manager后，原会话有效receipt的apply由Framework拒绝417、业务零写，但响应含完整exc堆栈，原安全断言FAIL。只读固定v15.125.0源码证实Session.resume.validate_user在HTTPRequest构造时抛ValidationError，早于app handler及before_request/auth_hooks，故导入局部disable_traceback不能覆盖。官方System Settings.allow_error_traceback默认1，get_system_settings只读该站点DB单例而非site_config。tower选择在M6独占窗口记录单一旧值、正常保存为0、clear-cache，回退恢复该旧值；新站点部署亦须显式配置。备选app after_request错误normalizer暂不采用，避免扩大自定义拦截；不改核心、不盲重建镜像。
+- **安全断言与日志边界**：官方V1 report_error无条件保留exc_type，纯ValidationError类型名不是堆栈，tower明确允许；仍禁止exc/exception堆栈、文件路径/行号、调试内容、候选及私密正文，不静默抹掉历史FAIL。关闭会跳过report_error的errprint，其request-local错误列表与条件stdout输出会减少；>=500独立log_error_snapshot（有异常排除规则）及已启用的请求访问日志不由此开关关闭，417本来无持久snapshot保证，不能称日志完全不变。官方证据及可复现步骤见deploy/README.md；配置修复、角色撤回与视觉最终结果待M6独立回传，尚未标Validated。
+- **后续独立证据与当前阻断**：M6最终12API负测PASS（含disabled417无堆栈、角色撤回403、匿名/跨用户、业务零写），原设置1→0且账号恢复。首次正常save因既有language/time_zone缺失拒绝且未提交，后M6以ignore_mandatory仅保存目标设置并clear-cache；不作为通用部署默认。tower临时已登录浏览器真实preview/apply得到M7VISUAL001成功1/重复1/错误1，危险script/img以文本显示；下载落盘、原生链接/移动视觉仍未验。标准/login因D003上述manifest丢失而失败，DOM改POST/name与sid注入不算登录验收；须修复后新干净tab正常表单登录→preview→apply。已实现preseed/构建强断言及Guest登录资产smoke，本地模拟覆盖正常、空映射、错Content-Type及外站资产拒绝，尚待M9真实镜像构建与部署窗口，M7仍blocked、不报完整MVP。
 - **复评/用户决策**：普通可逆app与字段暂定无需用户审批；真实数据授权、公网暴露或破坏性操作另行决定。后续按HTTP/并发/双账号与视觉证据更新。
 
 ### D-005｜原生Note/Task私域权限补强（M8）

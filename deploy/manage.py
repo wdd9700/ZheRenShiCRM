@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import http.cookiejar
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -219,6 +220,19 @@ def init_env():
     print("Created deploy/.env with fresh local secrets; values are not printed")
 
 
+class LoginAssets(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.paths = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "script" and attrs.get("src"):
+            self.paths.append((attrs["src"], "javascript"))
+        elif tag == "link" and "stylesheet" in attrs.get("rel", "").split() and attrs.get("href"):
+            self.paths.append((attrs["href"], "text/css"))
+
+
 def smoke(values, write_synthetic=False):
     cookies = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(
@@ -236,6 +250,30 @@ def smoke(values, write_synthetic=False):
     with request("/api/method/ping") as response:
         if json.load(response).get("message") != "pong":
             raise RuntimeError("Health endpoint did not return pong")
+    with request("/login") as response:
+        login_html = response.read().decode("utf-8")
+        if response.status != 200 or "<html" not in login_html.lower():
+            raise RuntimeError("Login HTML page was not served")
+    login_assets = LoginAssets()
+    login_assets.feed(login_html)
+    required = (
+        ("/assets/frappe/dist/js/frappe-web.bundle.", ".js"),
+        ("/assets/frappe/dist/css/website.bundle.", ".css"),
+        ("/assets/frappe/dist/css/login.bundle.", ".css"),
+    )
+    for prefix, suffix in required:
+        if not any(
+            path.startswith(prefix) and path.endswith(suffix) and len(path) > len(prefix) + len(suffix)
+            for path, _ in login_assets.paths
+        ):
+            raise RuntimeError("Login HTML is missing a mapped Framework bundle")
+    for asset, content_type in login_assets.paths:
+        if not asset.startswith("/") or asset.startswith("//"):
+            raise RuntimeError("Login asset must be served from this site")
+        with request(asset) as response:
+            if response.status != 200 or content_type not in response.headers.get("Content-Type", ""):
+                raise RuntimeError("Login JavaScript or CSS asset was not served")
+    print("PASS: guest login HTML and mapped Framework JS/CSS assets (browser form login still requires acceptance)")
     credentials = urllib.parse.urlencode(
         {"usr": "Administrator", "pwd": values["ADMIN_PASSWORD"]}
     ).encode()
