@@ -220,7 +220,38 @@ CRM_DEPLOY_RUNTIME_DIR=/mnt/p/CRM/deploy/.runtime python3 deploy/manage.py check
 
 规范Dockerfile在CRM build前将官方烤入assets预置到sites/assets，让官方esbuild合并既有映射，build后断言关键4bundle、全部旧键未丢及映射文件真实存在；不手写hash映射、不重新编Framework。`manage.py smoke`现在先用Guest访问/login，要求Framework哈希JS/CSS且逐一返回正确Content-Type，再测API认证和CRM资产。该HTTP检查仍不能代替JavaScript交互。
 
-修复镜像由单一构建操作者产出不可变ID；仍按上述维护窗口保留旧镜像/lock和备份，统一更新同组服务，clear-cache后核验。正式浏览器验收必须新干净tab、不注入sid、不改DOM form/method/name，正常用户名密码登录→CRM或/resource-import→真实文件preview→显式确认apply。旧临时会话中的导入成功不能替代该路径；未通过保持阻断。
+修复镜像由单一构建操作者产出不可变ID；仍按上述维护窗口保留旧镜像/lock和备份，统一更新同组服务。**镜像资产更新后必须精确失效bench共享的`assets_json`，仅本站`clear-cache`/`clear-website-cache`不足。** 固定v15.125.0的`frappe.utils.get_assets_json`用`shared=True`缓存主/RTL映射，磁盘已修好也可能继续返回旧映射。此步骤影响同一bench各站点的公共静态资源映射，必须在协调窗口由唯一操作者执行，不能扩展为清空Redis、flushdb、通配删除或删除会话/receipt。
+
+第一Ubuntu内进入已部署backend的本站console：
+
+```sh
+docker exec -it crm-mvp-v15-backend-1 bench --site crm.localhost console
+```
+
+```python
+frappe.cache.delete_value("assets_json", shared=True)
+exit()
+```
+
+随后运行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost clear-website-cache`，用新的Guest请求/会话跑`manage.py smoke`；不能只验磁盘JSON或HTTP200，登录页引用的Framework哈希JS/CSS必须真实200且类型正确。不打印整个cache/conf，不手写映射。官方[get_assets_json](https://github.com/frappe/frappe/blob/v15.125.0/frappe/utils/__init__.py)与[Redis包装器](https://github.com/frappe/frappe/blob/v15.125.0/frappe/utils/redis_wrapper.py)是该精确shared键依据。
+
+M9已从精确提交`c8b870b20099170e05fecb648d6f08201cdd9f77`标准构建并部署M7-only镜像`sha256:c47b7cc4bc53cf6388977eb03dab9a9a1658a1c1fdca0d9a8b5cc89c57bc9411`，未安装M8。隔离probe双manifest各32键、关键4bundle及全部目标存在。运行首次smoke仍失败：Redis共享旧值只有8个RTL键；经tower逐项授权只删除上述精确共享键并清本站网页缓存后，重新生成主32+RTL8=40键、无覆盖冲突，完整Guest/login资产与管理员登录/session/CRM smoke PASS。7个同镜像app/configurator服务含frontend一致，原sites卷保留，site_config字节及common配置语义不变；新完整备份stem`20261031_034520-crm_localhost`已核验gzip/tar/config，旧锁与镜像保留，未恢复现库。既有M7HTTP001首行preview/apply均已导入、3企业/4联系人/6Lead不变，没有再全跑要求新前缀的原矩阵。
+
+M6证据提交`93426e65c5f4a2b79dc2922f99ff8ace337f125a`记录新干净Edge tab776603395原生/login填写及点击、未改DOM/未注入sid，`m7-visual.csv`preview200，旧资产404阻断解除。M7随后沿用该标准会话，真实上传新唯一`m7-standard-ui.csv`，共享确认→preview→独立显式确认→apply仅一次：M7STANDARDUI001成功1/已导入1同Lead00034/缺姓名1。实际浏览器另存失败CSV并逐字段校验PASS（UTF-8 BOM、8列仅一错误行、中文/引号/换行及公式防护），桌面结果截图已读。没有重跑M7VISUAL001，不以临时会话拼接整链。原生Lead链接首次实点进入`/crm/setup`，当时未计详情PASS；此门槛已按下节明确授权处理，随后三详情与窄屏只读验收通过，完整移动实机仍未验。
+
+CRM固定源码的管理员首次引导检查本站单例`FCRM Settings.setup_completed`；0会将原生记录路由引到`/crm/setup`。原生Skip setup→确认只持久该全站完成标志及浏览器本地缓存，不创建邮箱/示例/邀请，但会影响其他管理员提示，须协调授权；不要直接注入localStorage或改路由。Share usage data单独写`System Settings.enable_telemetry`，不是导入必需许可；本轮tower明确选择关闭既有遥测的实验隐私基线，不宣称此前零外发或此项阻止一切第三方请求。
+
+### 缺失必填的正常初始化修复与最终UI证据
+
+新站点在业务烟测前必须核验System Settings.language/time_zone有效、allow_error_traceback=0，并按明确的隐私选择配置enable_telemetry。本实验原Language/Time Zone为空，关闭遥测的原生POST真实417 MandatoryError（68524.181），未提交。固定v15.125将time_zone设为必填且read_only，原生UI不能补缺值；不能改DOM/DocField或以ignore_mandatory作为部署默认。
+
+固定`frappe.utils.get_system_timezone`空值回退Asia/Kolkata；`now_datetime`转换本站时间后去tzinfo，新creation/modified等使用该naive时间。换时区会影响未来时间存储及默认调度，不只是显示，也不会自动迁移旧值。tower明确选择language=zh/time_zone=Asia/Kolkata，保持原有效时间语义；不直接转上海形成混合历史，不猜国家/币种。真实团队上线前须单独规划时区和历史迁移。
+
+本次额外获批的维护初始化在本站console以正常维护身份用普通`frappe.get_doc("System Settings")`及`doc.save()`，仅设置language、time_zone、enable_telemetry；无ignore_mandatory/ignore_permissions/SQL/db.set_value。执行前快照全部字段，save后在事务内重新读取并对比，只允许这三项及modified/modified_by；任何额外差异必须rollback并停止，不能先commit再核验。实际差异仅language null→zh、time_zone null→Asia/Kolkata、enable_telemetry1→0和modified，通过后commit；新进程有效时区仍Asia/Kolkata、traceback0，密码策略1/评分2、backup3、link limit10等均不变。此为透明维护修复，不冒充原生UI设置了只读时区。回退不能盲目恢复缺失必填或重新开启遥测/堆栈；配置变更仍须协调窗口并保留审计。
+
+原生设置重载见简体中文/Asia/Kolkata及三项官方活动审计，不变值Save未报错；没有声称又发生一次服务端设置写入。随后重载setup正常Skip setup→确认POST68524.360 **200**，fresh读取FCRM Settings.setup_completed0→1、telemetry仍0。SetupTelemetryConsent本地初值true不代表DB许可，未再点该开关而误启用。未接邮箱/生成示例/邀请/反馈。
+
+从本轮同一导入结果逐一真实点击后，Lead tab776603404实际显示CRM-LEAD-2026-00034及姓名/企业/owner，企业tab776603407显示名称/联系人1，Contact tab776603410显示姓名及关联企业，均snapshot核对业务字段。390×844只读仿真两截图已读：页面宽390无整体横溢，两个长表局部overflow-x:auto；非手机实机或原生安装包验证。已恢复metrics/focus仿真、停本人network capture、不关用户tabs/session，并释放共享实例/UI窗口。产品逻辑自c8b870b未变，当前仅文档与新合成CSV；无create负例、M8完整团队权限及恢复演练不在完成声明内。
 
 当前站点安全开关已由M6改1→0并独立12API负测通过。正常System Settings save曾被既有language/time_zone缺失阻断且未提交；M6后仅对该目标设置使用ignore_mandatory保存并clear-cache。不能把此例外写成通用绕过必填流程，新站点正常Save为首选；若被已有资料问题阻断，先停止并协调定点处理，不随意填造语言/时区。
 
@@ -235,7 +266,7 @@ python3 deploy/verify_resource_import.py --runtime-dir /mnt/p/CRM/deploy \
 
 核验覆盖匿名/登录页、POST/CSRF、预览无业务写入（仅短期Redis receipt）、共享/确认/文件来源篡改/缺失/跨会话receipt校验、逐行错误、失败回滚无企业孤儿、重复/并发双会话、原文/来源/完整hash、显式消歧与原生对象链接。每次使用新前缀；不会删除旧验收数据。此脚本不等于浏览器视觉/真实文件控件/失败CSV下载验收，也不等于非管理员实际会话或备份恢复验证。
 
-M7窗口实测：旧镜像`2408974e...`和主私有`pre-m7-image.env`保留；with-files新备份数据库非空+公/私tar+site config四件最近生成已核对，未恢复。安装中patch manifest漏pre_model_sync节、www controller应使用下划线、本站无encryption_key及Long Text会清洗HTML均经真实检查发现并修正，未通过时未宣称完成。最终14字段只增（保留五个早期Long Text，新导入只写五个Code verbatim原文；不变更字段类型/全局过滤器），两次migrate、实际唯一索引及HTTP矩阵核验见IMPORT_APP。当前候选`sha256:36a89c9b0ad6eae3842ba4a32c7c54cfa45c6a7c135041893ba55b9f2f07e238`、兼容回退`sha256:6490855bc7f8e2a78523ac40ad3b5b024d745965ac9c2e834c3bfa9b10641fe9`；M7HTTP001保留3企业/4联系人/6Lead。网页视觉和非管理员实会话待tower协调，不把管理员HTTP通过当完整MVP。
+首轮M7窗口实测：旧镜像`2408974e...`和主私有`pre-m7-image.env`保留；with-files新备份数据库非空+公/私tar+site config四件最近生成已核对，未恢复。安装中patch manifest漏pre_model_sync节、www controller应使用下划线、本站无encryption_key及Long Text会清洗HTML均经真实检查发现并修正，未通过时未宣称完成。最终14字段只增（保留五个早期Long Text，新导入只写五个Code verbatim原文；不变更字段类型/全局过滤器），两次migrate、实际唯一索引及HTTP矩阵核验见IMPORT_APP。历史候选`sha256:36a89c9b0ad6eae3842ba4a32c7c54cfa45c6a7c135041893ba55b9f2f07e238`存在后续确认的manifest故障，不能再当当前可交付镜像；当前运行以本节上述精确c8b870b构建的c47b7cc镜像为准。兼容回退`sha256:6490855bc7f8e2a78523ac40ad3b5b024d745965ac9c2e834c3bfa9b10641fe9`保留，回退前须重验标准登录资产，不假定它自动包含后续修复；入口关闭/字段数据保留原则不变。M7HTTP001保留3企业/4联系人/6Lead，M7VISUAL001与M7STANDARDUI001保留且不盲目复跑；M6最终负测和本轮标准UI证据见上文，不把管理员合成导入通过当完整MVP。
 
 ## 官方证据
 

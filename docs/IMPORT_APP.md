@@ -1,6 +1,6 @@
 # Resource Import：受认证六列网页导入
 
-状态：M7设计在实施前记录（2026-10-31）；管理员HTTP与M6最终12API负测通过（保留禁用账号原会话417泄堆栈历史FAIL及配置修复记录）。tower已在临时会话真实preview/apply验证三行成功/重复/错误，但标准/login的Framework资产映射丢失阻断交付；规范修复待真实构建部署及干净tab端到端验证，尚未完成。对应 M5 实际源码 `tools/crm/m5_import.py` 与 `docs/MVP_WORKFLOW.md` 第6节；后者是建议，不是安全实现。
+状态：M7管理员合成导入闭环已完成真实验收，申请独审（2026-10-31）。管理员HTTP与M6最终12API负测通过；标准/login资产故障已修复部署，同一原生标准登录会话完成新CSV上传→preview→独立确认→apply、真实失败CSV落盘及三原生详情实点，390×844窄屏只读检查通过。保留历史417泄堆栈、资产404及初始化保存FAIL，不以页面壳/HTTP200冒充详情。维护正常save只修复三必需设置，当前遥测0/traceback0、有效时区不变、正常Skip完成，窗口已释放。无create专门负例仍未测，不称完整团队MVP/移动原生包/恢复完成。对应 M5 实际源码 `tools/crm/m5_import.py` 与 `docs/MVP_WORKFLOW.md` 第6节；后者是建议，不是安全实现。
 
 ### M6证据后的安全收敛（实施中即时追加）
 
@@ -49,7 +49,7 @@ M6已核对实际DocPerm/hooks：Sales User可广泛读写Organization/Contact�
 
 验收：唯一M7合成数据；真实HTTP匿名/无角色/无create/CSRF拒绝；preview无业务写入；正常/错误/同文件重复/跨请求重复/并发；原文与特殊字符；失败CSV与原生链接。网页视觉由tower协调，不把HTTP200当视觉验收。不声称完整MVP、备份恢复完成。
 
-## 已执行证据（M7协调窗口）
+## 首轮已执行证据（历史时点；后续收敛见末节）
 
 - 旧CRM镜像`sha256:2408974e8c5b8f3feacbaf6cac3c62e69c41fe1cf10dec251dd6cbdd1b9de5f3`及主私有`deploy/.runtime/pre-m7-image.env`保留；`backup --with-files`后核对最近5分钟产生4件备份：非空DB gzip、公/私tar、site config。未读取正文、未恢复覆盖现库。
 - 候选镜像`sha256:36a89c9b0ad6eae3842ba4a32c7c54cfa45c6a7c135041893ba55b9f2f07e238`，兼容回退`sha256:6490855bc7f8e2a78523ac40ad3b5b024d745965ac9c2e834c3bfa9b10641fe9`。两次migrate及原CRM smoke通过；实际14字段和两个物理unique索引已核对。所有所需app服务同镜像重建、旧卷保留。
@@ -89,4 +89,44 @@ tower选择官方本站`System Settings.allow_error_traceback=0`，不新增错�
 
 tower在临时已登录会话中真实上传/预览并勾独立确认apply，M7VISUAL001三行返回成功1、重复1（同Lead00033）、缺姓名错误1；企业/联系人原生链接可见，script/img恶意字符串确为文本节点而非元素。失败CSV按钮已点击，但实际落盘及内容、原生链接跳转和移动视觉尚待验收。此结果不等于标准登录通过。
 
-M6此前注入sid或改DOM表单POST/补usr/pwd name绕过了/login故障，不能作为交付步骤。标准/login请求`/frappe-web.bundle.js`404，$、frappe.call、frappe.login未定义，表单退化GET。M9隔离镜像和固定源码已确定：D003继承的CRM-only build未把base根assets.json预置到sites/assets，产生{}后覆盖官方32键映射；实际hash文件存在，非M8导致。规范Dockerfile改为build前完整preseed官方assets、build后校验映射与实际文件，smoke补Guest/login JS/CSS及Content-Type；不手写映射、不保留DOM workaround、不重编Framework。由M9先统一构建M7-only修复镜像，部署需tower窗口。**新干净tab不改DOM进行用户名密码登录→preview→apply前，M7继续阻断，不TowerComplete。**
+M6此前注入sid或改DOM表单POST/补usr/pwd name绕过了/login故障，不能作为交付步骤。标准/login请求`/frappe-web.bundle.js`404，$、frappe.call、frappe.login未定义，表单退化GET。M9隔离镜像和固定源码已确定：D003继承的CRM-only build未把base根assets.json预置到sites/assets，产生{}后覆盖官方32键映射；实际hash文件存在，非M8导致。规范Dockerfile改为build前完整preseed官方assets、build后校验映射与实际文件，smoke补Guest/login JS/CSS及Content-Type；不手写映射、不保留DOM workaround、不重编Framework。M9已在tower窗口从精确`c8b870b20099170e05fecb648d6f08201cdd9f77`标准构建并部署M7-only镜像`sha256:c47b7cc4bc53cf6388977eb03dab9a9a1658a1c1fdca0d9a8b5cc89c57bc9411`，双manifest均32键且全部目标存在，未安装M8。首次运行smoke因Redis共享`assets_json`仍为旧8个RTL键失败；本站clear-cache/clear-website-cache不能清该shared键。tower逐项授权M9只删除`frappe.cache.delete_value('assets_json', shared=True)`再清本站网页缓存，重建主32+RTL8=40、无覆盖冲突；完整Guest/login哈希JS/CSS正确类型及管理员真实session/CRM smoke PASS。README已纳入这项精确公共静态缓存失效，不允许flushdb/通配删除/清会话。原sites卷及配置保留，新完整备份stem`20261031_034520-crm_localhost`四件已核验，未恢复现库。
+
+M6证据提交`93426e65c5f4a2b79dc2922f99ff8ace337f125a`（`docs/TEAM_ACCESS.md`）在全新干净Edge tab776603395原生/login填写和点击，无DOM表单改动/无sid注入，m7-visual.csv preview200。**旧资产404阻断已解除，不能继续称其未解决；但该证据止于preview，标准会话完整apply与实际失败CSV仍待验，不调用TowerComplete。** 既有M7HTTP001首行在新镜像preview/apply均已导入、原3企业/4联系人/6Lead计数不变，此非新标准浏览器整链，也未重跑完整新前缀HTTP矩阵。
+
+精确交付提交：`e4b32d146558325b668729c0f392837a01cf5f1a`实现、`746076bfd6ede014739668b7fd20d1e53376569b`初次部署证据、`c8b870b20099170e05fecb648d6f08201cdd9f77`标准登录资产修复。M9源/构建证据在其私有`deploy/.runtime/integration-b9fbb3df92114b0f93bd68bbe97f8609/{source-manifest.json,build-result.json}`，不提交运行材料。以下追加替代本节此前“标准会话apply/真实下载待验”的当前状态，不抹掉历史时点。
+
+### 标准会话真实上传、确认与落盘（M7独占UI窗口）
+
+沿用M6原生登录的干净Edge tab776603395、同一`crm-mvp-acceptance`会话，真实文件控件上传新唯一`apps/resource_import/samples/m7-standard-ui.csv`（453 bytes、六列、三数据行）。未改DOM表单/注入sid，未用File/Blob或API替代提交。后台Edge原生文件读取曾挂起，启用CDP focus emulation后正常读取，并非伪造上传。
+
+共享确认先取消再明确勾选，preview POST 200（requestId41068.59），显示新建、文件内重复、缺姓名；第二个导入确认默认未勾选且apply disabled。明确勾选后apply仅一次，POST 200（41068.60）：成功1、已导入1，共用`CRM-LEAD-2026-00034`、`M7STANDARDUI001企业`和`M7STANDARDUI001联系人-M7STANDARDUI001企业`；缺姓名失败1（来源物理行5）。不重跑M7VISUAL001。预览script原文可见，`typeof window.m7unsafe`为undefined，预览区script/img元素数0。实际桌面结果截图`deploy/.runtime/m7-standard-ui-result.png`已读图。
+
+真实点击失败下载，按Edge原生下载“另存为”保存`deploy/.runtime/m7-standard-ui-failures.csv`，不是模拟DOM生成物。Read及Python csv逐字段断言PASS：250 bytes、UTF-8 BOM、8列（原六列+来源行号/失败原因），仅一错误行；中文、逗号、双引号与嵌入换行逐字符保真，联系方式`=1+1`仅按报告约定变为`'=1+1`，行号5/原因缺少姓名，无成功或重复行。该忽略的运行证据保留本机，不提交。
+
+结果链接使用`target=_blank`；WebBridge合成click被Edge弹窗拦截，未将其计作跳转通过。改用Windows真实鼠标点Lead后新tab776603398先进入`/crm/setup`（Connect your email，33%），没有把引导页面当详情PASS。只读固定[路由](https://github.com/frappe/crm/blob/36bd8859f2a6345a620477bc708d0546e8c3f08a/frontend/src/router.js)、[Setup.vue](https://github.com/frappe/crm/blob/36bd8859f2a6345a620477bc708d0546e8c3f08a/frontend/src/pages/Setup.vue)及运行镜像FCRM Settings字段/控制器，确认这是本站单例`setup_completed=0`的管理员引导门槛，不是导入失败/标准登录404。以下是获tower逐项授权后的真实收敛，不抹掉首次未通过状态。
+
+### 必填初始化、隐私基线与正常Skip
+
+- tower明确选择实验隐私基线：既有`System Settings.enable_telemetry=1`应关闭。原生Share usage data取消两次均保存失败；第二次在capture后取得POST68524.181、417 MandatoryError，安全筛选的响应明确缺Language/Time Zone。DB仍1，未将本地复选框当成功，不输出请求凭据。
+- 当前标准会话用户为`m6-system-manager@example.invalid`，角色System Manager。正常`/app/system-settings`可编辑Language，但固定v15.125元数据将必填time_zone硬编码read_only=1；缺值时原生UI无法补齐。未篡改DOM/df/表单/请求体，未用完整setup-wizard填写无关企业资料。
+- 固定Framework空时区有效回退Asia/Kolkata，`now_datetime`及新creation/modified使用本站naive时间；换上海并非只改显示，且不自动迁移旧值。tower选择保持有效旧语义：language=zh、time_zone=Asia/Kolkata、telemetry=0，traceback=0保持；暂不转上海，真实团队时区须上线前另行规划。
+- 获单独维护授权后，仅一次普通ORM `doc.save()`修复缺失只读必填项，无ignore_mandatory/ignore_permissions、无SQL/db.set_value、无核心/DocField改动。保存前快照、保存后事务内比较**全部System Settings字段**，只允许三目标业务字段及modified/modified_by；差异实际恰为language null→zh、time_zone null→Asia/Kolkata、enable_telemetry1→0、元数据仅modified，白名单通过才commit。fresh进程读取有效timezone仍Asia/Kolkata，traceback0，密码策略1/评分2、backup3、link limit10均不变。此为维护初始化，不冒充UI成功设置只读时区。
+- 原生设置重载可见简体中文、只读Asia/Kolkata及官方活动审计三项差异；点击原生保存未报错，dirty=false。未声称该不变值点击又触发了一次服务端写入。重载setup后正常Skip setup→确认，POST68524.360 **200**；fresh DB `FCRM Settings.setup_completed`0→1、telemetry仍0。未手动注入localStorage/完成flag，未接邮箱、生成示例、邀请成员或提交反馈/Enrich。
+
+关闭遥测不等于此前零外发，也不保证阻止所有第三方请求。固定SetupTelemetryConsent组件本地初值true，不直接代表DB当前许可；以本站实际值0为准，不为使UI勾选匹配而重启用。设置初始化及回退边界见`deploy/README.md`；M6早前ignore_mandatory处理保留为历史例外，本次已恢复普通设置保存所需的完整必填。
+
+### 三个结果原生链接与窄屏
+
+引导完成后，重新回到**同一导入结果**逐一真实鼠标点击，不用navigate/API代替链接动作。WebBridge借用对应实际新tab并snapshot核对业务字段：
+
+| 结果链接 | 实际新tab / 页面 | 实际详情内容 |
+|---|---|---|
+| Lead | 776603404，`/crm/leads/CRM-LEAD-2026-00034#activity` | ID00034、M7STANDARDUI001联系人、M7STANDARDUI001企业、owner为M6 Synthetic |
+| 企业 | 776603407，`/crm/organizations/M7STANDARDUI001企业`（URL百分号编码） | 企业名称输入值正确，联系人计数1，商机0 |
+| Contact | 776603410，`/crm/contacts/M7STANDARDUI001联系人-M7STANDARDUI001企业`（URL百分号编码） | 姓名及关联企业输入值正确，商机0 |
+
+390×844浏览器仿真只读截图`deploy/.runtime/m7-standard-ui-narrow.png`和`m7-standard-ui-narrow-result.png`均已读图：上传/共享提示、确认与失败下载可见且换行；页面总宽390、无整体横向溢出，两个表使用局部overflow-x:auto（容器340、表1000），长表需要横向滚动。这只是窄屏布局检查，未测真实手机触屏、完整移动浏览器矩阵或原生安装包。
+
+窗口结束已恢复device metrics、原tab776603395 focus emulation=false，停止原导入及setup后Leads tab776603398本人network capture，隐藏Windows overlay；未关闭用户tabs/session。已明确向tower释放共享实例/UI窗口，后续只本地文档收尾。当前产品逻辑自c8b870b未改，仅追加证据文档与新合成CSV；运行镜像仍为该精确提交构建。样例已导入，后续验收须获窗口并换新前缀，不盲目重跑apply。
+
+当前可申请M7独审；**无create专门负例仍未测**（未改全局DocPerm造例），不以12API或System Manager天然create权限代替它。普通团队导入/仅私域Lead模式、M8团队私域权限、真实移动端及恢复演练不在本轮完成声明内，不称完整团队MVP。
