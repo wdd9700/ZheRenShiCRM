@@ -110,6 +110,8 @@ def build_environment(upstream):
     for path, name in (
         ("crm.fcrm.doctype.fcrm_note.fcrm_note", "FCRMNote"),
         ("crm.fcrm.doctype.crm_task.crm_task", "CRMTask"),
+        ("crm.fcrm.doctype.crm_lead.crm_lead", "CRMLead"),
+        ("crm.fcrm.doctype.crm_deal.crm_deal", "CRMDeal"),
         ("crm.fcrm.doctype.crm_call_log.crm_call_log", "CRMCallLog"),
         ("crm.fcrm.doctype.crm_notification.crm_notification", "CRMNotification"),
         ("frappe.core.doctype.comment.comment", "Comment"),
@@ -144,6 +146,13 @@ def build_environment(upstream):
         namespace = {"Document": Base, "assign": assign, "unassign": unassign}
         exec(compile(ast.Module(body=[cls], type_ignores=[]), str(path), "exec"), namespace)
         sys.modules["crm.fcrm.doctype.crm_task.crm_task"].CRMTask = namespace["CRMTask"]
+        for doctype, name in (("crm_lead", "CRMLead"), ("crm_deal", "CRMDeal")):
+            path = upstream / f"apps/crm/crm/fcrm/doctype/{doctype}/{doctype}.py"
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == name)
+            namespace = {"Document": Base, "frappe": frappe}
+            exec(compile(ast.Module(body=[cls], type_ignores=[]), str(path), "exec"), namespace)
+            setattr(sys.modules[f"crm.fcrm.doctype.{doctype}.{doctype}"], name, namespace[name])
 
 
 def run(upstream):
@@ -336,6 +345,7 @@ def run(upstream):
         pending.on_update()
         assert writes[-1][0] == "assign" and writes[-1][1]["assign_to"] == ["a"] and task.assigned_to == "a"
         print("PASS fixed upstream CRMTask assign deferred until stored grant; old unassign preserved before DB update without clearing the new assignee")
+    verify_parent_controllers(upstream)
     if upstream:
         verify_delete_feed(upstream)
     verify_snapshots()
@@ -343,8 +353,33 @@ def run(upstream):
     print("LOCAL ONLY: in-memory Frappe replacement, not installed framework/HTTP/socket/UI acceptance")
 
 
+def verify_parent_controllers(upstream):
+    from team_access import hooks, parents
+    from crm.fcrm.doctype.crm_lead.crm_lead import CRMLead
+    from crm.fcrm.doctype.crm_deal.crm_deal import CRMDeal
+
+    for doctype, cls, original in (("CRM Lead", parents.ActivityLead, CRMLead), ("CRM Deal", parents.ActivityDeal, CRMDeal)):
+        assert cls.__bases__ == (original,) and cls.no_feed_on_delete is True
+        assert set(cls.__dict__) - {"__module__", "__doc__", "__firstlineno__", "__static_attributes__"} == {"no_feed_on_delete"}
+        assert hooks.override_doctype_class[doctype] == "team_access.parents." + cls.__name__
+        for name, value in original.__dict__.items():
+            if callable(value) or isinstance(value, (staticmethod, classmethod)):
+                assert getattr(cls, name) is getattr(original, name)
+        if upstream:
+            assert original.__bases__ == (Base,)
+            assert not hasattr(original, "no_feed_on_delete")
+            assert "on_trash" not in original.__dict__ and "after_delete" not in original.__dict__
+        pending = cls(doctype=doctype, name="parent", owner="a")
+        before = len(pushed)
+        pending.notify_update()
+        assert len(pushed) == before + 1
+        pushed.pop()
+    source = "fixed native class definitions" if upstream else "in-memory controller replacements"
+    print("PASS parent subclasses only disable delete feed; hook mapping, inherited methods and ordinary update notification preserved (" + source + ")")
+
+
 def verify_delete_feed(upstream):
-    from team_access import events, realtime
+    from team_access import events, parents, realtime
 
     path = upstream / "apps/frappe/frappe/model/delete_doc.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -364,13 +399,17 @@ def verify_delete_feed(upstream):
 
     frappe.get_doc = lambda values: Feed(values)
     try:
-        forbidden(lambda: namespace["insert_feed"](Doc(doctype="CRM Lead", name="parent", owner="a", no_feed_on_delete=False)))
-        assert len(emitted) == 1 and emitted[0]["comment_type"] == "Deleted" and not emitted[0].get("reference_name")
+        for doctype in ("CRM Lead", "CRM Deal"):
+            before = len(emitted)
+            forbidden(lambda: namespace["insert_feed"](Doc(doctype=doctype, name="parent", owner="a", no_feed_on_delete=False)))
+            assert len(emitted) == before + 1 and emitted[-1]["comment_type"] == "Deleted" and not emitted[-1].get("reference_name")
+        for doctype, cls in (("CRM Lead", parents.ActivityLead), ("CRM Deal", parents.ActivityDeal)):
+            namespace["insert_feed"](cls(doctype=doctype, name="parent", owner="a"))
         namespace["insert_feed"](realtime.ActivityNote(records[("FCRM Note", "note")]))
-        assert len(emitted) == 1
+        assert len(emitted) == 2
     finally:
         frappe.get_doc = original
-    print("CONFIRMED BLOCKER: fixed native default delete feed produces half-empty reference rejected by Comment guard; private no_feed bypasses only feed generation. Ordinary controllers using default feed require a reviewed compatibility decision before deployment.")
+    print("PASS actual fixed insert_feed: original parent half-reference denied, Lead/Deal subclasses and private activity skip only feed generation; real CRUD/snapshot persistence still untested")
 
 
 def verify_snapshots():
@@ -481,5 +520,5 @@ def verify_driver():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deterministic, standard-library-only permission regression; never connects to a site or database")
-    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root to exercise the real CRMTask controller methods")
+    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for CRMTask methods, Lead/Deal inheritance and native insert_feed")
     run(parser.parse_args().upstream_root)

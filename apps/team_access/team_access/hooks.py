@@ -23,6 +23,8 @@ doc_events = {
 }
 
 override_doctype_class = {
+    "CRM Lead": "team_access.parents.ActivityLead",
+    "CRM Deal": "team_access.parents.ActivityDeal",
     "File": "team_access.files.ActivityFile",
     "FCRM Note": "team_access.realtime.ActivityNote",
     "CRM Task": "team_access.realtime.ActivityTask",

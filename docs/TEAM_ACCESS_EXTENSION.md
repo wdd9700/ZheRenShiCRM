@@ -2,7 +2,7 @@
 
 **状态：实现与离线核验阶段；尚未安装共享实例，尚未通过双Sales User真实HTTP、视觉和独立审查。不是团队MVP权限验收。** 固定目标为 Frappe 15.125.0 + CRM 1.90.0（CRM commit `36bd8859f2a6345a620477bc708d0546e8c3f08a`）。只新增独立 `apps/team_access`，不改Frappe/CRM核心、全局角色、Administrator凭据或既有M5/M6/M7合成业务数据。部署归tower/M9，未获窗口不得执行本页写入命令。
 
-**候选仍不可部署：已用固定`delete_doc.insert_feed`实际函数+本地替身确认默认删除feed产生半空Comment引用，被本扩展guard拒绝。私域no_feed已规避该feed；普通Lead/Deal实际controller是否走默认路径尚待固定源码核对，真实CRUD未测。不得把该默认路径的预期403回归当“删除通过”。最小可逆备选是经审查的普通父官方子类仅关闭删除feed、保留快照；未实施，不放宽任意半空引用或信任客户端Deleted类型。**
+**候选仍不可部署，待exact-tip独审及真实验收。** 固定Lead/Deal源码已确认没有`no_feed_on_delete`或独立删除hook，原生`delete_doc.insert_feed`确会产生被本扩展拒绝的半空Comment引用。现已使用两个官方controller窄子类**仅关闭普通父删除feed**，所有业务方法完全继承；固定实际`insert_feed`离线调用已通过兼容回归。不放宽半空引用，不信任客户端Deleted类型，不改删除快照持久化。真实CRUD、关联/权限检查和快照保留仍未测，不能把离线函数通过当“删除通过”。
 
 ## 1. 已确认语义
 
@@ -55,7 +55,7 @@
 | Call get_call_log / add_note/task_to_call_log | 不复用跨请求cached_doc返回体；检查当前Call和已有子write；新建走当前会话正常save，不ignore_permissions。 |
 | mentions / notifications | 未授权mention使保存拒绝，不产生新正文通知；既有通知不删，读取按当前全部私域根write过滤，包括通知source/comment间接链。 |
 | File / Attachment Gallery | File子类before_insert/validate；upload在字节前检查。统一引用图覆盖Comment链、Communication主引用+全部timeline链接和多私域根；所有同URL旧别名取根并集且要求每根当前write，不能靠File owner或共享父旁路。禁止public/remote/url复用、detach/reparent/公开转换。get_filtered_attachments保留原生dt/dn/四元filters验证后逐File判权，元数据与字节同门槛。预检还覆盖私域内容hash的公共/远程别名。 |
-| realtime / 删除feed | 所有Note/Task（包括Shared）以及有私域根的历史/File/Call抑制doc_update/list_update；私域Comment/Communication不发含完整正文的docinfo_update，私域Chat/Notification不广播new_message。普通无私域正式沟通保留原生推送。can_subscribe_doc对这些私域文档一律403，包括owner；无实时刷新或查看者名单，须手动HTTP刷新。普通Lead/Deal订阅仍原生。私域子类使用官方no_feed_on_delete抑制无可授权reference_name却含源ID的删除feed；删除快照仍保留。 |
+| realtime / 删除feed | 所有Note/Task（包括Shared）以及有私域根的历史/File/Call抑制doc_update/list_update；私域Comment/Communication不发含完整正文的docinfo_update，私域Chat/Notification不广播new_message。普通无私域正式沟通保留原生推送。can_subscribe_doc对这些私域文档一律403，包括owner；无实时刷新或查看者名单，须手动HTTP刷新。普通Lead/Deal订阅仍原生。私域子类使用官方no_feed_on_delete抑制无可授权reference_name却含源ID的删除feed。普通Lead/Deal也经官方窄子类仅设该标志，不生成删除feed，保留原生保存、权限、关联、业务方法及普通父更新推送；不改删除快照持久化。实际框架删除及快照保留待验。 |
 | Deleted Document | 所有身份（包括特殊Administrator的应用请求）均拒Note/Task、File、ToDo、通知、嵌套/缺根私域历史、残缺/不一致快照以及含不透明原始历史缓存的快照read/list/export/delete/restore。原对象已删或alias失效不能判为公开。普通File/ToDo/通知快照也因此不能在应用中恢复，这是明确首版降级，数据不删；不新增管理员豁免。直接正式父历史快照须当前父read，无私域和不透明历史缓存的普通父快照仍原生。官方restore及bulk_restore均override，bulk先全量预检再调用原生，混合私域项403且不产生部分恢复。受控运维备份恢复另行验证。 |
 
 `frappe.desk.notifications.get_open_count`保留原生dashboard关联规则的internal names/count与external count/open_count；**不执行DocType模块的任意get_timeline_data回调**，因此依赖该可选回调的Desk额外时间轴片段不受支持，原生CRM主时间线使用单独activities override。需真实UI确认固定版本实际受影响部位，不把缺片段当成功。
@@ -108,16 +108,16 @@ python apps/team_access/verify_http.py verify --user-a <SalesUserA> --user-b <Sa
 
 R2新增：父getdoc/get_docinfo/get_communications（Private和Shared）隐藏私域Communication正文/ID/附件，owner正例；旧ToDo直读/list/Shared docinfo.assignments和get_assigned_users拒绝；旧B-owned同URLalias直读/list/字节和dt/dn图库元数据拒绝，普通父附件图库可见；timeline-only两根交集、只授一根拒绝、全授正例、同会话撤一根立即拒绝；owner及Shared-only都不能订阅私域，普通父can_subscribe_doc正例；显式读_comments拒绝。
 
-**仍须人工/补充真实HTTP**：v2详细矩阵、原生CRM动态编辑器提示和管理页视觉、Shared写按钮反馈、Call动态链接/已有子更新、转换Lead/Deal通信排序/重复与父撤权、自动Email引用及timeline链接、get_docinfo全部顶层字段和原始缓存/_link_titles、Version直接detail与CSV、Data Import/Data Export全部变体、File先无父后挂载/remote/multipart/间接Comment链附件、匿名/无角色/CSRF、用户权限缓存撤回和重启、M5/M7兼容、备份恢复。新增**真实socket硬门槛**：全socket重启后owner也不能doc_subscribe/doc_open私域，open/close/disconnect无私域doc_viewers；普通父订阅正例、B先订阅共享父后撤销协作者再由A新增/改Comment/Communication/File/Task，不收到私文、标题、私域ID/操作者，HTTP刷新仍正确。驱动不含socket客户端；不新增依赖，不能用can_subscribe_doc HTTP403代替真实socket验收。最终MANUAL REQUIRED仍是验收阻断。
+**仍须人工/补充真实HTTP**：v2详细矩阵、原生CRM动态编辑器提示和管理页视觉、Shared写按钮反馈、Call动态链接/已有子更新、转换Lead/Deal通信排序/重复与父撤权、自动Email引用及timeline链接、get_docinfo全部顶层字段和原始缓存/_link_titles、Version直接detail与CSV、Data Import/Data Export全部变体、File先无父后挂载/remote/multipart/间接Comment链附件、匿名/无角色/CSRF、用户权限缓存撤回和重启、M5/M7兼容、备份恢复。仅对**新M8合成Lead/Deal**核验实际删除、原生权限/关联检查、快照保留及无删除feed，绝不删除M5/M6/M7既有对象；普通正式沟通与父订阅正例也必须保留。SM及受控Administrator的Deleted Document详情/list/CSV/单批恢复负例和普通父快照恢复正例详见第8节。新增**真实socket硬门槛**：全socket重启后owner也不能doc_subscribe/doc_open私域，open/close/disconnect无私域doc_viewers；普通父订阅正例、B先订阅共享父后撤销协作者再由A新增/改Comment/Communication/File/Task，不收到私文、标题、私域ID/操作者，HTTP刷新仍正确。驱动不含socket客户端；不新增依赖，不能用can_subscribe_doc HTTP403代替真实socket验收。最终MANUAL REQUIRED仍是验收阻断。
 
 ## 7. 验证台账（交付时持续更新）
 
 | 项目 | 当前证据 |
 |---|---|
-| 固定上游源码审查 | R2使用M9自有network=none探针导出的Document/handler/API v1/v2/assign_to/load、各controller、Node订阅及delete_doc/Deleted Document schema+restore源码；来源与SHA见M9的supplement-manifest-M8R2.json、supplement-manifest-socket-M8R2.json、supplement-manifest-controllers-M8R2.json、supplement-manifest-delete-doc-M8R2.json、supplement-manifest-deleted-document-M8R2.json。无共享实例HTTP/DB/浏览器。 |
-| Python/JS语法与diff检查 | R2已过：18个Python文件AST、pyproject TOML、两个JS node --check、verify_http.py与verify_local.py --help、git diff --check（仅Git CRLF提示）。无新增依赖。 |
+| 固定上游源码审查 | R2使用M9自有network=none探针导出的Document/handler/API v1/v2/assign_to/load、各controller、Node订阅及delete_doc/Deleted Document schema+restore、完整CRMLead/CRMDeal源码；来源与SHA见M9的supplement-manifest-M8R2.json、supplement-manifest-socket-M8R2.json、supplement-manifest-controllers-M8R2.json、supplement-manifest-delete-doc-M8R2.json、supplement-manifest-deleted-document-M8R2.json、supplement-manifest-lead-deal-M8R2.json。无共享实例HTTP/DB/浏览器。 |
+| Python/JS语法与diff检查 | R2及父删除兼容小修已过：19个Python文件AST、pyproject TOML、git diff --check（仅Git CRLF提示）、verify_local.py更新后的--help；两个未再改动的JS node --check和verify_http.py --help沿用R2通过结果。无新增依赖。 |
 | R1既有离线证据 | 两活动×Comment/Communication创建/编辑/旧新目标/owner/原生write；四bucket与用户清理；probe False/hard-deny；自动timeline引用/移除拒绝；权威通信ID、转换Lead权限、重复/降序/limit21；原生update_comment guard。历史准备临时授权finally撤回成功/失败已用替身核验，不是真实HTTP。 |
-| R2可重复本地回归 | `python apps/team_access/verify_local.py`无Frappe/DB/网络、只用标准库替身。已过多根/timeline/nested/Native write/revoke、旧ToDo、父docinfo/automated_messages/user_info、旧File别名与dt/dn图库/hash预检无写、raw缓存/压缩表/链接标题和guard、旧新图/环/悬空/半空/深度/边界、源端通知抑制/普通正式正例/所有身份私域订阅拒绝，以及HTTP驱动8 bucket+2通信/旧ToDo/双根foreign-owner别名准备与重复/安装后拒绝。可加`--upstream-root <M9公开证据根>`加载固定CRMTask实际controller方法，已过原生assignment延后落库调用保留。所有这些都是离线替身，不是原生框架、安全安装或真实socket通过。 |
+| R2可重复本地回归 | `python apps/team_access/verify_local.py`无Frappe/DB/网络、只用标准库替身，默认10组PASS。已过多根/timeline/nested/Native write/revoke、旧ToDo、父docinfo/automated_messages/user_info、旧File别名与dt/dn图库/hash预检无写、raw缓存/压缩表/链接标题和guard、旧新图/环/悬空/半空/深度/边界、源端通知抑制/普通正式正例/所有身份私域订阅拒绝、父controller仅标志覆盖/继承方法不变/普通通知保留、所有身份快照详情/list/query/单批恢复及混合批全量预检，以及HTTP驱动8 bucket+2通信/旧ToDo/双根foreign-owner别名准备与重复/安装后拒绝。加`--upstream-root <M9公开证据根>`共12组PASS：执行固定CRMTask实际assignment方法，加载完整Lead/Deal class定义验证所有方法identity继承，调用固定实际insert_feed确认原始父负例仍拒、两个父子类只跳过feed。快照持久化与原生框架CRUD未执行；所有这些不是安全安装、真实HTTP或socket通过。 |
 | 标准候选构建 | M9仅旧组合746076b/509df32报告标准build与network=none probe通过；其后File/R1/R2均待新exact-tip统一重建，不沿用旧结果。Windows未安装flit_core或新增依赖。 |
 | 两Sales User真实会话 | 尚未获窗口，未执行；所有R1/R2 HTTP矩阵仅已编写，不记通过。 |
 | 安装/迁移/预检 | 真实行为未执行；由M9负责。离线预检无自动搬删/无DB写；controller/API冲突全部拒绝。全socket重启清旧room是硬门槛。 |
@@ -130,9 +130,10 @@ R2新增：父getdoc/get_docinfo/get_communications（Private和Shared）隐藏�
 - **问题和事实**：固定Comment/Communication.notify_change把完整as_dict正文发给父doc room；Document.notify_update发ID/操作者到doc/doctype room。Node只在join时通过Python can_subscribe_doc检查，撤权不驱逐旧room；doc_open/close/disconnect的doc_viewers还直接发users名单，无逐消息授权。这是源码确认，不是真实socket复现。
 - **选项**：只限制新订阅不能防旧room；逐接收人当前授权推送/room重鉴权体验更好但固定官方扩展点不能安全替代Node内部；修改核心或全站禁socket超范围。选中**源端官方子类抑制私域正文和ID事件+对所有身份禁私域doc订阅+安装硬重启清旧room**，私域手动刷新，普通父与无私根正式沟通原生保留。Chat/Notification私域new_message只抑制推送，保留原生Sent通信对被回复通信的Replied状态写入；不跳过持久化。
 - **Task assignment兼容**：固定CRMTask.validate在DB写入前调用原生assign，接收人仍不是存储记录当前writer，会被正确的历史门槛拒绝。官方ActivityTask保留固定validate中原生unassign在落库前执行，只把新assign移到on_update（落库后）；不能连unassign一起移后，因为原生remove会清DB assigned_to并对旧受派人生成通知。保留after_insert和原生assign/unassign内部业务路径；旧受派人移除通知生成时仍须目标旧授权有效，既已合法生成的通知无法事后收回。不用pending ACL、新增ignore_permissions或绕过历史校验。旧ToDo关闭不产生新description，允许当前owner关闭；产生新副本仍要求接收人当前write。需真实新增/变更/撤回assignee及通知持久化回归。
-- **删除快照追加裁决**：固定schema向普通System Manager授Deleted Document read/export/delete，restore仅检查SM后直接读完整data，bulk_restore直接调用模块内restore并逐项commit；只override单恢复不够。选择保留数据、两入口预检、列表/详情/导出统一失败默认拒绝，不禁止所有私域删除、不放宽Administrator应用读取；Note/Task等直接拒，File/ToDo/通知及不透明缓存/嵌套/缺失根无法证明当前授权时保守拒。普通此类快照也不可应用恢复是已批准代价；无不透明历史缓存的普通父快照和当前父可读的直接正式历史保留原生。私域no_feed_on_delete避免删除后生成半空引用且含源ID的feed，快照依旧保留。**普通未声明该原生标志的对象若走默认删除feed，可能被既有R1 Comment事件拒绝；带附件删除后的缺根处理也须真实验证，不宣称全CRUD删除通过**，不在本轮扩大普通父controller改动。
+- **删除快照追加裁决**：固定schema向普通System Manager授Deleted Document read/export/delete，restore仅检查SM后直接读完整data，bulk_restore直接调用模块内restore并逐项commit；只override单恢复不够。选择保留数据、两入口预检、列表/详情/导出统一失败默认拒绝，不禁止所有私域删除、不放宽Administrator应用读取；Note/Task等直接拒，File/ToDo/通知及不透明缓存/嵌套/缺失根无法证明当前授权时保守拒。普通此类快照也不可应用恢复是已批准代价；无不透明历史缓存的普通父快照和当前父可读的直接正式历史保留原生。私域no_feed_on_delete避免删除后生成半空引用且含源ID的feed，不改快照持久化。
+- **普通父删除兼容追加裁决**：已用固定实际insert_feed调用确认原生Lead/Deal默认删除feed被半空引用guard拒绝，固定完整CRMLead/CRMDeal均无该标志、on_trash或after_delete。拒绝放宽半空Comment、信任客户端Deleted字段或改核心。tower授权的最小方案已实施：`parents.ActivityLead/ActivityDeal`仅设官方no_feed_on_delete=True，全部原生方法、权限、关联检查、保存和普通更新推送继承不变，preflight同时拒绝controller覆盖冲突。代价是普通父也不再产生删除feed；快照流程未改，真实保留待验。离线对完整固定父class的全部方法identity及实际insert_feed路径回归已过，不是整个delete_doc事务通过。带附件/关联阻断、真实删除/快照仍须核验，仅使用新M8合成对象，不改删M5/M6/M7对象。
 - **Administrator精确语义**：原Note/Task等继续已有受信特殊`Administrator`分支（permissions.permitted中的早期True及has_permission跳过），依据本页第1节D005暂选；普通System Manager/Sales Manager不因此有私域旁路。本轮未反向改变该既有策略。新增Deleted Document分支在该早期True之前执行，应用guard/query/单批恢复不豁免Administrator；私域socket订阅同样全身份拒绝。受控运维备份恢复不是网页快照自动权限。
-- **置信度/验证**：中等；固定源码链和可重复替身通过（含所有身份快照读/列表/单批恢复、混合批次无副作用、普通父正例），真实framework/controller选择、Node经HTTP override拒订阅、真实旧room/撤权/重启、删除/快照恢复/通知持久化和UI兼容均未验证。SM真实HTTP须额外覆盖快照详情/list/selected CSV、单恢复403、混合批恢复403且公共项未恢复、普通正式父快照按原生恢复正例；特殊Administrator应用拒绝另作受控核验，驱动不登录Administrator。所有门槛保留，未宣称实时边界关闭或MVP通过。
+- **置信度/验证**：中等；固定源码链和可重复替身通过（含所有身份快照读/列表/单批恢复、混合批次无副作用、普通父正例、父controller原生方法继承及实际insert_feed），真实framework/controller选择、Node经HTTP override拒订阅、真实旧room/撤权/重启、删除/快照恢复/通知持久化和UI兼容均未验证。SM真实HTTP须额外覆盖快照详情/list/selected CSV、单恢复403、混合批恢复403且公共项未恢复、普通正式父快照按原生恢复正例；特殊Administrator应用拒绝另作受控核验，驱动不登录Administrator。所有门槛保留，未宣称实时边界关闭或MVP通过。
 - **可逆性/安全回退**：无核心或schema额外改动，无新依赖；仅回退到保留同等读权限边界的经审查兼容app。不能直接去掉子类、关hook、恢复原生私域推送或切无扩展旧镜像；失败保持维护。恢复细粒度推送须先证明逐消息当前授权和撤权旧room安全。
 - **复评条件**：官方出现接收人授权/room驱逐扩展点、上游版本变化、团队必须实时协作、性能越界或任何真实正负例失败。当前无新增用户决策卡点；tower允许此可逆降级，不能用文档代替真实验收。
 
