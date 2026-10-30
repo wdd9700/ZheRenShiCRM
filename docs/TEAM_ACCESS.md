@@ -108,9 +108,9 @@ M6 覆盖的 HTTP/API 边界：
 
 经 tower 明确授权，本站 `System Settings.allow_error_traceback` 从 **1 改为 0** 并 clear cache。首次普通 save 被既有 `language`、`time_zone` 必填校验阻断且未提交；随后保留这些字段原值，以 `ignore_mandatory` 仅保存目标项成功。操作只对目标字段赋值，未修改其他字段；但未做全字段前后快照，不能声称完成全字段哈希核验。回退是在同一受控窗口将该单值恢复为 1 并 clear cache。此设置只收敛 HTTP 错误详细程度，不等于关闭服务端日志；本轮未读取或输出日志。
 
-最终 `m7_access_negative.py` 为 **12 PASS / 0 FAIL**：System Manager 页面/preview 通过；Sales User、Sales Manager 和匿名页面/API 拒绝；有效 preview receipt 不能跨用户或匿名 apply；角色从 System Manager 改为 Sales User 后有效 receipt 返回安全 403；禁用账号后原会话返回 417，但无实际 `exc`/`exception` 堆栈、源码路径/行号、候选或秘密；preview 与所有拒绝 apply 均未写业务 Lead。断言允许纯 `exc_type=ValidationError` 类型名，仍禁止异常堆栈和敏感内容。
+最终 `m7_access_negative.py` 为 **12 PASS / 0 FAIL**：System Manager 页面/preview 通过；Sales User、Sales Manager 和匿名页面/API 拒绝；有效 preview receipt 不能跨用户或匿名 apply；角色从 System Manager 改为 Sales User 后有效 receipt 返回安全 403；禁用账号后原会话返回 417，但无实际 `exc`/`exception` 堆栈、源码路径/行号、候选或秘密。R1 审查指出早期零写入检查未覆盖最后两次拒绝 apply；`08bae8a` 已把检查移到所有测试后的外层 `finally`，并重跑确认 12/12。最终检查用恢复授权的新 System Manager 会话先验证 `/resource-import`，再比较唯一 PERSON 前后 Lead ID 集合，覆盖角色撤回、禁用及恢复异常路径。断言允许纯 `exc_type=ValidationError` 类型名，仍禁止异常堆栈和敏感内容。
 
-“System Manager 但无必要 create”未测：三个导入实体的 System Manager 均有 create，不改全局 DocPerm 无法安全构造。Sales User 和 Sales Manager 虽有 create 仍被入口拒绝已验证。专用 System Manager 最终恢复 `enabled=1` 和 System Manager；指定浏览器标签已显示 `/resource-import`，未提交导入。这只是页面就绪，不是完整视觉验收。
+“System Manager 但无必要 create”未测：三个导入实体的 System Manager 均有 create，不改全局 DocPerm 无法安全构造。Sales User 和 Sales Manager 虽有 create 仍被入口拒绝已验证。专用 System Manager 最终恢复 `enabled=1` 和 System Manager；标准原生登录与 preview 证据见第 7 节，未提交导入，不代表完整视觉或 apply 验收。
 
 ## 6. 独立安全扩展的最小修复边界
 
@@ -180,7 +180,7 @@ Framework 的 `has_permission` 与 `DatabaseQuery.build_match_conditions` 都有
 
 ## 7. UI 视觉与后续验收
 
-本轮 M6 是 HTTP/API 验收，**团队双账号浏览器视觉和 JavaScript 交互未测试**。M7 的标准 `/login` 路径未通过：`http://127.0.0.1:8088/frappe-web.bundle.js` 返回 404，登录 JS 未执行，按钮退化为 GET；早期 CDP 注入会话和后续 DOM 改为原生 POST/补 `usr`、`pwd` 都只是建立测试会话的临时绕行，不是产品修复。绕行后 preview 返回 200，页面显示 3 行、其中 1 行错误，未 apply；这不能替代标准登录和完整 UI 验收。资产链修复后必须在新的干净标签重验。修复后至少用两个隔离浏览器上下文验证：
+本轮 M6 的团队双账号浏览器视觉和 JavaScript 交互仍未测试。M7 早期标准 `/login` 曾因 `http://127.0.0.1:8088/frappe-web.bundle.js` 返回 404 而失败；CDP 注入和 DOM 改 POST 都只是临时绕行，没有计作标准通过。M9 在 `c47b7cc` 修复资产链后，已用全新干净标签 `776603395` 完成原生 `/login` fill+click，未改 DOM、未注入 sid；随后 `m7-visual.csv` preview 返回 200，M7-V-1/2/3 均显示，未 apply。这证明当时的 M7 标准登录与 preview 路径，不等于完整团队 UI 或 apply 验收。后续团队权限修复后至少用两个隔离浏览器上下文验证：
 
 - 列表、全局搜索、仪表盘计数、最近记录、直接 URL、关联时间线和导出均无私域内容或数量侧漏。
 - A/B 看到的共享记录可协作，私有 Note/Task 不出现在 DOM、JS 响应或网络面板。
