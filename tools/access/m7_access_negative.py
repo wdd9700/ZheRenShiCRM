@@ -144,6 +144,16 @@ def assert_safe_denial(response, allowed=(403,)):
             assert payload["exc_type"] in ("ValidationError", "PermissionError", "AuthenticationError")
 
 
+def business_lead_ids(session):
+    response = session.resource(
+        "CRM Lead",
+        fields=["name"],
+        filters=[["CRM Lead", "first_name", "=", PERSON]],
+    )
+    assert response.status == 200, f"business Lead query status {response.status}"
+    return {row["name"] for row in response.json().get("data", [])}
+
+
 def validate(config):
     checks = Checks()
     sessions = {}
@@ -154,10 +164,12 @@ def validate(config):
     for email in (USER_A, SALES_MANAGER, SYSTEM_MANAGER):
         checks.run(f"real session {email}", lambda email=email: login(email))
     if len(sessions) != 3:
-        return checks, None, None
+        return checks, None, None, None
     ordinary = sessions[USER_A]
     manager = sessions[SALES_MANAGER]
     system = sessions[SYSTEM_MANAGER]
+    baseline_ids = business_lead_ids(system)
+    assert not baseline_ids, "unique M6/M7 PERSON baseline is not empty"
     guest = Session.__new__(Session)
     guest.base_url = BASE_URL
     guest.email = "Guest"
@@ -214,7 +226,7 @@ def validate(config):
     checks.run("M6 System Manager preview issues a session-bound receipt", system_preview)
     checks.run("Sales User, Sales Manager and anonymous preview are safely denied", denied_preview)
     if "token" not in token_holder:
-        return checks, sessions, token_holder.get("token")
+        return checks, sessions, token_holder.get("token"), baseline_ids
     apply_payload = payload_with(token_holder["token"])
 
     def cross_user_apply():
@@ -230,17 +242,8 @@ def validate(config):
             allowed=(401, 403),
         )
 
-    def no_business_write():
-        response = system.resource(
-            "CRM Lead",
-            fields=["name"],
-            filters=[["CRM Lead", "first_name", "=", PERSON]],
-        )
-        assert response.status == 200 and response.json().get("data") == []
-
     checks.run("valid receipt cannot bypass cross-user or anonymous apply denial", cross_user_apply)
-    checks.run("preview and denied apply created no M6/M7 business Lead", no_business_write)
-    return checks, sessions, token_holder.get("token")
+    return checks, sessions, token_holder.get("token"), baseline_ids
 
 
 def main():
@@ -259,37 +262,50 @@ def main():
             raise SystemExit(2) from None
         return
     config = run_container()
-    checks, sessions, receipt = validate(config)
-    if sessions and SYSTEM_MANAGER in sessions and receipt:
+    checks, sessions, receipt, baseline_ids = validate(config)
+    if sessions and SYSTEM_MANAGER in sessions and baseline_ids is not None:
         system = sessions[SYSTEM_MANAGER]
         try:
-            run_container("set-role", role="Sales User")
+            if receipt:
+                try:
+                    run_container("set-role", role="Sales User")
 
-            def role_revoked_receipt():
-                response = system.request(
-                    "POST",
-                    "/api/method/resource_import.api.apply",
-                    payload=payload_with(receipt),
-                )
-                assert_safe_denial(response)
+                    def role_revoked_receipt():
+                        response = system.request(
+                            "POST",
+                            "/api/method/resource_import.api.apply",
+                            payload=payload_with(receipt),
+                        )
+                        assert_safe_denial(response)
 
-            checks.run("role revocation denies a valid receipt without a traceback", role_revoked_receipt)
+                    checks.run("role revocation denies a valid receipt without a traceback", role_revoked_receipt)
+                finally:
+                    run_container("set-role", role="System Manager")
+                try:
+                    run_container("set-enabled", enabled=False)
+
+                    def revoked_receipt():
+                        response = system.request(
+                            "POST",
+                            "/api/method/resource_import.api.apply",
+                            payload=payload_with(receipt),
+                        )
+                        assert_safe_denial(response, allowed=(401, 403, 417))
+
+                    checks.run("disabled account cannot apply with a valid receipt", revoked_receipt)
+                finally:
+                    run_container("set-enabled", enabled=True)
         finally:
-            run_container("set-role", role="System Manager")
-        try:
-            run_container("set-enabled", enabled=False)
-
-            def revoked_receipt():
-                response = system.request(
-                    "POST",
-                    "/api/method/resource_import.api.apply",
-                    payload=payload_with(receipt),
+            def final_business_write_check():
+                restored = Session(BASE_URL, SYSTEM_MANAGER, config["passwords"][SYSTEM_MANAGER])
+                authorized = restored.request("GET", "/resource-import")
+                assert authorized.status == 200, "System Manager access was not restored"
+                after_ids = business_lead_ids(restored)
+                assert after_ids == baseline_ids, (
+                    f"business Lead IDs changed from {len(baseline_ids)} to {len(after_ids)}"
                 )
-                assert_safe_denial(response, allowed=(401, 403, 417))
 
-            checks.run("disabled account cannot apply with a valid receipt", revoked_receipt)
-        finally:
-            run_container("set-enabled", enabled=True)
+            checks.run("all preview and denied apply preserved business Lead IDs", final_business_write_check)
     print(f"SUMMARY M7-negative pass={len(checks.passes)} fail={len(checks.failures)}")
     if checks.failures:
         raise SystemExit(1)
