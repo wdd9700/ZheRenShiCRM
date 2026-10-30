@@ -37,6 +37,17 @@ def can_reference(doctype, name, user, seen=()):
         return False
 
 
+def can_contribute(doctype, name, user, seen=()):
+    if doctype in PRIVATE_TYPES:
+        target = get_record(doctype, name)
+        return bool(target and permitted(target, user, "write", seen) and frappe.has_permission(doctype, "write", doc=target, user=user, raise_exception=False))
+    return can_reference(doctype, name, user, seen)
+
+
+def private_links_permitted(doc, user, seen=()):
+    return all(can_contribute(link.get("link_doctype"), link.get("link_name"), user, seen) for link in doc.get("timeline_links", []) if link.get("link_doctype") in PRIVATE_TYPES)
+
+
 def parent_readable(doc, user, seen=()):
     dt, name = doc.get("reference_doctype"), doc.get("reference_docname")
     if not dt and not name:
@@ -56,6 +67,8 @@ def permitted(doc, user=None, ptype="read", seen=()):
         return False
     seen = (*seen, key)
     reading = ptype in READ_TYPES
+    if dt == "Communication" and not private_links_permitted(doc, user, seen):
+        return False
     if dt in PRIVATE_TYPES:
         if not parent_readable(doc, user, seen):
             return False
@@ -116,8 +129,7 @@ def permitted(doc, user=None, ptype="read", seen=()):
     if not dt_ref and not name:
         return user == doc.get("owner")
     if dt in ("Comment", "Communication") and dt_ref in PRIVATE_TYPES:
-        target = get_record(dt_ref, name)
-        return bool(target and permitted(target, user, "write", seen) and (reading or user == doc.get("owner")))
+        return can_contribute(dt_ref, name, user, seen) and (reading or user == doc.get("owner"))
     return can_reference(dt_ref, name, user, seen) and (reading or user == doc.get("owner"))
 
 
@@ -130,6 +142,8 @@ def has_permission(doc, ptype=None, user=None, **kwargs):
         return None
     stored = get_record(doc.doctype, doc.get("name")) if doc.get("name") else None
     if not permitted(stored or doc, user, ptype):
+        if doc.doctype == "Comment" and not doc.get("name") and ptype == "read":
+            return False
         deny()
     return None
 

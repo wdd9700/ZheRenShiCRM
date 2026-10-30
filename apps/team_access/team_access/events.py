@@ -1,6 +1,6 @@
 import frappe
 
-from team_access.permissions import PRIVATE_TYPES, PROTECTED, PARENTS, can_reference, deny, get_record, parent_readable, permitted
+from team_access.permissions import PRIVATE_TYPES, PROTECTED, PARENTS, can_contribute, can_reference, deny, get_record, parent_readable, permitted
 
 ACL_FIELDS = ("owner", "reference_doctype", "reference_docname", "custom_team_visibility", "custom_team_collaborator", "assigned_to")
 
@@ -26,10 +26,20 @@ def validate(doc, method=None):
             deny()
     elif doc.doctype in ("Comment", "Communication"):
         dt, name = doc.get("reference_doctype"), doc.get("reference_name")
-        if not can_reference(dt, name, user):
+        if not can_contribute(dt, name, user):
             deny()
+        if doc.doctype == "Communication":
+            from team_access.permissions import private_links_permitted
+
+            if not private_links_permitted(doc, user):
+                deny()
         old = get_record(doc.doctype, doc.get("name"))
-        if old and (old.owner != user or old.get("reference_doctype") != dt or old.get("reference_name") != name):
+        if old:
+            if not can_contribute(old.get("reference_doctype"), old.get("reference_name"), user) or not permitted(old, user, "write"):
+                deny()
+            if doc.owner != old.owner or old.get("reference_doctype") != dt or old.get("reference_name") != name:
+                deny()
+        elif doc.owner and doc.owner != user:
             deny()
     elif doc.doctype == "ToDo" and doc.get("reference_type") in PRIVATE_TYPES:
         target = get_record(doc.reference_type, doc.get("reference_name"))

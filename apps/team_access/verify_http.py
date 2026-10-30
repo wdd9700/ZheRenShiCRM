@@ -22,7 +22,7 @@ class Result:
 
 
 class Session:
-    def __init__(self, base, site, user, password):
+    def __init__(self, base, site, user, password, purpose="sales"):
         self.base, self.site, self.user = base.rstrip("/"), site, user
         self.csrf = None
         self.jar = http.cookiejar.CookieJar()
@@ -37,7 +37,10 @@ class Session:
         profile = self.resource("User", user)
         require(profile.status == 200, "own role profile available")
         roles = {r["role"] for r in profile.json()["data"].get("roles", [])}
-        require("Sales User" in roles and not roles.intersection({"System Manager", "Sales Manager"}), "Sales User without manager roles")
+        if purpose == "history":
+            require("System Manager" in roles, "existing System Manager history maintenance account")
+        else:
+            require(purpose == "sales" and "Sales User" in roles and not roles.intersection({"System Manager", "Sales Manager"}), "Sales User without manager roles")
 
     def request(self, method, path, params=None, payload=None, form=None):
         if params:
@@ -153,6 +156,94 @@ def prepare(a, b, legacy):
     return fixtures
 
 
+HISTORY_TYPES = {"assignment_logs": "Assigned", "info_logs": "Info", "like_logs": "Like", "workflow_logs": "Workflow"}
+
+
+def prepare_history(a, maintenance, f):
+    require(f["user_a"] == a.user and f["prefix"].startswith("M8-") and not f.get("history") and not f.get("history_communications"), "new M8 history manifest")
+    history, communications = {}, {}
+    for key, dt in (("note", "FCRM Note"), ("task", "CRM Task")):
+        record = success(a.resource(dt, f[key]), "history fixture owner read")
+        require(record["owner"] == a.user and record["title"].startswith(f["prefix"]) and record["reference_doctype"] == "CRM Lead" and record["reference_docname"] == f["shared_parent"], "history setup refuses non-M8 targets")
+        require(not record.get("custom_team_collaborator") and record.get("custom_team_visibility", "Private") in (None, "", "Private"), "history setup requires unused Private fixture")
+        grant = "custom_team_visibility" in record
+        if grant:
+            success(update(a, dt, f[key], {"custom_team_collaborator": maintenance.user}), "temporary explicit history collaborator")
+        try:
+            history[key] = {}
+            for bucket, comment_type in HISTORY_TYPES.items():
+                marker = f["prefix"] + "-HISTORY-" + key + "-" + bucket
+                comment = create(maintenance, "Comment", {"comment_type": comment_type, "reference_doctype": dt, "reference_name": f[key], "content": marker})
+                history[key][bucket] = {"name": comment["name"], "marker": marker}
+            marker = f["prefix"] + "-HISTORY-COMM-" + key
+            linked = create(maintenance, "Communication", {"communication_type": "Communication", "communication_medium": "Other", "subject": marker, "content": marker, "reference_doctype": dt, "reference_name": f[key], "timeline_links": [{"link_doctype": "CRM Lead", "link_name": f["shared_parent"]}]})
+            communications[key] = {"name": linked["name"], "marker": marker}
+        finally:
+            if grant:
+                success(update(a, dt, f[key], {"custom_team_collaborator": ""}), "withdraw temporary history collaborator")
+    f["history"], f["history_communications"] = history, communications
+
+
+def communication(session, doctype, name, content):
+    return session.rpc("frappe.core.doctype.communication.email.make", {"doctype": doctype, "name": name, "content": content, "subject": content, "communication_type": "Communication", "communication_medium": "Other", "send_email": 0}, True)
+
+
+def verify_history(a, b, f):
+    require(set(f.get("history", {})) == {"note", "task"} and set(f.get("history_communications", {})) == {"note", "task"}, "history-prepare is required for both activity types and linked Communications")
+    for key, dt in (("note", "FCRM Note"), ("task", "CRM Task")):
+        history = f["history"][key]
+        require(set(history) == set(HISTORY_TYPES), "all four independent history buckets required")
+        linked = f["history_communications"][key]
+        require(linked["marker"] == f["prefix"] + "-HISTORY-COMM-" + key, "independent linked Communication marker")
+        forbidden = [linked["name"], linked["marker"]]
+        for bucket in HISTORY_TYPES:
+            fixture = history[bucket]
+            require(fixture["marker"] == f["prefix"] + "-HISTORY-" + key + "-" + bucket, "independent M8 history marker")
+            forbidden.extend((fixture["name"], fixture["marker"]))
+        for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo"):
+            response = a.rpc(method, {"doctype": dt, "name": f[key]})
+            require(response.status == 200, "owner native history response")
+            info = response.json().get("docinfo", {})
+            for bucket in HISTORY_TYPES:
+                require(any(row.get("name") == history[bucket]["name"] and history[bucket]["marker"] in row.get("content", "") for row in info.get(bucket, [])), "owner sees each native history bucket")
+        require(linked["marker"].encode() in success_bytes(a.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), "owner linked Communication aggregate"), "owner sees linked private Communication")
+        clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), forbidden, "private Communication cannot leak through parent timeline link")
+        current = f["prefix"] + "-SHARED-CURRENT-" + key
+        body_field = "content" if dt == "FCRM Note" else "description"
+        success(update(a, dt, f[key], {body_field: current, "custom_team_visibility": "Shared"}), "publish synthetic current text for history checks")
+        require(current.encode() in success_bytes(b.resource(dt, f[key]), "shared current text"), "shared current text remains visible")
+        for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo"):
+            clean(b.rpc(method, {"doctype": dt, "name": f[key]}), forbidden, "Shared reader sees no historical Comment bucket or Communication")
+        clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), forbidden, "Shared current text does not publish linked private Communication")
+        formal_marker = f["prefix"] + "-FORMAL-COMM-" + key
+        success(communication(a, "CRM Lead", f["shared_parent"], formal_marker), "ordinary formal Communication allowed")
+        require(formal_marker.encode() in success_bytes(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), "formal Communication aggregate"), "ordinary formal Communication remains visible")
+        rejected = f["prefix"] + "-REJECTED-" + key
+        denied(b.rpc("crm.api.comment.add_comment", {"reference_doctype": dt, "reference_name": f[key], "content": rejected}, True), "Shared reader cannot add CRM comment")
+        denied(communication(b, dt, f[key], rejected), "Shared reader cannot create Communication through native make")
+        denied(b.resource("Communication", method="POST", payload={"communication_type": "Communication", "communication_medium": "Other", "subject": rejected, "content": rejected, "reference_doctype": dt, "reference_name": f[key]}), "Shared reader cannot REST-create Communication")
+        denied(b.resource("Communication", method="POST", payload={"communication_type": "Communication", "communication_medium": "Other", "subject": rejected, "content": rejected, "reference_doctype": "CRM Lead", "reference_name": f["b_parent"], "timeline_links": [{"link_doctype": dt, "link_name": f[key]}]}), "readable parent cannot bypass private activity timeline write")
+        owner_comment = success(a.rpc("crm.api.comment.add_comment", {"reference_doctype": dt, "reference_name": f[key], "content": f["prefix"] + "-OWNER-COMMENT-" + key}, True), "owner may add activity comment")
+        success(a.rpc("frappe.desk.form.utils.update_comment", {"name": owner_comment["name"], "content": f["prefix"] + "-OWNER-EDIT-" + key}, True), "owner may edit own activity comment")
+        success(communication(a, dt, f[key], f["prefix"] + "-OWNER-COMM-" + key), "owner may create activity Communication")
+        success(update(a, dt, f[key], {"custom_team_collaborator": b.user}), "grant explicit history collaborator")
+        visible = b.rpc("frappe.desk.form.load.get_docinfo", {"doctype": dt, "name": f[key]})
+        require(visible.status == 200 and all(history[bucket]["marker"].encode() in visible.body for bucket in HISTORY_TYPES), "collaborator reads historical buckets")
+        own = success(b.rpc("crm.api.comment.add_comment", {"reference_doctype": dt, "reference_name": f[key], "content": f["prefix"] + "-COLLAB-COMMENT-" + key}, True), "collaborator may add activity comment")
+        success(b.rpc("frappe.desk.form.utils.update_comment", {"name": own["name"], "content": f["prefix"] + "-COLLAB-EDIT-" + key}, True), "collaborator may edit own activity comment")
+        success(communication(b, dt, f[key], f["prefix"] + "-COLLAB-COMM-" + key), "collaborator may create activity Communication")
+        denied(b.rpc("frappe.desk.form.utils.update_comment", {"name": owner_comment["name"], "content": rejected}, True), "collaborator cannot edit another comment owner")
+        denied(update(b, "Comment", own["name"], {"reference_doctype": "CRM Lead", "reference_name": f["b_parent"]}), "collaborator cannot move comment to a readable parent")
+        success(update(a, dt, f[key], {"custom_team_collaborator": ""}), "revoke history collaborator")
+        denied(b.rpc("frappe.desk.form.utils.update_comment", {"name": own["name"], "content": rejected}, True), "revoked owner cannot edit own comment on Shared activity")
+        denied(update(b, "Comment", own["name"], {"reference_doctype": "CRM Lead", "reference_name": f["b_parent"], "content": rejected}), "old activity write gate survives reparent attempt")
+        formal = success(b.rpc("crm.api.comment.add_comment", {"reference_doctype": "CRM Lead", "reference_name": f["b_parent"], "content": f["prefix"] + "-OWN-FORMAL-" + key}, True), "own parent formal comment allowed")
+        denied(update(b, "Comment", formal["name"], {"reference_doctype": dt, "reference_name": f[key], "content": rejected}), "new activity write gate survives reparent attempt")
+        clean(a.rpc("frappe.desk.form.load.get_docinfo", {"doctype": dt, "name": f[key]}), [rejected], "rejected mutations were not committed")
+        success(update(a, dt, f[key], {"custom_team_visibility": "Private"}), "restore history fixture privacy")
+    print("PASS owner/collaborator history positives; four Comment buckets hidden from Shared readers; Comment/Communication creation, edits, and old/new reference denials")
+
+
 def verify(a, b, f):
     require(f["user_a"] == a.user and f["user_b"] == b.user and f["prefix"].startswith("M8-"), "fixture identities")
     for key, session, dt in (("note", a, "FCRM Note"), ("private_note", a, "FCRM Note"), ("task", a, "CRM Task"), ("b_note", b, "FCRM Note"), ("b_task", b, "CRM Task")):
@@ -177,6 +268,7 @@ def verify(a, b, f):
     denied(b.rpc("crm.api.activities.get_activities", {"name": f["private_parent"]}), "private parent activities")
     clean(b.rpc("frappe.desk.search.search_link", {"doctype": "FCRM Note", "txt": f["prefix"]}), hidden, "link candidates")
     print("PASS private REST/native/list/count/search/CSV/activities in two real sessions")
+    verify_history(a, b, f)
 
     public = f["prefix"] + "-PUBLIC-CURRENT"
     success(update(a, "FCRM Note", f["note"], {"content": public, "custom_team_visibility": "Shared"}), "publish current text")
@@ -204,8 +296,11 @@ def verify(a, b, f):
     denied(share(a, "FCRM Note", f["note"], b.user), "new child DocShare is not a bypass")
     print("PASS explicit sharing/current-only history/collaboration/revocation/parent gating")
 
-    comment = success(a.rpc("crm.api.comment.add_comment", {"reference_doctype": "CRM Lead", "reference_name": f["shared_parent"], "content": f["prefix"] + "-FORMAL-COMMENT"}, True), "formal comment")
-    success(b.resource("Comment", comment["name"]), "shared formal comment readable")
+    formal_marker = f["prefix"] + "-FORMAL-COMMENT"
+    success(a.rpc("crm.api.comment.add_comment", {"reference_doctype": "CRM Lead", "reference_name": f["shared_parent"], "content": formal_marker}, True), "formal comment")
+    require(formal_marker.encode() in success_bytes(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), "formal parent activity read"), "formal comment remains visible through native aggregate authorization")
+    formal = success(b.rpc("crm.api.comment.add_comment", {"reference_doctype": "CRM Lead", "reference_name": f["shared_parent"], "content": formal_marker + "-READER"}, True), "parent reader may add formal comment")
+    success(b.rpc("frappe.desk.form.utils.update_comment", {"name": formal["name"], "content": formal_marker + "-READER-EDIT"}, True), "parent reader may edit own formal comment")
     denied(b.rpc("crm.api.comment.add_comment", {"reference_doctype": "CRM Lead", "reference_name": f["private_parent"], "content": "forbidden"}, True), "private parent comment denied")
     mention = f'<span data-type="mention" data-id="{b.user}" data-label="Synthetic">test</span>'
     denied(update(a, "FCRM Note", f["note"], {"content": mention}), "unauthorized mention denied before notification")
@@ -224,7 +319,7 @@ def verify(a, b, f):
     print("PASS comments/mentions/notifications/private attachment download and mutation checks")
     require(f.get("legacy_shares"), "legacy DocShare OR negative was not prepared; do not label full boundary acceptance")
     print("PASS legacy DocShare OR rows did not bypass any tested boundary")
-    print("MANUAL REQUIRED: native CRM editors, sharing UI, CSP, PWA cache, Call Log/integration routes, direct Version detail and exports, upload variants, and restart cache invalidation; this script is not complete UI acceptance.")
+    print("MANUAL REQUIRED: native CRM editors, sharing UI, CSP, PWA cache, Call Log/integration routes, converted Lead/Deal communication timeline, automatic Email links, direct Version detail and exports, upload variants, and restart cache invalidation; this script is not complete UI acceptance.")
 
 
 def success_bytes(response, label):
@@ -233,16 +328,19 @@ def success_bytes(response, label):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Two real Sales User sessions; only new M8 synthetic records are mutated. No Administrator login or ORM.")
-    parser.add_argument("mode", choices=("prepare", "verify"))
+    parser = argparse.ArgumentParser(description="Two real Sales Users verify access; history-prepare uses an existing authorized maintenance account only for synthetic Comment setup. No Administrator login or ORM.")
+    parser.add_argument("mode", choices=("prepare", "history-prepare", "verify"))
     parser.add_argument("--base-url", default="http://127.0.0.1:8088")
     parser.add_argument("--site", default="crm.localhost")
     parser.add_argument("--user-a", required=True)
     parser.add_argument("--user-b", required=True)
+    parser.add_argument("--history-user", help="existing non-Administrator System Manager; history-prepare only")
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument("--legacy-shares", action="store_true", help="prepare before extension installation to exercise pre-existing DocShare OR rows")
     args = parser.parse_args()
     require(args.user_a != args.user_b and "Administrator" not in (args.user_a, args.user_b), "two different Sales Users required")
+    if args.mode == "history-prepare":
+        require(bool(args.history_user) and args.history_user not in ("Administrator", args.user_a, args.user_b), "separate existing maintenance account required")
     parsed = urllib.parse.urlsplit(args.base_url)
     require(parsed.scheme in ("http", "https") and not parsed.username and not parsed.password, "no credentials in URL")
     passwords = [os.environ.get("TEAM_ACCESS_PASSWORD_A") or getpass.getpass("Sales User A password: "), os.environ.get("TEAM_ACCESS_PASSWORD_B") or getpass.getpass("Sales User B password: ")]
@@ -256,7 +354,18 @@ def main():
             json.dump(fixture, stream)
         print("PASS new M8 fixtures prepared; manifest contains IDs/markers only, never credentials or cookies")
     else:
-        verify(a, b, json.loads(args.fixture.read_text(encoding="utf-8")))
+        fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
+        require(fixture["user_a"] == a.user and fixture["user_b"] == b.user, "fixture session identities")
+        if args.mode == "history-prepare":
+            password = os.environ.get("TEAM_ACCESS_PASSWORD_HISTORY") or getpass.getpass("Existing history maintenance account password: ")
+            maintenance = Session(args.base_url, args.site, args.history_user, password, purpose="history")
+            del password
+            prepare_history(a, maintenance, fixture)
+            with args.fixture.open("w", encoding="utf-8") as stream:
+                json.dump(fixture, stream)
+            print("PASS four independent Comment history buckets prepared through authorized HTTP; no roles or accounts changed")
+        else:
+            verify(a, b, fixture)
 
 
 if __name__ == "__main__":

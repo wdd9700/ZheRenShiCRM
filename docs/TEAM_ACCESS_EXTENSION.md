@@ -44,8 +44,9 @@
 | Data Import download_template、Data Export exporter | 精确export_filters/filters额外AND；非管理员多DocType导出拒绝，需逐类型审查后再放开。 |
 | search_link/search_widget | 额外AND；受保护类型不接受任意自定义query/ignore_user_permissions绕过。 |
 | CRM get_data | 保留分页/视图；Note/Task限定合法ID；父卡片Note/Task/Comment/Communication计数按允许子记录重算。 |
-| activities | 检查父；过滤notes/tasks/calls/attachments与分组/派生事件；去掉另一个顶层docinfo。 |
-| 原生getdoc/get_docinfo | 对受保护文档逐项过滤versions/comments/communications/attachments/assignments；Shared只读者不见历史用户信息、访问记录和未审查可选timeline历史。不会清空其他DocType的历史语义。 |
+| activities | 检查父；过滤notes/tasks/calls/attachments与分组/派生事件；去掉另一个顶层docinfo。Communication在投影丢name之前，复用固定版本原生`_get_communications`保留权威ID逐条判权后重建相同活动结构和附件过滤，不使用文本指纹；含私域主引用或timeline链接的整条通信按私域历史权限限制。沿用每父最新21条窗口，过滤后可能少于21条，不补抓更老记录；转换Lead仍须当前可读，保留Lead先于Deal、creation降序稳定排序和重复关联。 |
+| 原生getdoc/get_docinfo | 对受保护文档逐项过滤versions/comments及assignment_logs/info_logs/like_logs/workflow_logs/attachment_logs、communications/attachments/assignments；Shared只读者不见历史用户信息、访问记录和未审查可选timeline历史。Comment/Communication聚合在原生父授权后按权威记录执行同一谓词，不错误要求聚合读者另有原生Comment REST角色。无name Comment read probe返回False以供原生按类型排除，有name真实文档仍hard-deny。 |
+| Comment/Communication写入 | 私域活动目标统一要求当前活动write与原生write；新旧目标都检查，既有reference/owner不能移换。Communication同时检查新旧私域timeline链接，并在controller validate后复核自动生成引用。Lead/Deal正式沟通仍沿原生父read、作者编辑及角色规则；不新授角色。 |
 | 关联候选 | CRM get_linked_docs、Desk linked_with、dashboard get_open_count重新按可读对象生成。 |
 | Call get_call_log / add_note/task_to_call_log | 不复用跨请求cached_doc返回体；检查当前Call和已有子write；新建走当前会话正常save，不ignore_permissions。 |
 | mentions / notifications | 未授权mention使保存拒绝，不产生新正文通知；既有通知不删，读取按当前目标权限过滤。 |
@@ -81,33 +82,35 @@
 
 ## 6. 双真实Sales User重复核验
 
-驱动`apps/team_access/verify_http.py`使用标准库HTTP、两个独立CookieJar、真实密码会话和CSRF；不调用docker/ORM/Administrator，不创建用户、不改角色/User Permission，只创建带唯一M8前缀的**新合成fixture**。只修改manifest中经owner+前缀核验的M8记录，不改M5/M6/M7。凭据通过getpass或进程环境`TEAM_ACCESS_PASSWORD_A/B`，不打印、不落manifest、不提交；不要把密码放命令行、shell history或日志。manifest只有合成ID/marker，放app忽略的`.local`。
+驱动`apps/team_access/verify_http.py`使用标准库HTTP、两个独立Sales User CookieJar、真实密码会话和CSRF；不调用docker/ORM/Administrator，不创建用户、不改角色/User Permission，只创建带唯一M8前缀的**新合成fixture**。只修改manifest中经owner+前缀核验的M8记录，不改M5/M6/M7。凭据通过getpass或进程环境`TEAM_ACCESS_PASSWORD_A/B`，历史准备维护会话使用`TEAM_ACCESS_PASSWORD_HISTORY`；不打印、不落manifest、不提交，不放命令行、shell history或日志。manifest只有合成ID/marker及核对用账号名，放app忽略的`.local`。
 
-在tower给出的窗口内，先用两个已经存在、仅Sales User角色的账号。为了测试真实旧DocShare OR，**必须在首次安装前**prepare legacy fixture（只对新M8活动创建旧原生DocShare；这是攻击回归fixture，不是生产修复）。安装后verify；每一完整重跑使用新的manifest/prepare，脚本拒绝覆盖旧manifest，不删除fixture。
+在tower给出的窗口内，先用两个已经存在、仅Sales User角色的账号。为了测试真实旧DocShare OR，**必须在首次安装前**prepare legacy fixture（只对新M8活动创建旧原生DocShare；这是攻击回归fixture，不是生产修复）。独立`history-prepare`模式由tower/M6协调既有非Administrator System Manager维护账号，通过真实HTTP在两条M8活动各建Assigned/Info/Like/Workflow独立marker，以及一条primary私域活动、timeline链接共享Lead的Communication独立marker；medium为Other，不发送邮件。固定上游未向Sales User授予Comment create；不为测试新增生产绕权API。首次安装前准备最直接；安装后准备时A只对新合成活动临时显式授权维护账号为协作者并在finally撤回，该账号仍须原生目标write和父read，缺权限直接失败，不改角色或自动加共享。verify的所有deny与owner/协作者正例仍使用A/B，缺任一bucket或owner看不到marker都失败。
 
 ```sh
 python apps/team_access/verify_http.py prepare --user-a <SalesUserA> --user-b <SalesUserB> --fixture apps/team_access/.local/m8-run1.json --legacy-shares
+python apps/team_access/verify_http.py history-prepare --user-a <SalesUserA> --user-b <SalesUserB> --history-user <ExistingMaintenanceUser> --fixture apps/team_access/.local/m8-run1.json
 # tower/M9：预检、备份、安装候选、安全重建
 python apps/team_access/verify_http.py verify --user-a <SalesUserA> --user-b <SalesUserB> --fixture apps/team_access/.local/m8-run1.json
 ```
 
-脚本不输出响应体或异常堆栈，只输出固定PASS/FAIL标签。失败保留合成记录供定位，不自动清理。首次安装后新prepare不加legacy-shares可重复大部分矩阵，但缺真实旧DocShare行会在最后明确失败，不能声称完整旁路验收。已有活动fixture第一次verify后会附着私有测试文件，不能把同一fixture重复跑的状态差异当权限故障；新建一组再跑。
+脚本不输出响应体或异常堆栈，只输出固定PASS/FAIL标签。失败保留合成记录供定位，不自动清理；历史准备部分失败时不重复同一fixture，先核对临时协作者已撤回，再用新一组。首次安装后新prepare不加legacy-shares可重复大部分矩阵，但缺真实旧DocShare行会在最后明确失败，不能声称完整旁路验收。已有活动fixture第一次verify后会附着私有测试文件，不能把同一fixture重复跑的状态差异当权限故障；每一完整重跑使用新manifest，拒覆盖已有prepare或已有history，不删除fixture。
 
-自动矩阵：双向Private detail/REST write/list/native getdoc/count/search、CSV普通/selected、父activities/关联候选、Shared当前正文只读/过去Version拒绝、协作者正文写入/再授权拒绝/撤回、Task受派人写入/再分派拒绝/撤回、父权限撤回恢复、DocShare新建拒绝、正式Comment/不可见父Comment、未授权mention/notification、private File直链/公开转换/detach/公开插入/URL未挂载别名/remote/公开先上传后挂载和带附件发布拒绝。旧子DocShare fixture同时授read/write以覆盖两种原生fallback。
+自动矩阵：双向Private detail/REST write/list/native getdoc/count/search、CSV普通/selected、父activities/关联候选、Shared当前正文只读/过去Version拒绝；Note和Task分别在getdoc/get_docinfo断言四类独立Comment历史marker及ID不泄露，并确认owner/明确协作者正例；跨父timeline链接的私域Communication由A可见、B不可见（Private及Shared均检查），普通正式Communication仍可见。Shared只读者Comment及Communication的原生make/REST创建拒绝、以可读父加私域timeline链接创建拒绝、owner/协作者创建与自己Comment编辑正例、他人Comment编辑/协作者撤回后编辑/旧新reference移换拒绝。另覆盖协作者正文写入/再授权拒绝/撤回、Task受派人写入/再分派拒绝/撤回、父权限撤回恢复、DocShare新建拒绝、正式Comment父活动聚合可见及父只读者创建/编辑自己正式Comment、不可见父Comment、未授权mention/notification、private File直链/公开转换/detach/公开插入/URL未挂载别名/remote/公开先上传后挂载和带附件发布拒绝。旧子DocShare fixture同时授read/write以覆盖两种原生fallback。
 
-**仍须人工/补充真实HTTP**：v2详细矩阵、原生CRM各动态编辑器提示及管理页视觉、只读Shared原生写按钮反馈、Call Log动态链接/已有子更新、get_docinfo顶层侧响应全部字段、Version直接detail与CSV、Data Import/Data Export全部导出变体、File旧URL复用/先无父后挂载/remote/multipart上传/间接Comment附件、匿名/无角色/CSRF、用户权限缓存撤回与重启、M5/M7兼容和备份恢复。脚本最终打印MANUAL REQUIRED，不把脚本通过称全边界验收。
+**仍须人工/补充真实HTTP**：v2详细矩阵、原生CRM各动态编辑器提示及管理页视觉、只读Shared原生写按钮反馈、Call Log动态链接/已有子更新、转换Lead/Deal通信的排序/重复与父权限撤回、Email自动生成引用及timeline链接、get_docinfo顶层侧响应全部字段、Version直接detail与CSV、Data Import/Data Export全部导出变体、File旧URL复用/先无父后挂载/remote/multipart上传/间接Comment附件、匿名/无角色/CSRF、用户权限缓存撤回与重启、M5/M7兼容和备份恢复。脚本最终打印MANUAL REQUIRED，不把脚本通过称全边界验收。
 
 ## 7. 验证台账（交付时持续更新）
 
 | 项目 | 当前证据 |
 |---|---|
-| 固定上游源码审查 | 已完成只读docker exec源码核对；未运行共享HTTP基线。M6真实Note越权事实由M6交接。 |
-| Python/JS语法与diff检查 | 已过：13个Python文件AST、pyproject TOML解析、两个静态JS的node --check、verify_http.py --help、git diff --check；无共享HTTP。内存Frappe替身谓词/hard-deny/父撤回/协作者/历史/通知/File/Call/filters/HTML smoke已过；File同URL别名、同会话父撤回、未挂载/跨活动别名拒绝和numeric ID响应检测追加smoke已过；均不是真实框架权限验收。 |
-| 标准候选构建 | M9已报告组合746076b/509df32标准build与network=none离线probe通过；本次File别名补丁尚需重建。Windows未安装flit_core或新增依赖。构建通过不代表已安装或运行权限通过。 |
-| 两Sales User真实会话 | 尚未获窗口，未执行。 |
+| 固定上游源码审查 | 已完成只读docker exec源码核对；R1另使用M9隔离network=none探针导出的固定Comment/Communication/schema/load源码核对。未运行共享HTTP基线；M6真实Note越权事实由M6交接。 |
+| Python/JS语法与diff检查 | 已过：13个Python文件AST、pyproject TOML解析、两个静态JS的node --check、verify_http.py --help、git diff --check；无共享HTTP。此前谓词/hard-deny/父撤回/协作者/历史/通知/File/Call/filters/HTML及File别名/numeric ID smoke已过，均不是真实框架权限验收。 |
+| R1本地回归 | 内存替身已过：两活动×两子类型的新建/修改/旧新目标/owner/原生write拒绝矩阵；四历史bucket的owner/协作者正例和Shared负例及user_info清理；probe False与真实ID hard-deny；controller后timeline引用与旧链接移除拒绝；权威ID重建通信、正式沟通、转换Lead当前权限、重复关联顺序/creation降序/原生limit21；native update_comment guard。驱动本地替身已过8 Comment+2 Communication独立marker、临时授权成功/失败均撤回、重复准备和缺历史拒绝；未运行真实HTTP驱动。 |
+| 标准候选构建 | M9已报告组合746076b/509df32标准build与network=none离线probe通过；其后的File别名及R1补丁待集中重建。Windows未安装flit_core或新增依赖。构建通过不代表已安装或运行权限通过。 |
+| 两Sales User真实会话 | 尚未获窗口，未执行；新增R1负例只是已编写，不能记为通过。 |
 | 安装/迁移/预检真实行为 | 未执行；M9负责镜像/维护/备份窗口。预检包含与活动相同content_hash的公共/远程别名，只报数量并拒绝，不自动搬动或删除。 |
 | UI/CSP/PWA/重启 | 未执行。 |
-| 独立审查 | tower已安排源码静态审查进行中；最终exact-tip及真实全边界审查未通过。 |
+| 独立审查 | R1针对67f2571为p1-2items/hold；本轮源码修订需新exact-tip复审，尚未获通过，真实全边界审查也未通过。 |
 | 规模/性能 | 2000行fail-closed边界仅设计实现；负载与多类型递归成本未测，不适用于真实规模上线。 |
 
 当前无新增需要用户决定的技术卡点；D005是可逆暂选。真正阻断是部署窗口、真实全边界核验和独审，不用架构文档替代可观察权限证据。AGPL对应源码及修改说明须随网络服务履行适用义务，本页不构成法律意见。

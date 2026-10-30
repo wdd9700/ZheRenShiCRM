@@ -86,6 +86,7 @@ def guard():
         "frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo", "frappe.desk.form.load.getdoctype",
         "frappe.desk.form.linked_with.get", "frappe.desk.notifications.get_open_count",
         "frappe.desk.form.utils.update_comment", "frappe.desk.form.utils.delete_comment", "upload_file",
+        "frappe.core.doctype.communication.email.make",
         "crm.fcrm.doctype.fcrm_note.fcrm_note.set_pinned", "crm.api.doc.get_data",
         "crm.api.doc.get_linked_docs_of_document", "crm.api.doc.add_seen", "crm.api.doc.get_assigned_users",
         "crm.api.doc.get_quick_filters", "crm.api.doc.get_fields", "crm.api.doc.get_filterable_fields",
@@ -97,7 +98,13 @@ def guard():
         if not method.startswith(("team_access.api.", "frappe.desk.form.assign_to.")):
             raise frappe.PermissionError("This activity endpoint has not been reviewed; use the activity access page")
     if doctype in PROTECTED and target_name and not field:
-        if not can_reference(doctype, target_name, frappe.session.user):
+        if method == "frappe.desk.form.utils.update_comment":
+            from team_access.permissions import permitted
+
+            comment = get_record("Comment", target_name)
+            if not comment or not permitted(comment, ptype="write"):
+                deny()
+        elif not can_reference(doctype, target_name, frappe.session.user):
             deny()
     if doctype in PROTECTED and field:
         if method in ("frappe.desk.search.search_link", "frappe.desk.search.search_widget"):

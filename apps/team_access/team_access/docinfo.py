@@ -1,7 +1,7 @@
 import frappe
 
 from team_access.api import check
-from team_access.permissions import PRIVATE_TYPES, PROTECTED, can_reference, permitted
+from team_access.permissions import PRIVATE_TYPES, PROTECTED, can_reference, get_record, permitted
 
 
 def scrub(doctype, name):
@@ -10,12 +10,17 @@ def scrub(doctype, name):
         return
     mapping = {
         "versions": "Version", "comments": "Comment", "attachment_logs": "Comment",
+        "assignment_logs": "Comment", "info_logs": "Comment", "like_logs": "Comment",
+        "workflow_logs": "Comment",
         "attachments": "File", "assignments": "ToDo", "communications": "Communication",
         "automated_messages": "Communication",
     }
     for key, target in mapping.items():
         if key in info:
-            info[key] = [row for row in info[key] if can_reference(target, row.get("name"), frappe.session.user)]
+            if target in ("Comment", "Communication"):
+                info[key] = [row for row in info[key] if (record := get_record(target, row.get("name"))) and permitted(record)]
+            else:
+                info[key] = [row for row in info[key] if can_reference(target, row.get("name"), frappe.session.user)]
     if doctype in PRIVATE_TYPES:
         doc = check(doctype, name)
         writer = permitted(doc, ptype="write")

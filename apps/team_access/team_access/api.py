@@ -22,14 +22,36 @@ def filter_rows(doctype, rows):
     return [row for row in rows if can_reference(doctype, row.get("name"), frappe.session.user)]
 
 
+def communication_activities(parent, upstream):
+    from frappe.desk.form.load import _get_communications
+
+    parents = [(parent.doctype, parent.name)]
+    if parent.doctype == "CRM Deal" and parent.get("lead") and can_reference("CRM Lead", parent.lead, frappe.session.user):
+        parents.insert(0, ("CRM Lead", parent.lead))
+    result = []
+    for doctype, name in parents:
+        for row in _get_communications(doctype, name, limit=21):
+            record = get_record("Communication", row.name)
+            if not record or not permitted(record):
+                continue
+            data = {key: row.get(key) for key in ("subject", "content", "sender_full_name", "sender", "recipients", "cc", "bcc", "read_by_recipient", "delivery_status")}
+            data["attachments"] = filter_rows("File", upstream.get_attachments("Communication", row.name))
+            result.append({
+                "activity_type": "communication", "communication_type": row.communication_type,
+                "communication_date": row.communication_date or row.creation,
+                "creation": row.creation, "data": data, "is_lead": doctype == "CRM Lead",
+            })
+    return result
+
+
 @frappe.whitelist()
 def get_activities(name: str):
     from crm.api import activities as upstream
 
-    doctype = next((dt for dt in PARENTS if frappe.db.exists(dt, name)), None)
+    doctype = next((dt for dt in ("CRM Deal", "CRM Lead") if frappe.db.exists(dt, name)), None)
     if not doctype:
         deny()
-    check(doctype, name)
+    parent = check(doctype, name)
     try:
         activities, calls, notes, tasks, attachments = upstream.get_activities(name)
         notes = filter_rows("FCRM Note", notes)
@@ -40,10 +62,13 @@ def get_activities(name: str):
 
         def keep(activity):
             kind = activity.get("activity_type")
+            if kind == "communication":
+                return False
             if kind == "note":
                 return activity.get("data", {}).get("note") in note_names
             if kind in ("comment", "attachment_log"):
-                return can_reference("Comment", activity.get("name"), frappe.session.user)
+                comment = get_record("Comment", activity.get("name"))
+                return bool(comment and permitted(comment))
             if kind in ("changed", "added", "removed") and activity.get("options"):
                 option = activity["options"]
                 if option in (*PROTECTED, *PARENTS):
@@ -60,6 +85,8 @@ def get_activities(name: str):
                     if "attachments" in member:
                         member["attachments"] = filter_rows("File", member["attachments"])
                     result.append(member)
+        result.extend(communication_activities(parent, upstream))
+        result.sort(key=lambda activity: activity["creation"], reverse=True)
         return upstream.group_note_activities(result), calls, notes, tasks, attachments
     finally:
         frappe.response.pop("docinfo", None)
@@ -87,7 +114,10 @@ def get_data(doctype: str, filters=None, order_by="modified desc", **kwargs):
             for dt, key in (("FCRM Note", "_note_count"), ("CRM Task", "_task_count"), ("Comment", "_comment_count"), ("Communication", "_email_count")):
                 ref_field = "reference_docname" if dt in PRIVATE_TYPES else "reference_name"
                 children = frappe.get_all(dt, filters={"reference_doctype": doctype, ref_field: row.name}, fields=["name"], limit_page_length=0)
-                row[key] = sum(can_reference(dt, child.name, frappe.session.user) for child in children)
+                if dt in ("Comment", "Communication"):
+                    row[key] = sum(bool((record := get_record(dt, child.name)) and permitted(record)) for child in children)
+                else:
+                    row[key] = sum(can_reference(dt, child.name, frappe.session.user) for child in children)
     return result
 
 

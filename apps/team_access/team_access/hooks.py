@@ -17,7 +17,10 @@ after_request = ["team_access.request.after_request"]
 
 permission_query_conditions = {"*": "team_access.permissions.query_condition"}
 has_permission = {"*": "team_access.permissions.has_permission"}
-doc_events = {"*": {"before_validate": "team_access.events.validate", "on_trash": "team_access.events.on_trash"}}
+doc_events = {
+    "*": {"before_validate": "team_access.events.validate", "on_trash": "team_access.events.on_trash"},
+    "Communication": {"validate": "team_access.events.validate"},
+}
 
 override_doctype_class = {"File": "team_access.files.ActivityFile"}
 
