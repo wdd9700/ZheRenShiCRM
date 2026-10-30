@@ -16,12 +16,12 @@ M6已核对实际DocPerm/hooks：Sales User可广泛读写Organization/Contact�
 
 备选：原生单 DocType Data Import 无法一次建三实体、无自然幂等；浏览器逐条REST无法保证权限与行原子性；扩展app复用Frappe认证、CSRF、ORM、www与迁移，当前暂选。纯标准库，无新增运行依赖。置信度中，待真实HTTP/并发与视觉验收。
 
-已核对运行镜像 Frappe15.125.0 / CRM1.90.0 源码：CRM Lead/Organization 有 System Manager、Sales Manager、Sales User create/read/write；Contact 有 System Manager、Sales Manager、Sales User create/read/write（Sales Master Manager不能误写成Sales Manager）。页面及API初期仅 System Manager / Sales Manager，且仍逐DocType核验 read/create；不赋新角色、不提权。实际站点 Custom DocPerm / M6 限制待交接核对。
+已核对运行镜像 Frappe15.125.0 / CRM1.90.0 源码：CRM Lead/Organization 有 System Manager、Sales Manager、Sales User create/read/write；Contact 有 System Manager、Sales Manager、Sales User create/read/write（Sales Master Manager不能误写成Sales Manager）。实施前曾拟开放 System Manager / Sales Manager，已被M6实际权限证据替代为仅System Manager；仍逐DocType核验read/create，不赋新角色、不提权。
 
 ## 解析、权限与消歧
 
 - 服务端唯一解析/计划/写入入口，客户端仅文件读取和文本节点渲染。
-- 六列准确表头（可重排），最大1MiB UTF-8、500数据行、每格10000字符；严格CSV，不截断原文。姓名/企业/需求必填。微信等不透明联系方式可保留，不猜手机号；姓名+企业只产生候选，不自动合并。
+- 六列准确表头（可重排），最大1MiB UTF-8、500数据行、每格10000字符；严格CSV，不截断原文。姓名/企业/需求必填。微信等不透明联系方式原文可保留；语法提取数字/邮箱用于候选及新联系人解析字段，不能据此认定同一人，姓名+企业也只产生候选，不自动合并。
 - 所有候选列表用 `frappe.get_list` 权限查询，返回的对象逐个检查read；不全表 get_all，不把不可读候选名称/详情放响应。已有联系人即便单一也需显式选择；不得在手机号/邮箱冲突时挑第一个。已有企业只精确名称匹配；用户须明确确认复用。不会修改复用联系人或企业（不偷偷增加关系或覆盖原文）。联系人与企业不匹配要求手工整理，不合并猜测。
 - preview POST不建File、不写业务库；只在现有Redis写15分钟随机不透明receipt（不保存CSV原文），绑定用户、session、来源、文件完整digest及共享确认；apply必须确认且receipt一次绑定同一会话/文件/选项，服务端重新解析、重新做权限/候选计划。receipt丢失/过期/篡改/跨会话/跨用户均fail closed并要求重新预览；不能把receipt替换成另一份内容。调用者身份 `.insert()`，不使用ignore_permissions/set_user。错误仅返回固定分类，不泄露异常正文、SQL或堆栈。
 
@@ -48,3 +48,31 @@ M6已核对实际DocPerm/hooks：Sales User可广泛读写Organization/Contact�
 构建上下文改为仓库根，Dockerfile专用ignore只放行派生Dockerfile及app源；pip editable烤入镜像，无临时docker cp安装交付。构建与部署分离，禁止构建覆盖共享运行image.env；保留旧image lock与镜像，tower协调M6停写、备份数据库及公私文件后才安装/迁移/更新所有Python服务。未获窗口不执行共享schema/服务变更。
 
 验收：唯一M7合成数据；真实HTTP匿名/无角色/无create/CSRF拒绝；preview无业务写入；正常/错误/同文件重复/跨请求重复/并发；原文与特殊字符；失败CSV与原生链接。网页视觉由tower协调，不把HTTP200当视觉验收。不声称完整MVP、备份恢复完成。
+
+## 已执行证据（M7协调窗口）
+
+- 旧CRM镜像`sha256:2408974e8c5b8f3feacbaf6cac3c62e69c41fe1cf10dec251dd6cbdd1b9de5f3`及主私有`deploy/.runtime/pre-m7-image.env`保留；`backup --with-files`后核对最近5分钟产生4件备份：非空DB gzip、公/私tar、site config。未读取正文、未恢复覆盖现库。
+- 候选镜像`sha256:36a89c9b0ad6eae3842ba4a32c7c54cfa45c6a7c135041893ba55b9f2f07e238`，兼容回退`sha256:6490855bc7f8e2a78523ac40ad3b5b024d745965ac9c2e834c3bfa9b10641fe9`。两次migrate及原CRM smoke通过；实际14字段和两个物理unique索引已核对。所有所需app服务同镜像重建、旧卷保留。
+- 显式`CRM_DEPLOY_RUNTIME_DIR`在复用私有材料前验绝对deploy/.runtime路径、非链接非硬链接普通文件、主checkout Git记录的已登记worktree（Windows路径经可信wslpath规范化）、ignored/untracked；不静默回退旧.env、不允许override init-env。主运行代码未修改，只经授权激活忽略的image lock。
+- 安装暴露的patch manifest缺pre_model_sync、Frappe www将hyphen转换为underscore controller、无encryption_key及Long Text清洗问题均修正后重新构建验收，失败时未声称完成。5个早期字段保留；修正前M7HTTP001未进入apply，所以没有旧版原文行需要回填。
+
+`python3 deploy/verify_resource_import.py --runtime-dir /mnt/p/CRM/deploy --prefix M7HTTP001 --confirm-synthetic-write` exit0：
+
+| 断言 | 真实结果 |
+|---|---|
+| 匿名页面/API | 页面跳登录、API拒绝；认证页面注入CSRF token |
+| preview无写 | 前后企业/联系人/Lead计数相同；只写短期Redis receipt |
+| CSRF/POST | 无CSRF拒绝，GET拒绝；共享确认和导入确认分别必验 |
+| receipt绑定 | 改来源/内容、无效或不存在receipt、另一真实登录会话均422；不输出token |
+| 正常/重复/错误 | 首批4成功、1已导入、2失败；含企业创建后联系人长名称失败，企业回滚无孤儿 |
+| 原文持久 | Code字段及六列JSON逐字符比对包含script/img onerror、<>、&、引号、中文、换行与逗号，来源JSON正确；不写共享Organization产品原文 |
+| 复跑 | 首五行均已导入，无新增企业/联系人/Lead |
+| 消歧 | 已有候选但无选择则失败；显式选企业及已关联联系人后只新增一条Lead |
+| 并发 | 两个独立真实HTTP会话同时apply，恰一成功一已导入；合计3企业/4联系人/6Lead，无重复孤儿 |
+| 原生链接 | 本批成功对象的CRM URL均200（非视觉验收） |
+
+另补充专用receipt/锁探针：Redis TTL实际为(0,900]，强制该专用receipt过期后HTTP422；独立DB连接持有同锁，HTTP apply有界10秒后422、不写业务，持锁连接正常释放。探针不是对M6账号/业务资料的变更。协调顺序问题：tower告知M6已于21:14释放窗口后，我在收到明确冻结消息前仍追加了这些探针，可能干扰独立验证；已报告tower并在收到明确冻结后停止一切实例操作。后续真实角色/视觉由tower独立协调，不把这些额外探针当允许继续操作的授权。
+
+保留`M7HTTP001`合成资料3企业/4联系人/6Lead，不删除。网页样例`apps/resource_import/samples/m7-visual.csv`使用独立`M7VISUAL001`前缀，正常/重复/缺姓名/CSV公式前缀三行供视觉验收。管理员HTTP通过不等于真实文件控件/DOM安全显示/失败下载已验收；真实非管理员拒绝、角色撤回及网页视觉仍待外部回传。
+
+仅本地检查：Python AST、JS语法、无innerHTML、Windows原生runtime路径元数据守卫通过；实际页面JS在模拟DOM里驱动独立共享确认→预览→确认→失败结果/CSV，验证文本赋值、引号换行序列化与公式前缀加单引号，**不算浏览器验收**。CSV恰好1MiB/500行通过，超1字节/超1行拒绝，表头重排原文相同、来源/序号不影响完整hash。已清理本次生成的pycache及两份migrate输出日志，保留必要镜像lock/备份。tower要求结束本轮等待M6与浏览器回传，任务未完成、不调用TowerComplete，恢复后再补最终证据。

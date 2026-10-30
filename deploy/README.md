@@ -182,7 +182,7 @@ CRM_DEPLOY_RUNTIME_DIR=/mnt/p/CRM/deploy/.runtime python3 deploy/manage.py check
 2. 核对候选`built-image.env`中的ID与实际构建对应。显式将候选活动锁激活（构建命令不替操作者做这一步）；先`manage.py check`，再`manage.py up`重建Python服务及frontend/websocket/configurator等共享同镜像服务。不可只重启backend而遗留旧worker模块路径。此步有短暂维护窗口。
 3. 运行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost install-app resource_import`（仅首次），随后`bench --site crm.localhost migrate`、`clear-cache`。版本化迁移只add缺失字段/唯一索引、遇字段冲突拒绝；已有数据和M5备注不变。重新migrate用于幂等检查。
 4. `manage.py smoke`核验原CRM，再显式运行下方HTTP合成核验。普通用户拒绝/浏览器视觉及下载由tower协调M6/浏览器验收；未完成不得标记完成。
-5. 回退优先`bench --site crm.localhost set-config resource_import_disabled 1`并`clear-cache`关闭入口，保留app记录、字段和全部资料，切到预备兼容回退镜像ID（旧CRM+可加载app包），重建同组服务。**不uninstall-app，不删Custom Field，不切缺app的旧镜像，不删卷/合成记录。** 修复后显式将该flag改为0再clear-cache。数据库恢复必须另行审批并在新站点演练，不在此流程中冒险覆盖现库。
+5. 回退优先`bench --site crm.localhost set-config -p resource_import_disabled 1`并`clear-cache`关闭入口（`-p`确保JSON数值，不使用真值非空的字符串`"0"`），保留app记录、字段和全部资料，切到预备兼容回退镜像ID（旧CRM+可加载app包），重建同组服务。**不uninstall-app，不删Custom Field，不切缺app的旧镜像，不删卷/合成记录。** 修复后显式`set-config -p resource_import_disabled 0`再clear-cache。数据库恢复必须另行审批并在新站点演练，不在此流程中冒险覆盖现库。
 
 HTTP操作核验（需要现有部署runtime，仅程序内部使用现有登录材料、不打印凭据；显式写入并保留M7合成资料）：
 
