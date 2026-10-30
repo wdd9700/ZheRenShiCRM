@@ -1,13 +1,16 @@
 """M5 业务闭环演示：导入结果 → 两个独立商机 → 沟通事件 → 截止跟进 → 阶段演进 → 时间线。
 
-在 bench 容器内运行（只针对 M5 前缀合成数据，不删除、不改用户与权限）：
+**仅合成数据**：只操作企业名以 `M5样例` 开头、姓名以 `样例` 开头的记录，否则拒绝执行
+（M6 已证实 FCRM Note 私密 detail/PUT 跨用户 200、activities 泄漏未共享 note，真实资料不得进入本路径）。
+
+在 bench 容器内运行（不删除、不改用户与权限）：
 
     cd /home/frappe/frappe-bench/sites
     ../env/bin/python /tmp/m5/m5_workflow_demo.py            # 只读检查
     ../env/bin/python /tmp/m5/m5_workflow_demo.py --confirm   # 真实写入
 
-前置：先执行 M5 导入（tools/crm/m5_import.py apply --confirm）。
-幂等：商机按 lead 复用、评论/任务按内容与标题复用、阶段只在当前值不同才推进。
+前置：先执行 M5 合成导入（tools/crm/m5_import.py apply --confirm）。
+幂等：商机按 lead 复用、评论/任务按内容与标题复用、阶段只在当前值不够/未达目标时推进。
 """
 
 import argparse
@@ -15,6 +18,9 @@ import json
 import sys
 
 import frappe
+
+SYNTHETIC_ORG_PREFIX = "M5样例"
+SYNTHETIC_PERSON_PREFIX = "样例"
 
 DEAL_A_REQUIREMENT = "质检环节数字化与不良率追溯"
 DEAL_B_REQUIREMENT = "冷链仓储温控监控"
@@ -159,6 +165,19 @@ def main(argv=None):
 		report["steps"]["leads"] = {"A": lead_a, "B": lead_b}
 		if not lead_a or not lead_b:
 			report["error"] = "未找到导入产生的需求线索，请先运行 m5_import.py apply --confirm"
+			print(json.dumps(report, ensure_ascii=False, indent=1))
+			return 1
+
+		non_synthetic = []
+		for lead in (lead_a, lead_b):
+			org, person = frappe.db.get_value("CRM Lead", lead, ["organization", "first_name"])
+			if not (org or "").startswith(SYNTHETIC_ORG_PREFIX) or not (person or "").startswith(
+				SYNTHETIC_PERSON_PREFIX
+			):
+				non_synthetic.append({"lead": lead, "organization": org, "first_name": person})
+		if non_synthetic:
+			report["error"] = "拒绝执行：目标线索不是合成数据（企业名须以 M5样例 开头、姓名须以 样例 开头）"
+			report["non_synthetic"] = non_synthetic
 			print(json.dumps(report, ensure_ascii=False, indent=1))
 			return 1
 

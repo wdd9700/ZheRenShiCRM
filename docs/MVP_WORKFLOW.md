@@ -1,12 +1,23 @@
 # MVP 业务闭环：资源导入 → 企业/联系人 → 需求 → 商机 → 沟通 → 下次跟进 → 时间线
 
-**状态：首个不依赖 AI、不依赖自建 CRM 前后端的闭环已在真实实例上跑通。原生导入在受控开启站点调度后已能真实执行（含逐行错误），但"中文六列一次导入"这个用户界面体验仍未交付。tower 已选定方向：用最小 Frappe 扩展 app 做服务端单一实现（不复用浏览器逐条 REST 写入），方案见第 6 节，尚未实施。CLI 适配器只是可审查增量，不替代 UI 验收；可视界面验收待 tower 协调（内置浏览器控制不可用）。**
+**状态（2026-10-31 收口）：M5 的交付是「原生导入能力实测 + 合成样例 + 业务工作流演示/操作文档」，不是完整 MVP。六列网页导入已正式拆给 M7（`resource_import`，目前仍在部署测试，**未验收**）；完整 MVP 还需 M6 的权限修复结论与视觉验收。M5 的脚本只允许合成数据验证。**
 
 - 实例：`crm-mvp-v15`，站点 `crm.localhost`，入口 `http://127.0.0.1:8088/crm`（仅回环，合成数据）。
 - 版本：Frappe Framework `15.125.0`，Frappe CRM `1.90.0`（`deploy/README.md` 已锁定的派生镜像）。
-- 记录原则：只写**实际执行过**的结果；未执行的项目集中在第 7 节，不混进"已完成"。
+- 记录原则：只写**实际执行过**的结果；第 2–5 节是**本轮历史实验记录**（真实执行、仅合成数据、发生在 M6 安全结论之前），第 6–9 节是收口后的边界与更正。
 
-## 1. 结论速览
+## 0. 交付边界与安全门槛（收口结论）
+
+| 项 | 结论 |
+|---|---|
+| 六列网页导入 | **不属于 M5**，已拆给 M7；M5 不提供 UI，不声称可用 |
+| M5 脚本用途 | 仅合成数据验证/参考实现；生产导入入口是 M7 |
+| 合成数据防护 | `tools/crm/m5_guard.py`：企业名须以 `M5` 开头、姓名须以 `样例` 开头，否则拒绝执行，无旁路开关；本地自检 `python tools/crm/selftest_guard.py` |
+| 安全前提（M6） | 两个真实 Sales User 的 HTTP 请求证实：FCRM Note 私密 detail/PUT 均返回 **200**（跨用户越权读取与改写），activities 也会返回未共享的 note。因此**联系方式原文/需求原文不得靠 FCRM Note 承载真实资料**，也解释了为什么 M5 旧路径只能跑合成数据 |
+| 完整 MVP 定义 | M7 网页导入 + M6 权限修复 + 视觉验收 + 备份恢复演练，缺一不可 |
+| 共享实例状态 | 现由 M7 独占部署；M5 不再对其执行写库或 HTTP 操作 |
+
+## 1. 结论速览（历史实验结论，均在合成数据上真实执行）
 
 | 能力 | 结果 | 证据 |
 |---|---|---|
@@ -17,12 +28,12 @@
 | 原生重复控制 | **没有**自然键去重，同一文件导两次记录翻倍 | 同一 3 行文件走两次 UI 路径 → `CRM-LEAD-2026-00012` 与 `-00013` 同姓名同手机号 |
 | 一次导入建企业+联系人+需求 | **不支持**（一次一个 DocType） | `Data Import.reference_doctype` 单值 |
 | 六列里的"需求/产品"列落到 Lead | **无原生字段** | `CRM Lead` 元数据里没有需求文本字段 |
-| 最小适配（CLI） | 已实现、真实库跑通、可重复执行不重复建记录 | `tools/crm/m5_import.py`：首次 2 企业/3 联系人/4 需求；二次 0 新增 |
+| 参考适配脚本（合成数据） | 已跑通、可重复执行不重复建记录；**已被 M7 取代，不作生产入口** | `tools/crm/m5_import.py`：首次 2 企业/3 联系人/4 需求；二次 0 新增 |
 | 需求→商机 | 原生人工转换（`convert_to_deal`），脚本**不会**自动建商机 | `CRM-DEAL-2026-00001`、`CRM-DEAL-2026-00002` |
 | 沟通/跟进/阶段/时间线 | 已跑通 | 4 条评论、2 个 `CRM Task`、阶段日志、时间线接口 7 条活动 |
-| 可视 UI 点击验收 | **未做** | 内置浏览器 `browser.create_tab` 返回 `BROWSER_UNAVAILABLE`；tower 已改用 Edge 协调 |
+| 可视 UI 点击验收 | **未做** | 内置浏览器 `browser.create_tab` 返回 `BROWSER_UNAVAILABLE`；后续由 tower 协调 |
 
-## 2. 原生导入实测（含调度器）
+## 2. 原生导入实测（含调度器，历史记录）
 
 ### 2.1 开启调度器前的受控核对（2026-10-31 02:05，只读）
 
@@ -66,7 +77,7 @@ row 4 → 失败  13700000003 / 邮箱 m5.ui.c@example.com is not a valid Phone 
 - 一条 CSV 只能建一种 DocType：企业、联系人、需求必须分别导入，且它们之间的关系（Lead→Organization 是 Data 文本，Deal→Organization 才是 Link）不会自动建立。
 - 没有去重/幂等，重复导入直接翻倍。
 
-## 3. 最小适配：`tools/crm/m5_import.py`
+## 3. 参考适配脚本：`tools/crm/m5_import.py`（仅合成数据；已被 M7 取代）
 
 容器内运行，Python 标准库 + 已安装的 frappe，无新依赖、无自定义字段、无数据库结构变更。
 
@@ -108,7 +119,7 @@ apply    真实写入，必须带 --confirm；退出码同上
 
 二次执行：`企业=0，联系人=0，需求=0，需求跳过=5，错误行=3`，库中仍是 2 企业 / 3 联系人 / 4 需求 —— 幂等成立。
 
-## 4. 业务闭环演示：`tools/crm/m5_workflow_demo.py`
+## 4. 业务闭环演示：`tools/crm/m5_workflow_demo.py`（历史记录，仅合成数据）
 
 `--confirm` 才写库，缺省只读检查；重复执行不会重复建商机/评论/任务/阶段变更。
 
@@ -136,16 +147,17 @@ apply    真实写入，必须带 --confirm；退出码同上
 - 时间线会把连续的同字段变更折叠显示；完整历史在 `status_change_log` 与 `Version`。
 - 演示脚本第一版 `shift_status` 在重复执行时会把已推进的阶段**回退再前进**，所以 `CRM-DEAL-2026-00001` 的阶段日志里留有 1 次 `Negotiation → Demo/Making` 回退。脚本已改为只前进，回退记录按审计原则**保留未删**。
 
-## 5. 用户可复现的操作路径
+## 5. 可复现路径（历史记录；共享实例现由 M7 独占，勿直接执行）
 
-### 5.1 命令行（已验证）
+### 5.1 合成数据的命令行路径（需要 tower 给窗口）
 
-主 checkout（合并后）在第一 Ubuntu 中执行：
+主 checkout（合并后）在第一 Ubuntu 中执行；**共享实例现由 M7 独占部署，本组命令不得自行运行**，需要真实回归时向 tower 申请窗口：
 
 ```sh
 cd /mnt/p/CRM
 docker exec crm-mvp-v15-backend-1 mkdir -p /tmp/m5
 docker cp tools/crm/m5_import.py crm-mvp-v15-backend-1:/tmp/m5/
+docker cp tools/crm/m5_guard.py crm-mvp-v15-backend-1:/tmp/m5/
 docker cp tools/crm/m5_workflow_demo.py crm-mvp-v15-backend-1:/tmp/m5/
 docker cp samples/m5-synthetic-six-columns.csv crm-mvp-v15-backend-1:/tmp/m5/
 docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 \
@@ -156,9 +168,9 @@ docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 \
   ../env/bin/python /tmp/m5/m5_workflow_demo.py --confirm
 ```
 
-`/tmp/m5` 只是容器内临时目录，不进入镜像；脚本不读 `.env`、不打印密码。
+`/tmp/m5` 只是容器内临时目录，不进入镜像；脚本不读 `.env`、不打印密码。企业名不以 `M5` 开头或姓名不以 `样例` 开头的输入会被 `m5_guard.py` 直接拒绝。
 
-### 5.2 CRM 界面（原生路径）
+### 5.2 CRM 界面（原生路径，历史核对）
 
 浏览器打开 `http://127.0.0.1:8088/crm`（Administrator）：
 
@@ -166,15 +178,23 @@ docker exec -i -w /home/frappe/frappe-bench/sites crm-mvp-v15-backend-1 \
 2. **Deals** 列表看 2 条商机；`CRM-DEAL-2026-00001` 详情可改 `Status`/`Next Step`/金额/预计成交日，Activity 显示创建、阶段变更、评论，Tasks 显示 2026-11-03 跟进。
 3. **Organizations / Contacts** 看企业主营与联系人的手机/邮箱/关联企业。
 4. **需求转商机**：在需求线索页用原生"转换为商机"（人工动作）。
-5. **导入**：`/crm/data-import` 上传 CSV → 人工映射列（中文表头需手选）→ 预览 → 开始导入。现在按钮可用（调度器已开启），逐行结果在导入结果页 / `Data Import Log`。
+5. **导入**：`/crm/data-import` 上传 CSV → 人工映射列 → 预览 → 开始导入（调度器已开启时可用），逐行结果在 `Data Import Log`。注意：这条原生路径仍**没有**自然键去重，不适合作为六列生产入口。
 
-HTTP 级核对已通过：`/crm`、`/crm/leads`、`/crm/deals`、`/crm/data-import`、`/crm/organizations`、`/crm/contacts` 返回 200 SPA 外壳与 JS 资产；`frappe.client.get_list`（Lead/Deal/Task）、`frappe.client.get`（商机详情）、`crm.api.activities.get_activities`、`get_preview_from_template`、`form_start_import` 均返回真实数据/结果。
+HTTP 级核对（历史）：上述路由返回 200 SPA 外壳与资产，`frappe.client.get_list`、`crm.api.activities.get_activities`、`get_preview_from_template`、`form_start_import` 均返回真实结果。
 
-**未做**：浏览器内的可视点击验收。内置浏览器 `browser.create_tab` 反复返回 `BROWSER_UNAVAILABLE`，因此不声称"界面已验收"，只声称"前端调用的接口与原生导入链路已返回正确结果"。
+**未做且未声称**：浏览器可视点击验收（内置浏览器 `BROWSER_UNAVAILABLE`），以及六列网页导入（属 M7）。
 
-## 6. 界面导入闭环：服务端单一实现（tower 已定方向，待独立实施任务）
+## 6. 六列网页导入：已转交 M7（方案存档，未验收，非 M5 交付）
 
-tower 决策（2026-10-31 20:38）：选**最小 Frappe 扩展 app**；不接受浏览器逐条 `get_list`/`insert`（并发幂等、失败原子性、权限、映射一致性都无法保证）；`Page` DocType 存在**不**证明 `page_html` 脚本会执行，先核验加载机制；允许项目内新增 app 与受控重启，但先报具体部署动作并与 M6 暂停写入窗口协调；不改上游核心、不启用 Server Script 全局开关、不删数据。`custom_requirement` 先不实施，schema 与幂等标识一起设计。
+tower 最终决定：六列网页导入与服务端安全写入**独立移交 M7（`resource_import`）**；M5 不再实现 UI。本节保留的是交接方案存档，**M7 当前仍在部署测试，不能称为已验收**。
+
+已否决的做法（保留为历史，不再推荐）：
+
+- **浏览器逐条 `get_list`/`insert`**：并发幂等、失败原子性、权限、映射一致性都无法保证，**已否决**。
+- **截短 SHA1 + 备注文本匹配做幂等**：碰撞面大、依赖文本检索、与 M6 揭示的 note 越权问题叠加，**只能作为合成库演示**，不得作生产实现。
+- **`uninstall-app` / 删除 Custom Field 作为回退**：会丢数据/丢审计，**不作为回退建议**；回退必须靠备份恢复 + 停用入口（见 6.7）。
+
+以下 6.1–6.6 是对 M7 的技术输入（机制核验、目录、事务、权限、schema），不是 M5 的实施承诺。
 
 本章只是实现交接方案，**未写任何 app、未改共享实例**。
 
@@ -221,9 +241,9 @@ apps/m5_import_app/
 
 - `preview_import`：**只读**（不写库、不建 File），返回与 apply 相同的计划结构。
 - `apply_import`：一个请求 = **一个事务**。每行 `savepoint("m5_row")` → 写企业→联系人→CSV 备注→Lead（写 `custom_import_key`）→ `release_savepoint`；行内异常 `rollback(save_point="m5_row")` 并继续下一行；全部行处理完才 `commit()`。异常中断则整批回滚，用户重跑安全（与原生 Data Import 的逐行 commit 不同，避免半成品与"重启后不知道导到哪"）。
-- 幂等键：`sha1(企业归一|姓名|手机号或邮箱|需求归一)` 前 16 位，落在 `CRM Lead.custom_import_key`（`unique=1`）。先查后写；并发双击由唯一索引兜底 → 捕获 `DuplicateEntryError` 记为"已导入"（**不再靠备注文本解析**）。
+- 幂等键：`sha1(企业归一|姓名|手机号或邮箱|需求归一)` **全长 40 位**，落在 `CRM Lead.custom_import_key`（`unique=1`）。先查后写；并发双击由唯一索引兜底 → 捕获 `DuplicateEntryError` 记为"已导入"（**不用备注文本解析，也不用截短哈希**）。
 - 企业：docname（`organization_name`）天然键；联系人：手机号归一 → 邮箱小写 → 姓名+企业，按候选值精确查询（不做全表缓存）；联系方式原文进 `Contact.custom_contact_raw`，解析失败的行直接报错。
-- `FCRM Note` 仍写一条人类可读来源备注（时间线可看），但**不再是幂等依据**。
+- `FCRM Note` 仍写一条人类可读来源备注（时间线可看），但**不再是幂等依据**；且因 M6 发现的 note 越权，**不得在其中放真实联系方式原文**（见 6.6 的字段分流）。
 
 ### 6.5 权限边界
 
@@ -241,9 +261,10 @@ apps/m5_import_app/
 | CRM Organization | `custom_product_offering` | Small Text | 产品/服务原文（与整理版 `company_description` 分开） |
 | Contact | `custom_contact_raw` | Small Text | 联系方式原文（含微信等不可解析片段） |
 
-- 渠道沿用现有 `source`（Link → CRM Lead Source，写 `M5导入样例`）；`FCRM Note` 只作人类可读时间线。
-- 迁移：`bench export-fixtures` 固化 → `bench migrate`（ADD COLUMN + 索引）→ 一次性回填脚本把已有备注里的需求/原文搬到新字段 → 适配器与页面同时写字段。回滚：删除 Custom Field（列删除、回填数据丢失，备注仍在）。
-- 与 M6：全部为非权限字段，不改角色/共享/owner；但仍建议排在 M6 验证快照之后，由 tower 统一排期（本任务不实施）。
+- 渠道沿用现有 `source`（Link → CRM Lead Source，写 `M5导入样例`）；`FCRM Note` 只作人类可读时间线，**不放真实联系方式原文**（M6 已证实跨用户读取/改写）。
+- 迁移：`bench export-fixtures` 固化 → `bench migrate`（ADD COLUMN + 索引）→ 一次性回填脚本把已有**合成**备注里的需求/原文搬到新字段 → 适配器与页面同时写字段。
+- 回滚（更正）：**不做 `uninstall-app`、不删 Custom Field**。改为①先做 `bench backup --with-files`；②停用入口（下线 `/m5-import` 路由/撤回白名单方法）并保留字段与数据；③确需回退结构时用备份在同版本站点恢复，而不是删列。删字段会丢数据且不可审计，已从建议中移除。
+- 与 M6：全部为非权限字段，不改角色/共享/owner；但仍须排在 M6 验证快照之后，由 tower 统一排期（本任务不实施）。
 
 ### 6.7 部署动作（需 tower 派单 + M6 暂停写入窗口）
 
@@ -252,28 +273,28 @@ apps/m5_import_app/
 3. 通知 M6 暂停写入 → `python3 deploy/manage.py up`（recreate `backend`、`websocket`、`queue-short`、`queue-long`、`scheduler`；`frontend` 无资产变化可不重建）。
 4. `bench --site crm.localhost install-app m5_import_app`（无 doctype → 不触发 migrate）+ `bench --site crm.localhost clear-cache`；随后按 6.6 应用 fixtures（可选批次）。
 5. 验收（`M5UI2` 前缀合成数据）：`GET /m5-import` 登录门 → preview 计划正确 → apply 得到 2 企业/3 联系人/4 需求/3 错误行 → 二次 apply 0 新增 → 并发双击只落一份 → 无该角色账号 403 → 无邮件/队列副作用 → 与 `tools/crm/m5_import.py preview` 逐行一致。
-6. 回滚：`bench --site crm.localhost uninstall-app m5_import_app` → 用旧镜像 ID 重新 `up`；schema 回滚按 6.6 删字段（数据不可恢复，备注保留）。
+6. 回滚（更正）：先 `bench backup --with-files`；停用入口（撤下 `/m5-import` 路由与白名单方法）、保留字段与数据；确需回退结构/版本时用备份在同版本站点恢复 + 旧镜像 `up`。**不**用 `uninstall-app` 或删字段当回退手段。
 
 ### 6.8 状态
 
-- 方案已定；**本轮不写 app、不改共享实例、不重启服务**。M5 保持 active，等独立实施任务或正式拆分验收。
-- 已交付的可审查增量是第 2–5 节的实测结果、`tools/crm` 脚本与合成样例；它们**不**等于界面闭环。
+- 本节是交给 M7 的实现输入；**M5 不实施**，未写 app、未改共享实例、未重启服务。M7 目前仍在部署测试，**未验收**。
+- M5 的可审查增量是第 2–5 节的实测结果、`tools/crm` 脚本（含合成数据防护）与合成样例；它们**不**等于界面闭环。
 
-## 7. 未实现边界与待决事项
+## 7. 未实现边界与转交
 
-1. **可视 UI / 移动端 / PWA 安装**未验收；tower 将用 Edge 协调。
-2. **六列 CSV 的界面闭环**未实现（第 6 节给出服务端单一实现方案：最小 app + `www` 页 + 事务/幂等/schema/部署步骤；待独立实施任务）。
-3. **团队权限与双账号私域隔离**未验证：全程只有 `Administrator` 一个账号（M6 负责）。
-4. **需求文本没有可检索字段**，现在只在 `FCRM Note` 里；6.6 的 Custom Field 提案未实施，待与 M6 协调排期。
-5. **备份/恢复、重启持久化、导出关系**未在本轮重测（`deploy/README.md` 有备份口径，需同版本新站点恢复演练）。
-6. **原生导入试验留下的合成记录（未删除，唯一前缀）**：`M5NATIVE` 6 条、`M5UI` 2 条（含 1 条重复）、若干 `Data Import` 与 `Data Import Log`。它们是对比"原生去重缺失/逐行错误"的证据；如需清理须由 tower 另行批准。
-7. 适配器按小数据集设计：联系人去重会把 `Contact Phone`/`Contact Email` 全量读进内存（当前 3 条）；量级上千后应改成按候选值查询或建索引。
-8. 调度器现为**开启**状态（原值 0），回退命令见 2.1；两条 Weekly Long 的应用更新元数据任务未执行、也未停用。
+1. **六列网页导入与服务端安全写入**：已转交 M7（方案见第 6 节），M7 部署测试中、未验收；M5 不实现 UI。
+2. **可视 UI / 移动端 / PWA 安装**：未验收，待 tower 协调（内置浏览器不可用）。
+3. **团队权限与私域隔离**：M6 已证实现有缺陷（FCRM Note 私密 detail/PUT 跨用户 200、activities 泄漏未共享 note），修复前**不得导入真实资料**；修复结论由 M6/M7 跟进。
+4. **需求/产品原文的可检索落位**：6.6 的字段方案未实施，随 M7 的 schema 批次走。
+5. **备份/恢复、重启持久化、导出关系**：未重测，需同版本新站点恢复演练。
+6. **历史合成记录（未删除）**：`M5NATIVE` 6 条、`M5UI` 2 条（含 1 条重复）、若干 `Data Import`/`Data Import Log`；属对比证据，清理须 tower 批准。
+7. 参考脚本按小数据集设计：联系人去重会把 `Contact Phone`/`Contact Email` 全量读进内存（当前 3 条），量级上千应改查询方式；该脚本已被 M7 取代，不再演进。
+8. 调度器现为**开启**（原值 0，回退 `disable-scheduler`），见 2.1；公开更新元数据检查按要求不停用。
 
 ## 8. 复评触发条件
 
-- 第 6 节的服务端 app 实施后 → 重测界面导入体验（含 CLI preview 与页面 preview 的逐行比对、并发双击、权限 403、回滚演练），结果补进本文件。
-- 6.6 的 Custom Field 落地（tower 排期、M6 验证快照之后）→ 重测需求筛选与列表展示，并更新 M3 schema 交接。
+- M7 的六列网页导入验收后 → 由 M7 记录真实结果；M5 不重复声明。
+- M6/M7 修复 FCRM Note 与 activities 的越权后 → 重新评估"原文备注"能否用于真实资料；在此之前仅合成数据。
+- 6.6 的字段批次落地（tower 排期、M6 快照之后）→ 重测需求筛选，并更新 M3 schema 交接。
 - 站点调度器/导入配置变化，或升级到带新导入 UI 的 CRM 版本 → 重测原生导入。
-- 出现第二位真实账号 → 立即补双账号权限与私域隔离验收，再谈"团队 MVP"。
-- 真实客户资料进入系统前：先做备份/恢复演练、访问边界与授权确认。
+- 备份/恢复演练与视觉验收完成后，才谈"完整 MVP"。

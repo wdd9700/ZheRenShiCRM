@@ -46,4 +46,8 @@ Frappe CRM 原生 `Data Import` 一次只处理一个 DocType，且只在"更新
 2. "联系方式"列里的 `13800000001 / 微信 m5-demo-a` 会被 Phone 校验拒绝（实测报 `is not a valid Phone Number`）；
 3. 同一文件重复导入会直接翻倍（实测同一 3 行文件两次导入产生 2 条同名同手机号线索）。
 
-真正避免重复、保留原文、把需求落位请用 `tools/crm/m5_import.py` 的预览→确认适配器，见 `docs/MVP_WORKFLOW.md`。
+真正避免重复、保留原文、把需求落位的产品入口是 **M7 的六列网页导入**（`resource_import`，部署测试中、未验收）。
+`tools/crm/m5_import.py` 只是合成数据参考实现：企业名须以 `M5` 开头、姓名须以 `样例` 开头，
+否则被 `tools/crm/m5_guard.py` 直接拒绝（`python tools/crm/selftest_guard.py` 可本地自检）。
+原因：M6 已用两个真实 Sales User 的 HTTP 请求证实 FCRM Note 私密 detail/PUT 均 200、activities 泄漏未共享 note，
+因此**不要把真实客户资料放进本目录的导入路径**。

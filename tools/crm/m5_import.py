@@ -1,4 +1,9 @@
-"""M5 六列企业资源 CSV 的预览→确认导入适配器。
+"""M5 六列企业资源 CSV 的**合成数据**预览→确认适配器（参考实现，非生产入口）。
+
+用途：验证导入语义与幂等思路，已被 M7 的网页导入取代。**只允许合成数据**：
+企业名不以 `M5` 开头或姓名不以 `样例` 开头的输入会被直接拒绝（`m5_guard.py`，无旁路开关）。
+原因：M6 已用两个真实 Sales User 的 HTTP 请求证实 FCRM Note 私密 detail/PUT 均 200（跨用户越权），
+activities 会泄漏未共享的 note —— 因此本脚本写入的原文备注不能承载真实客户资料。
 
 在 bench 容器内运行（标准库 + 已安装的 frappe，不引入新依赖）：
 
@@ -6,12 +11,14 @@
     ../env/bin/python /tmp/m5/m5_import.py preview --csv /tmp/m5/m5-synthetic-six-columns.csv
     ../env/bin/python /tmp/m5/m5_import.py apply --csv /tmp/m5/m5-synthetic-six-columns.csv --confirm
 
-行为边界：
+行为边界（仅供合成验证）：
 - 企业→CRM Organization（docname 即 organization_name，天然去重键）
 - 联系人→Contact（按手机号/邮箱/姓名+企业去重，追加企业 Dynamic Link）
 - 需求→CRM Lead（每条需求一条 Lead，状态 New；绝不创建商机）
 - 联系方式原文与来源行写入 FCRM Note，不覆盖解析后的字段
 - 只写入、不删除；重复执行同文件不产生重复记录
+- 幂等键是**截短的 SHA1 + 备注文本匹配**，只为合成库演示服务，**不得作为生产幂等方案**
+  （生产须用唯一字段 + 全长哈希，见 M7）
 """
 
 import argparse
@@ -23,6 +30,8 @@ import re
 import sys
 
 import frappe
+
+from m5_guard import BANNER, SyntheticInputError, require_synthetic
 
 COLUMNS = ["序号", "姓名", "公司名称", "联系方式", "公司产品、服务", "需要的产品、服务"]
 IMPORT_SOURCE = "M5导入样例"
@@ -54,6 +63,11 @@ def emails(raw):
 
 
 def import_key(org, person, phone, email, requirement):
+	"""合成库演示用的幂等键：截短 SHA1 + 备注文本匹配。
+
+	**不是生产方案**：截短 16 位碰撞面大，且靠备注文本检索定位既不可索引也不可靠。
+	生产实现必须用唯一字段存全长哈希（M7）。
+	"""
 	identity = phone or email or f"{org}|{person}"
 	payload = "|".join([org, person, identity, requirement])
 	return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
@@ -321,13 +335,20 @@ def main(argv=None):
 		print("apply 需要 --confirm 才会写库；先运行 preview 检查计划。")
 		return EXIT_FATAL
 
+	print(BANNER)
+	records = parse_file(args.csv)
+	if not records:
+		print("CSV 没有数据行")
+		return EXIT_FATAL
+	try:
+		require_synthetic(records)
+	except SyntheticInputError as exc:
+		print(str(exc))
+		return EXIT_FATAL
+
 	frappe.init(site=args.site, sites_path=args.sites_path)
 	frappe.connect()
 	try:
-		records = parse_file(args.csv)
-		if not records:
-			print("CSV 没有数据行")
-			return EXIT_FATAL
 		plan_rows = plan(records)
 		print(preview_output(plan_rows))
 		error_rows = [row for row in plan_rows if row["problems"]]
