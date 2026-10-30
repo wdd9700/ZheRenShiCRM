@@ -1,6 +1,6 @@
 # MVP 业务闭环：资源导入 → 企业/联系人 → 需求 → 商机 → 沟通 → 下次跟进 → 时间线
 
-**状态：首个不依赖 AI、不依赖自建 CRM 前后端的闭环已在真实实例上跑通。原生导入在受控开启站点调度后已能真实执行（含逐行错误），但"中文六列一次导入"这个用户界面体验仍未交付：缺自然键去重、缺多对象编排、需求列没有原生字段。CLI 适配器只是增量，不替代 UI 验收；可视界面验收待 tower 协调（内置浏览器控制不可用）。**
+**状态：首个不依赖 AI、不依赖自建 CRM 前后端的闭环已在真实实例上跑通。原生导入在受控开启站点调度后已能真实执行（含逐行错误），但"中文六列一次导入"这个用户界面体验仍未交付。tower 已选定方向：用最小 Frappe 扩展 app 做服务端单一实现（不复用浏览器逐条 REST 写入），方案见第 6 节，尚未实施。CLI 适配器只是可审查增量，不替代 UI 验收；可视界面验收待 tower 协调（内置浏览器控制不可用）。**
 
 - 实例：`crm-mvp-v15`，站点 `crm.localhost`，入口 `http://127.0.0.1:8088/crm`（仅回环，合成数据）。
 - 版本：Frappe Framework `15.125.0`，Frappe CRM `1.90.0`（`deploy/README.md` 已锁定的派生镜像）。
@@ -172,72 +172,99 @@ HTTP 级核对已通过：`/crm`、`/crm/leads`、`/crm/deals`、`/crm/data-impo
 
 **未做**：浏览器内的可视点击验收。内置浏览器 `browser.create_tab` 反复返回 `BROWSER_UNAVAILABLE`，因此不声称"界面已验收"，只声称"前端调用的接口与原生导入链路已返回正确结果"。
 
-## 6. 界面导入闭环：原生扩展方案（tower 已定方向，待独立 UI 任务实施）
+## 6. 界面导入闭环：服务端单一实现（tower 已定方向，待独立实施任务）
 
-tower 决策：**CLI 拆三份只作辅助工具，不接受为六列界面闭环；单字段方案不单独采用；不把"改上游 Vue"当唯一路径**。本轮只交付接口/文件范围/复现方案，不实施界面、不扩写 CLI 转换功能。
+tower 决策（2026-10-31 20:38）：选**最小 Frappe 扩展 app**；不接受浏览器逐条 `get_list`/`insert`（并发幂等、失败原子性、权限、映射一致性都无法保证）；`Page` DocType 存在**不**证明 `page_html` 脚本会执行，先核验加载机制；允许项目内新增 app 与受控重启，但先报具体部署动作并与 M6 暂停写入窗口协调；不改上游核心、不启用 Server Script 全局开关、不删数据。`custom_requirement` 先不实施，schema 与幂等标识一起设计。
 
-缺口（用户用界面导入六列 CSV 时实际会卡住的地方）：
+本章只是实现交接方案，**未写任何 app、未改共享实例**。
 
-1. 中文表头不自动映射，每次导入都要手工对六列；需求/产品两列根本无字段可选。
-2. 一条 CSV 只能建一种对象，企业/联系人/需求要拆三次导入，且关系不会自动建立。
-3. 联系方式原文会被 Phone 校验拒绝（实测 `… is not a valid Phone Number`）。
-4. 重复导入直接翻倍，没有手机号/邮箱/企业名的自然键去重。
+### 6.1 加载机制核验（本部署只读实测）
 
-### 6.1 先核验的事实（本部署只读核对）
-
-| 事实 | 结论 |
+| 事实 | 证据 / 结论 |
 |---|---|
-| `Page` DocType 存在，字段含 `page_name`/`page_html`/`title`/`standard`/`roles` | 可**只建数据**（非代码）的自定义 Desk Page，URL `/app/<page_name>`，无需改上游 crm 前端 |
-| 站点 `server_script_enabled` 未设置（默认关） | Server Script API 需改站点安全开关，暂不作首选 |
-| `developer_mode` 未开；站点只装 `frappe`+`crm` | 新增自定义 app 需 `get-app`/`install-app`，可能需重启 web/worker（须 tower 授权） |
-| CRM 前端是独立 SPA（`/crm`），加路由须改上游并重建 | 排除，符合 tower 的"不要把改核心当唯一选择" |
+| `/crm` 本身就是 app 的 www 页 | `apps/crm/crm/www/crm.html` + `crm.py`（`no_cache = 1`，`get_context()` 里 `check_app_permission()`）→ **app 的 `www/` 页在本站点确实会被服务**；`/m5-import` 用同一机制即可，不依赖未验证的 Desk Page `page_html`，也不用 Server Script（`server_script_enabled` 默认关） |
+| `sys.path` 是逐个 app：`env/site-packages` + `apps/crm` + `apps/frappe`（**不含 apps 父目录**） | 新 app 必须 `pip install -e` 进 env；运行中的 gunicorn/RQ 进程启动时已定 sys.path，**改 .pth 后必须重启容器**才可 import |
+| 只有 `sites/` 是命名卷，`apps/`、`env/` 在镜像层 | app 必须**烤进镜像**（改 `deploy/Dockerfile`；`.dockerignore` 目前只放行 Dockerfile，需同时放行 app 目录），不能在运行容器里装完就算 |
+| 依赖 API 均可用 | `frappe.sessions.get_csrf_token()`、`frappe.db.savepoint/release_savepoint/rollback(save_point=)`、`frappe.database.savepoint(catch=...)`、`frappe.only_for()` |
 
-### 6.2 推荐方案：Desk Page + 标准 REST（零安装、零结构变更）
+### 6.2 最小 app 目录（仓库新增 `apps/m5_import_app/`，纯 Python，无 doctype / 无前端构建 / 无外部依赖）
 
-- **界面**：自建 Desk Page `m5-import`（`/app/m5-import`，角色限 System Manager）。上传 CSV → 预览表（行/序号/企业/联系人/需求/错误）→ 确认导入 → 结果表（每行 docname 或错误）→ 失败行可下载。
-- **服务端只用现成标准接口**（同源 + CSRF）：
-  - `frappe.client.get_list`：查 `CRM Organization`、`Contact Phone`、`Contact Email`、`FCRM Note`、`CRM Lead` 做去重与幂等判断；
-  - `frappe.client.insert`：按 企业 → 联系人 → 需求(Lead) → 备注 顺序逐条写入；
-  - `frappe.client.get_count`：预览汇总。
-- **规则与 `tools/crm/m5_import.py` 完全一致**（同一张映射/去重表，见第 3 节），导入键写在备注 HTML 注释里做幂等。
-- **不做**：不创建商机、不删除、不改权限、不改 schema。
-- **风险与缓解**：逻辑在浏览器里 → 与 CLI 有双实现漂移风险；用"同一 CSV 跑 CLI preview 与页面 preview 逐行比对"作回归检查，文档里标明 CLI 是参考实现。页面限制 ≤1MB、≤500 行，大文件不适用。
-- **所需文件范围（独立 UI 任务）**：`tools/crm/m5_import_page.html`（页面正文 + JS）、`tools/crm/install_m5_import_page.py`（幂等创建/更新 `Page` 记录，`bench execute` 运行，不装 app、不重启）、`docs/MVP_WORKFLOW.md` 补"已实施"记录。**不需要**改 `deploy/`、不改站点配置、不新增依赖。
-- **复现步骤**：容器内 `env/bin/python tools/crm/install_m5_import_page.py`（或 `bench --site crm.localhost execute`）→ 浏览器 `/app/m5-import` → 用 `M5UI2` 前缀合成 CSV 走一遍 → 校验 2 企业/3 联系人/4 需求、错误行 3、二次导入 0 新增。
+```
+apps/m5_import_app/
+├── pyproject.toml                 # name=m5_import_app；依赖只有 frappe（环境已装）
+├── README.md                      # 安装/验收/回滚
+└── m5_import_app/
+    ├── __init__.py
+    ├── hooks.py                   # app_name/app_title/app_license/required_apps=["frappe"]
+    ├── modules.txt                # "M5 Import"
+    ├── api.py                     # @frappe.whitelist 的 preview_import / apply_import
+    ├── importer.py                # 纯逻辑：六列解析、归一、去重判定、行计划（无 frappe.init）
+    ├── writer.py                  # 事务写入：企业→联系人→Lead，逐行 savepoint
+    └── www/
+        ├── m5-import.html         # 页面（内联 JS，只做渲染与两次 POST）
+        └── m5-import.py           # no_cache=1；get_context 校验登录/角色并注入 csrf token
+```
 
-### 6.3 备选：服务端单一实现（更稳，但需授权装 app）
+- 页面走 module 的 `www/`，所以**不需要 `bench build`**（无 JS/CSS 资产）。
+- `importer.py` 由 `tools/crm/m5_import.py` 迁移逻辑、去掉 `frappe.init/destroy`；CLI 保留为参考实现与回归基准，不删除、不继续扩写。
 
-把 `m5_import.py` 逻辑搬进最小 Frappe app（`m5_import_app/api.py` 暴露 `preview_import`/`apply_import` 两个 `@frappe.whitelist()`），页面只调这两个方法。优点：唯一实现、服务端原子性与权限校验、可加锁。代价：`bench get-app`/`install-app` + 可能 `bench restart`（tower 有"不重启服务"的既有边界，须单独授权）；文件范围更大（app 骨架 + 安装记录）。建议 6.2 验证交互后再硬化。
+### 6.3 页面入口与调用契约
 
-### 6.4 需求文本的可检索落位（schema 提案，与 M6 协调，未实施）
+`GET /m5-import`（未登录跳登录页，角色不符 403）→ `m5-import.html` 内联 JS：
 
-现状：需求原文只写进 `FCRM Note`（可查可看，但**不能**在 Lead 列表/看板按需求筛选）。
+1. 选择/粘贴 CSV → `POST /api/method/m5_import_app.api.preview_import`（`csv_text`）→ 渲染逐行计划：行/序号/企业（新建|复用）/联系人（新建|复用(手机号|邮箱|姓名+企业)）/需求（新建|已导入|文件内重复）/错误原因，附汇总。
+2. 用户确认 → `POST ...apply_import`（`csv_text`、`confirm=true`）→ 渲染逐行结果（docname 或错误），失败行可下载。
+3. CSRF：`get_context()` 里 `frappe.sessions.get_csrf_token()` 注入模板，JS 带 `X-Frappe-CSRF-Token`。
+4. 客户端**不含业务规则**，只做展示与请求；限制 ≤500 行 / ≤1MB。
 
-提案（站点级 Custom Field，不改核心代码）：
+### 6.4 服务端事务、幂等与并发
 
-| 项 | 值 |
-|---|---|
-| DocType | `CRM Lead` |
-| 字段名 / 标签 | `custom_requirement` / "需求描述" |
-| 类型 | Small Text（需要更长用 Text） |
-| 位置 | `insert_after: organization`，`in_list_view: 1`，`search_index: 1` |
-| 来源/原文 | 复用现有 `source`（Link → CRM Lead Source，导入写 `M5导入样例`）与 `FCRM Note`（原文/来源行），不新增第二个字段 |
+- `preview_import`：**只读**（不写库、不建 File），返回与 apply 相同的计划结构。
+- `apply_import`：一个请求 = **一个事务**。每行 `savepoint("m5_row")` → 写企业→联系人→CSV 备注→Lead（写 `custom_import_key`）→ `release_savepoint`；行内异常 `rollback(save_point="m5_row")` 并继续下一行；全部行处理完才 `commit()`。异常中断则整批回滚，用户重跑安全（与原生 Data Import 的逐行 commit 不同，避免半成品与"重启后不知道导到哪"）。
+- 幂等键：`sha1(企业归一|姓名|手机号或邮箱|需求归一)` 前 16 位，落在 `CRM Lead.custom_import_key`（`unique=1`）。先查后写；并发双击由唯一索引兜底 → 捕获 `DuplicateEntryError` 记为"已导入"（**不再靠备注文本解析**）。
+- 企业：docname（`organization_name`）天然键；联系人：手机号归一 → 邮箱小写 → 姓名+企业，按候选值精确查询（不做全表缓存）；联系方式原文进 `Contact.custom_contact_raw`，解析失败的行直接报错。
+- `FCRM Note` 仍写一条人类可读来源备注（时间线可看），但**不再是幂等依据**。
 
-迁移：Customize Form 新增（`ALTER TABLE ADD COLUMN` + `search_index` 建索引）→ `clear-cache` → 回填脚本把已有 4 条 M5 需求备注原文写入该字段（可重跑）→ 适配器/页面同时写字段 + 备注 → `bench export-fixtures` 固化进仓库。回滚：删除该 Custom Field（列删除、回填数据丢失，备注仍在）。
+### 6.5 权限边界
 
-与 M6 的边界：只加一个非权限字段，不改角色/共享/owner，不影响 M6 的两账号隔离验证；但**必须由 tower 排期**，并在 M6 的验证快照之后执行，避免双方同时改同一站点结构。
+- 两个方法 `@frappe.whitelist(methods=["POST"])`，方法内 `frappe.only_for(("System Manager", "Sales Manager"))`（专用角色由 M6 定，暂不新增角色）。
+- 写入始终用调用者身份：`ignore_permissions=False`，逐 DocType 预检 `frappe.has_permission(doctype, "create")`；不以 Administrator 提权、不 `frappe.set_user`、不 `ignore_permissions`。
+- 响应只含本次请求自己的行结果，不回传其他用户数据；CSV 不落盘为附件（避免私域文件扩散，需要留档时由用户另行决定）。
 
-### 6.5 决策状态
+### 6.6 schema（与 UI 同一批，一次性设计；**未实施**）
 
-- 6.2 推荐、待独立 UI 任务实施；6.3 硬化备选；6.4 待 tower 排期并与 M6 协调。
-- 本轮**不**把 M5 标记完成：界面闭环未补齐，等 UI 任务或正式拆分验收。
+| DocType | fieldname | 类型 | 用途 |
+|---|---|---|---|
+| CRM Lead | `custom_requirement` | Text（`search_index=1`、`in_list_view=1`） | 需求原文，可检索/可筛选 |
+| CRM Lead | `custom_import_key` | Data（`unique=1`、`search_index=1`、read_only） | 幂等标识（唯一索引即并发兜底） |
+| CRM Lead | `custom_import_source` | Data（`search_index=1`） | 来源：`文件名#行号/序号` |
+| CRM Organization | `custom_product_offering` | Small Text | 产品/服务原文（与整理版 `company_description` 分开） |
+| Contact | `custom_contact_raw` | Small Text | 联系方式原文（含微信等不可解析片段） |
+
+- 渠道沿用现有 `source`（Link → CRM Lead Source，写 `M5导入样例`）；`FCRM Note` 只作人类可读时间线。
+- 迁移：`bench export-fixtures` 固化 → `bench migrate`（ADD COLUMN + 索引）→ 一次性回填脚本把已有备注里的需求/原文搬到新字段 → 适配器与页面同时写字段。回滚：删除 Custom Field（列删除、回填数据丢失，备注仍在）。
+- 与 M6：全部为非权限字段，不改角色/共享/owner；但仍建议排在 M6 验证快照之后，由 tower 统一排期（本任务不实施）。
+
+### 6.7 部署动作（需 tower 派单 + M6 暂停写入窗口）
+
+1. 仓库：新增 `apps/m5_import_app/**`；`deploy/Dockerfile` 增 `COPY apps/m5_import_app ./apps/m5_import_app` + `pip install -e ./apps/m5_import_app`（在 `bench build` 之前）；`.dockerignore` 放行该目录；`deploy/README.md` 记录镜像与版本。**这三处超出 M5 现有 scope，需派单扩 scope。**
+2. `python3 deploy/manage.py build`（生成新不可变镜像 ID，`deploy/.runtime/image.env` 覆盖前先记下旧 ID 用于回滚）+ `manage.py check`。
+3. 通知 M6 暂停写入 → `python3 deploy/manage.py up`（recreate `backend`、`websocket`、`queue-short`、`queue-long`、`scheduler`；`frontend` 无资产变化可不重建）。
+4. `bench --site crm.localhost install-app m5_import_app`（无 doctype → 不触发 migrate）+ `bench --site crm.localhost clear-cache`；随后按 6.6 应用 fixtures（可选批次）。
+5. 验收（`M5UI2` 前缀合成数据）：`GET /m5-import` 登录门 → preview 计划正确 → apply 得到 2 企业/3 联系人/4 需求/3 错误行 → 二次 apply 0 新增 → 并发双击只落一份 → 无该角色账号 403 → 无邮件/队列副作用 → 与 `tools/crm/m5_import.py preview` 逐行一致。
+6. 回滚：`bench --site crm.localhost uninstall-app m5_import_app` → 用旧镜像 ID 重新 `up`；schema 回滚按 6.6 删字段（数据不可恢复，备注保留）。
+
+### 6.8 状态
+
+- 方案已定；**本轮不写 app、不改共享实例、不重启服务**。M5 保持 active，等独立实施任务或正式拆分验收。
+- 已交付的可审查增量是第 2–5 节的实测结果、`tools/crm` 脚本与合成样例；它们**不**等于界面闭环。
 
 ## 7. 未实现边界与待决事项
 
 1. **可视 UI / 移动端 / PWA 安装**未验收；tower 将用 Edge 协调。
-2. **六列 CSV 的界面闭环**未实现（见第 6 节：方案已定方向，待独立 UI 任务实施）。
+2. **六列 CSV 的界面闭环**未实现（第 6 节给出服务端单一实现方案：最小 app + `www` 页 + 事务/幂等/schema/部署步骤；待独立实施任务）。
 3. **团队权限与双账号私域隔离**未验证：全程只有 `Administrator` 一个账号（M6 负责）。
-4. **需求文本没有可检索字段**，现在只在 `FCRM Note` 里；6.4 的 Custom Field 提案未实施，待与 M6 协调排期。
+4. **需求文本没有可检索字段**，现在只在 `FCRM Note` 里；6.6 的 Custom Field 提案未实施，待与 M6 协调排期。
 5. **备份/恢复、重启持久化、导出关系**未在本轮重测（`deploy/README.md` 有备份口径，需同版本新站点恢复演练）。
 6. **原生导入试验留下的合成记录（未删除，唯一前缀）**：`M5NATIVE` 6 条、`M5UI` 2 条（含 1 条重复）、若干 `Data Import` 与 `Data Import Log`。它们是对比"原生去重缺失/逐行错误"的证据；如需清理须由 tower 另行批准。
 7. 适配器按小数据集设计：联系人去重会把 `Contact Phone`/`Contact Email` 全量读进内存（当前 3 条）；量级上千后应改成按候选值查询或建索引。
@@ -245,8 +272,8 @@ tower 决策：**CLI 拆三份只作辅助工具，不接受为六列界面闭�
 
 ## 8. 复评触发条件
 
-- 第 6.2 节的界面任务实施后 → 重测界面导入体验（含 CLI preview 与页面 preview 的逐行比对），结果补进本文件。
-- 6.4 的 Custom Field 落地（tower 排期、M6 验证快照之后）→ 重测需求筛选与列表展示，并更新 M3 schema 交接。
+- 第 6 节的服务端 app 实施后 → 重测界面导入体验（含 CLI preview 与页面 preview 的逐行比对、并发双击、权限 403、回滚演练），结果补进本文件。
+- 6.6 的 Custom Field 落地（tower 排期、M6 验证快照之后）→ 重测需求筛选与列表展示，并更新 M3 schema 交接。
 - 站点调度器/导入配置变化，或升级到带新导入 UI 的 CRM 版本 → 重测原生导入。
 - 出现第二位真实账号 → 立即补双账号权限与私域隔离验收，再谈"团队 MVP"。
 - 真实客户资料进入系统前：先做备份/恢复演练、访问边界与授权确认。
