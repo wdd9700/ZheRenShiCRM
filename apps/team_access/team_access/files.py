@@ -23,8 +23,28 @@ def private_target(doctype, name):
     return bool(private_root(doctype, name))
 
 
+def activity_roots(doc):
+    from team_access.permissions import MAX_ROWS
+
+    roots = set()
+    root = private_root(doc.get("attached_to_doctype"), doc.get("attached_to_name"))
+    if root:
+        roots.add(root)
+    if doc.get("file_url"):
+        aliases = frappe.get_all("File", filters={"file_url": doc.file_url}, fields=["attached_to_doctype", "attached_to_name"], limit_page_length=MAX_ROWS + 1)
+        if len(aliases) > MAX_ROWS:
+            deny()
+        for alias in aliases:
+            root = private_root(alias.attached_to_doctype, alias.attached_to_name)
+            if root:
+                roots.add(root)
+    return roots
+
+
 def validate_attachment(doc):
     root = private_root(doc.get("attached_to_doctype"), doc.get("attached_to_name"))
+    if any(source != root for source in activity_roots(doc)):
+        raise frappe.PermissionError("Private activity file URLs cannot be reused outside their original activity")
     old = get_record("File", doc.get("name"))
     old_root = private_root(old.get("attached_to_doctype"), old.get("attached_to_name")) if old else None
     if old_root and old_root != root:

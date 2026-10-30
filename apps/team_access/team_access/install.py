@@ -27,8 +27,9 @@ def preflight():
             if existing and any((existing.get(key) or "") != value for key, value in (("fieldtype", fieldtype), ("options", options), ("default", default))):
                 frappe.throw("An incompatible Team Access field blocks installation; no schema was changed.")
 
-    files = frappe.get_all("File", filters={"is_folder": 0}, fields=["attached_to_doctype", "attached_to_name", "is_private", "file_url"], limit_page_length=0)
-    unsafe = sum(private_target(file.attached_to_doctype, file.attached_to_name) and (not file.is_private or not (file.file_url or "").startswith("/private/files/")) for file in files)
+    files = frappe.get_all("File", filters={"is_folder": 0}, fields=["attached_to_doctype", "attached_to_name", "is_private", "file_url", "content_hash"], limit_page_length=0)
+    private_hashes = {file.content_hash for file in files if file.content_hash and private_target(file.attached_to_doctype, file.attached_to_name)}
+    unsafe = sum((private_target(file.attached_to_doctype, file.attached_to_name) or file.content_hash in private_hashes) and (not file.is_private or not (file.file_url or "").startswith("/private/files/")) for file in files)
     if unsafe:
         frappe.throw(f"{unsafe} public or remote activity attachment(s) block installation. Keep maintenance mode on and review them through the administrator File list before migrating bytes to private storage; nothing was moved or deleted.")
 

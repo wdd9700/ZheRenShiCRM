@@ -89,9 +89,17 @@ def clean(response, forbidden, label, allow_denied=False):
     for value in forbidden:
         text = str(value)
         if text.isdigit():
-            pattern = rb'"(?:name|note|reference_docname|link_name)"\s*:\s*"?' + re.escape(text.encode()) + rb'"?(?=[,}\s])'
+            pattern = rb'"(?:name|note|reference_docname|link_name|value)"\s*:\s*"?' + re.escape(text.encode()) + rb'"?(?=[,}\s])'
             leaked = bool(re.search(pattern, response.body))
-            if "csv" in response.headers.get("Content-Type", "").lower():
+            try:
+                parsed = response.json()
+                table = parsed.get("message", parsed.get("data", {}))
+                if isinstance(table, dict) and "name" in table.get("keys", []):
+                    index = table["keys"].index("name")
+                    leaked = leaked or any(str(row[index]) == text for row in table.get("values", []))
+            except (ValueError, AttributeError, IndexError, TypeError):
+                pass
+            if "csv" in (response.headers.get("Content-Type", "") + response.headers.get("Content-Disposition", "")).lower():
                 import csv
                 import io
 
@@ -111,7 +119,7 @@ def update(session, doctype, name, values):
 
 def share(session, doctype, name, user, active=True):
     if active:
-        return session.rpc("frappe.share.add", {"doctype": doctype, "name": name, "user": user, "read": 1, "write": 0}, True)
+        return session.rpc("frappe.share.add", {"doctype": doctype, "name": name, "user": user, "read": 1, "write": int(doctype in ("FCRM Note", "CRM Task"))}, True)
     return session.rpc("frappe.share.remove", {"doctype": doctype, "name": name, "user": user}, True)
 
 
@@ -204,6 +212,11 @@ def verify(a, b, f):
     clean(b.rpc("crm.api.notifications.get_notifications"), [f["note"], f["note_marker"]], "notification side channel")
     file = create(a, "File", {"file_name": f["prefix"] + ".txt", "content": base64.b64encode(f["note_marker"].encode()).decode(), "decode": 1, "is_private": 1, "attached_to_doctype": "FCRM Note", "attached_to_name": f["note"]})
     denied(b.request("GET", file["file_url"]), "private file download")
+    for session in (a, b):
+        denied(session.resource("File", method="POST", payload={"file_name": f["prefix"] + "-alias.txt", "file_url": file["file_url"], "is_private": 1}), "private URL cannot become unattached alias")
+    denied(a.resource("File", method="POST", payload={"file_name": f["prefix"] + "-remote.txt", "file_url": "https://example.invalid/private.txt", "is_private": 1, "attached_to_doctype": "FCRM Note", "attached_to_name": f["note"]}), "remote activity attachment blocked")
+    unbound = create(a, "File", {"file_name": f["prefix"] + "-public-safe.txt", "content": "M8 public nonsensitive test bytes", "is_private": 0})
+    denied(update(a, "File", unbound["name"], {"attached_to_doctype": "FCRM Note", "attached_to_name": f["note"], "is_private": 1}), "public-first attachment later binding blocked")
     denied(update(a, "File", file["name"], {"is_private": 0}), "public file conversion blocked")
     denied(update(a, "File", file["name"], {"attached_to_doctype": "", "attached_to_name": ""}), "private file detach blocked")
     require(update(a, "FCRM Note", f["note"], {"custom_team_visibility": "Shared"}).status in (403, 417), "attached activity cannot publish")

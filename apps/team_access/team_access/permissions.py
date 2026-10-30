@@ -79,11 +79,10 @@ def permitted(doc, user=None, ptype="read", seen=()):
             return False
         return reading or user in (doc.get("owner"), doc.get("caller"), doc.get("receiver"))
     if dt == "File":
-        from team_access.files import private_root
+        from team_access.files import activity_roots
 
         dt_ref, name = doc.get("attached_to_doctype"), doc.get("attached_to_name")
-        root = private_root(dt_ref, name)
-        if root:
+        for root in activity_roots(doc):
             target = get_record(*root)
             if not target or not permitted(target, user, "write", seen):
                 return False

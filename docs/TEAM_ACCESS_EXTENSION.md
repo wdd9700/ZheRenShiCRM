@@ -49,7 +49,7 @@
 | 关联候选 | CRM get_linked_docs、Desk linked_with、dashboard get_open_count重新按可读对象生成。 |
 | Call get_call_log / add_note/task_to_call_log | 不复用跨请求cached_doc返回体；检查当前Call和已有子write；新建走当前会话正常save，不ignore_permissions。 |
 | mentions / notifications | 未授权mention使保存拒绝，不产生新正文通知；既有通知不删，读取按当前目标权限过滤。 |
-| File | File子类before_insert/validate；直接upload入口在处理字节前检查；禁止活动public/remote/url复用，禁止已私有活动文件detach/reparent/公开转换。 |
+| File | File子类before_insert/validate；直接upload入口在处理字节前检查；禁止活动public/remote/url复用，禁止已私有活动文件detach/reparent/公开转换。同URL旧别名也检查原活动当前权限，不能利用原生File owner旁路脱离原活动授权。 |
 
 `frappe.desk.notifications.get_open_count`保留原生dashboard关联规则的internal names/count与external count/open_count；**不执行DocType模块的任意get_timeline_data回调**，因此依赖该可选回调的Desk额外时间轴片段不受支持，原生CRM主时间线使用单独activities override。需真实UI确认固定版本实际受影响部位，不把缺片段当成功。
 
@@ -93,7 +93,7 @@ python apps/team_access/verify_http.py verify --user-a <SalesUserA> --user-b <Sa
 
 脚本不输出响应体或异常堆栈，只输出固定PASS/FAIL标签。失败保留合成记录供定位，不自动清理。首次安装后新prepare不加legacy-shares可重复大部分矩阵，但缺真实旧DocShare行会在最后明确失败，不能声称完整旁路验收。已有活动fixture第一次verify后会附着私有测试文件，不能把同一fixture重复跑的状态差异当权限故障；新建一组再跑。
 
-自动矩阵：双向Private detail/REST write/list/native getdoc/count/search、CSV普通/selected、父activities/关联候选、Shared当前正文只读/过去Version拒绝、协作者正文写入/再授权拒绝/撤回、Task受派人写入/再分派拒绝/撤回、父权限撤回恢复、DocShare新建拒绝、正式Comment/不可见父Comment、未授权mention/notification、private File直链/公开转换/detach/公开插入和带附件发布拒绝。
+自动矩阵：双向Private detail/REST write/list/native getdoc/count/search、CSV普通/selected、父activities/关联候选、Shared当前正文只读/过去Version拒绝、协作者正文写入/再授权拒绝/撤回、Task受派人写入/再分派拒绝/撤回、父权限撤回恢复、DocShare新建拒绝、正式Comment/不可见父Comment、未授权mention/notification、private File直链/公开转换/detach/公开插入/URL未挂载别名/remote/公开先上传后挂载和带附件发布拒绝。旧子DocShare fixture同时授read/write以覆盖两种原生fallback。
 
 **仍须人工/补充真实HTTP**：v2详细矩阵、原生CRM各动态编辑器提示及管理页视觉、只读Shared原生写按钮反馈、Call Log动态链接/已有子更新、get_docinfo顶层侧响应全部字段、Version直接detail与CSV、Data Import/Data Export全部导出变体、File旧URL复用/先无父后挂载/remote/multipart上传/间接Comment附件、匿名/无角色/CSRF、用户权限缓存撤回与重启、M5/M7兼容和备份恢复。脚本最终打印MANUAL REQUIRED，不把脚本通过称全边界验收。
 
@@ -102,11 +102,12 @@ python apps/team_access/verify_http.py verify --user-a <SalesUserA> --user-b <Sa
 | 项目 | 当前证据 |
 |---|---|
 | 固定上游源码审查 | 已完成只读docker exec源码核对；未运行共享HTTP基线。M6真实Note越权事实由M6交接。 |
-| Python/JS语法与diff检查 | 已过：13个Python文件AST、pyproject TOML解析、两个静态JS的node --check、verify_http.py --help、git diff --check；无共享HTTP。另用内存Frappe替身做了谓词/hard-deny/父撤回/协作者/历史/通知/File/Call/filters/HTML smoke，已过但不是真实框架权限验收。Windows无flit_core，未安装依赖；标准bench build/安装需M9候选镜像窗口，不能把AST当构建成功。 |
+| Python/JS语法与diff检查 | 已过：13个Python文件AST、pyproject TOML解析、两个静态JS的node --check、verify_http.py --help、git diff --check；无共享HTTP。内存Frappe替身谓词/hard-deny/父撤回/协作者/历史/通知/File/Call/filters/HTML smoke已过；File同URL别名、同会话父撤回、未挂载/跨活动别名拒绝和numeric ID响应检测追加smoke已过；均不是真实框架权限验收。 |
+| 标准候选构建 | M9已报告组合746076b/509df32标准build与network=none离线probe通过；本次File别名补丁尚需重建。Windows未安装flit_core或新增依赖。构建通过不代表已安装或运行权限通过。 |
 | 两Sales User真实会话 | 尚未获窗口，未执行。 |
-| 安装/迁移/预检真实行为 | 未执行；M9负责镜像/维护/备份窗口。 |
+| 安装/迁移/预检真实行为 | 未执行；M9负责镜像/维护/备份窗口。预检包含与活动相同content_hash的公共/远程别名，只报数量并拒绝，不自动搬动或删除。 |
 | UI/CSP/PWA/重启 | 未执行。 |
-| 独立审查 | 待源码候选提交后由tower安排。 |
+| 独立审查 | tower已安排源码静态审查进行中；最终exact-tip及真实全边界审查未通过。 |
 | 规模/性能 | 2000行fail-closed边界仅设计实现；负载与多类型递归成本未测，不适用于真实规模上线。 |
 
 当前无新增需要用户决定的技术卡点；D005是可逆暂选。真正阻断是部署窗口、真实全边界核验和独审，不用架构文档替代可观察权限证据。AGPL对应源码及修改说明须随网络服务履行适用义务，本页不构成法律意见。
