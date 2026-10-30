@@ -11,6 +11,11 @@ RUN --network=none bench build --app crm && \
     env/bin/python -c "import crm; print(crm.__version__)" && \
     bench version
 
+COPY --chown=frappe:frappe apps/resource_import apps/resource_import
+RUN env/bin/pip install --no-deps --no-build-isolation -e apps/resource_import && \
+    env/bin/python -c "import resource_import; print(resource_import.__version__)" && \
+    printf 'frappe\ncrm\nresource_import\n' > sites/apps.txt
+
 LABEL org.opencontainers.image.source="https://github.com/frappe/crm" \
       org.opencontainers.image.revision="36bd8859f2a6345a620477bc708d0546e8c3f08a" \
-      org.opencontainers.image.version="1.90.0-local-bootstrap-r1"
+      org.opencontainers.image.version="1.90.0-resource-import-0.1.0"

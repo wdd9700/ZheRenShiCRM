@@ -1,0 +1,9 @@
+app_name = "resource_import"
+app_title = "Resource Import"
+app_publisher = "CRM team"
+app_description = "Authenticated six-column resource import"
+app_email = "noreply@example.invalid"
+app_license = "AGPL-3.0-or-later"
+required_apps = ["crm"]
+after_install = "resource_import.schema.install"
+after_migrate = "resource_import.schema.install"

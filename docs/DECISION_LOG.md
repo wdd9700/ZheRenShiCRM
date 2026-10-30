@@ -66,6 +66,28 @@
 - **独审R1交接修复**：唯一P2指出忽略运行材料仍绑定临时wt-3，原文档长期使用该路径的建议不成立。选择显式本机`handoff-runtime --target-dir`，目标必须先有合并后匹配的跟踪代码及忽略规则；私有`.runtime`存放两文件，原子不覆盖复制、保护ACL、源保留、正文/摘要不输出，自动目标check/smoke。采用专用私有目录而非收紧整个deploy/递归ACL，保持团队代码和WSL访问边界。预合并仅演练私有fixture；合并后主checkout实际交接、Windows/WSL验收及tower确认是清理wt-3前强制门槛，未执行前不得称迁移完成。不生成新密码/站点、不删源或改主checkout产品代码。实现和验证见deploy/README.md。
 - **R1修复验证追加**：最终工具在私有Git fixture真实复制后，目标Windows和第一Ubuntu的check/smoke均通过；目标Ubuntu status仍见原项目。重复调用不改字节/mtime，公共deploy ACL不变；冲突、未忽略/已跟踪、代码/路径异常、硬链接与正常/断裂junction、不安全目标ACL及父DeleteChild均拒绝。显式仅保护专用目录后WSL可读；Git CRLF代码和含空格路径亦真实通过，运行材料不转换。源保留、凭据正文/摘要未输出，无新增用户决策；实际主checkout交接仍未执行，须合并后按README门槛完成。
 
+### D-004｜受认证六列资源导入扩展（M7）
+
+- **日期/状态**：2026-10-31 / Provisional，实施前记录。
+- **目标/已知事实**：用户要求真实网页上传、预览、确认及逐行结果。已读M5实际源码与MVP_WORKFLOW；原生导入一次只写一种实体、无自然幂等；Lead.organization实际为Data，需求/原文需additive字段。运行源码Frappe15.125.0/CRM1.90.0 www及CSRF已核验；实际角色限制仍等M6交接。
+- **候选**：原生单对象导入（不能覆盖六列跨实体）；浏览器逐条REST（事务/并发/权限不可控）；最小Frappe app `resource_import`（暂选，复用ORM/认证/原生www，无额外依赖）。不改Vue、不启用Server Script。
+- **决定/理由**：服务端单一解析计划写入；权限过滤候选、显式关联消歧、完整SHA256唯一键；站点数据库命名锁在最终commit之后释放、每行savepoint异常先回滚，防并发重复和孤儿。锁仅覆盖本app，不宣称阻止上游原生手工竞态。
+- **原文/回退**：Lead保存需求/产品/联系方式/来源与六列快照、实体Link；版本化迁移只增缺失字段，不覆盖既有字段。保留旧镜像与备份，需协调M6停写窗口才共享部署。不删字段、不uninstall；旧镜像若缺已安装app不可直接启动，须使用仍含app的兼容回退镜像。
+- **置信度/证据缺口**：中。具体契约和纠正M5截断SHA1、异常处理、破坏回退风险见 `IMPORT_APP.md`；真实HTTP、并发、权限、原文和视觉尚未验证。未声称完整MVP/恢复完成。
+- **实施中M6证据修订**：Organization/Contact对Sales User默认广泛开放；Lead按owner/分配过滤，Manager全读；FCRM Note无父权限继承。因此入口收紧仅System Manager/Administrator、不写Note、不把产品原文写Organization；原文只保存Lead。姓名/解析联系值同样可能私密，页面必须独立默认不勾选的共享确认，preview/apply均验shared_consent；不接受共享则明确阻止，未支持仅私域Lead模式。本轮只用合成数据，管理员导入不等于团队私域问题已修好。
+- **实施实证修订（原文与receipt）**：Frappe Document._sanitize_content会清洗Long Text中的HTML；经tower批准只增5个Code verbatim字段作为产品/需求/联系方式/来源JSON/六列JSON权威原文，保留早期5个Long Text但新导入不写、不改类型/删列、不全局ignore_xss_filter，共14字段（Lead13+Contact1）。历史导入缺verbatim返回人工核验错误，不自动覆盖、不冒称原文完整。Code存储不等于HTML可安全显示，网页坚持textContent并验真实浏览器。本站无encryption_key导致签名preview500，改现有Redis15分钟256-bit不透明receipt，只存user/session/source/完整文件digest/共享确认，不存CSV；apply重新校验身份、权限、内容与候选。篡改/跨会话/丢失/过期fail closed，receipt期内可幂等重试/并发，最终防重仍由DB唯一约束+锁负责。
+- **复评/用户决策**：普通可逆app与字段暂定无需用户审批；真实数据授权、公网暴露或破坏性操作另行决定。后续按HTTP/并发/双账号与视觉证据更新。
+
+### D-005｜原生Note/Task私域权限补强（M8）
+
+- **日期/状态**：2026-10-31 / Provisional，实施前记录；未通过仍阻断完整团队MVP。
+- **触发/证据**：M6真实HTTP证实私密FCRM Note detail及PUT越权均200，未共享Note正文经activities泄露。M8固定源码核对：permission hook False后仍有DocShare OR，query hook后亦share OR；get_docinfo顶层响应、activity counts和mentions存在旁路。单permission hook不足。
+- **候选**：A 在原生Note/Task新增默认Private、显式Shared可见性，覆盖多入口官方扩展（暂选，保留原生UI/历史）；B 独立私域对象（损失原生UI，须迁移，暂缓）；C 单permission hook（已被源码证伪）。不接受脆弱全局SQL补丁。
+- **决定/边界**：Shared只有可读父Lead/Deal者可读；写仍按拥有者/明确授权协作者，不能把父可读等同任意写。任务assignee是明确协作但仍须父可读。Comment定义正式共享业务沟通，UI须提示；私文使用Private Note。不自动发布旧Note/Task，不改正文，不向外发数据。
+- **置信度/验证**：中低；需双账号直接接口、列表、CSV、活动、通知、共享撤回及UI实测和独审。M7仍仅管理员共享商业对象确认，不因此扩权。
+- **回退/风险**：不得关闭安全hook重新暴露已经存入的私文；保留安全包、关闭访问或恢复隔离副本。不删权限字段，不把部署成功等同权限完整解决。
+- **复评/用户决策**：这是可逆安全修复暂选，不需等待用户审批；真实资料授权/数据迁移/删除或业务共享规则改变仍须用户决定。各旁路未全部实测通过前保持MVP阻断。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]

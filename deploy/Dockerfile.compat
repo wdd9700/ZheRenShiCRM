@@ -1,0 +1,6 @@
+FROM crm-local:resource-import-compat-base
+USER frappe
+WORKDIR /home/frappe/frappe-bench
+COPY --chown=frappe:frappe apps/resource_import apps/resource_import
+RUN env/bin/pip install --no-deps --no-build-isolation -e apps/resource_import && \
+    printf 'frappe\ncrm\nresource_import\n' > sites/apps.txt

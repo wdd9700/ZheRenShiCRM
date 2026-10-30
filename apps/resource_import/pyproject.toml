@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resource_import"
+version = "0.1.0"
+description = "Authenticated six-column resource import for Frappe CRM"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0-or-later"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+resource_import = ["modules.txt", "patches.txt", "www/*.html"]

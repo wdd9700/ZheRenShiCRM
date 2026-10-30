@@ -15,8 +15,11 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parent
-ENV = ROOT / ".runtime" / ".env"
-if not ENV.exists():
+RUNTIME = Path(os.environ.get("CRM_DEPLOY_RUNTIME_DIR", ROOT / ".runtime"))
+if not RUNTIME.is_absolute():
+    raise RuntimeError("CRM_DEPLOY_RUNTIME_DIR must be an explicit absolute runtime directory")
+ENV = RUNTIME / ".env"
+if not ENV.exists() and "CRM_DEPLOY_RUNTIME_DIR" not in os.environ:
     ENV = ROOT / ".env"
 SITE = "crm.localhost"
 BASE_URL = "http://127.0.0.1:8088"
@@ -89,7 +92,49 @@ def handoff_runtime(target_dir, secure_runtime_dir):
     print("PASS: runtime handoff verified from target; source retained; no credential text or digest logged")
 
 
+def validate_runtime_override():
+    if "CRM_DEPLOY_RUNTIME_DIR" not in os.environ:
+        return
+    if ".." in RUNTIME.parts or RUNTIME.name != ".runtime" or RUNTIME.parent.name != "deploy":
+        raise RuntimeError("Runtime override must identify a checkout deploy/.runtime directory")
+    plain_path(RUNTIME)
+    plain_path(ENV, file=True)
+    plain_path(RUNTIME / "image.env", file=True)
+    checkout = RUNTIME.parent.parent
+    git = shutil.which("git")
+    if not git:
+        raise RuntimeError("Git is required to validate a runtime override")
+    def git_value(path, *args):
+        result = subprocess.run([git, "-C", str(path), *args], capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError("Runtime override checkout validation failed")
+        return result.stdout.strip()
+    if Path(git_value(checkout, "rev-parse", "--show-toplevel")).resolve() != checkout.resolve():
+        raise RuntimeError("Runtime override must be directly inside a Git checkout")
+    registered_roots = []
+    for line in git_value(checkout, "-c", "core.quotePath=false", "worktree", "list", "--porcelain").splitlines():
+        if not line.startswith("worktree "):
+            continue
+        path = line.removeprefix("worktree ")
+        if os.name != "nt" and len(path) > 2 and path[1] == ":":
+            wslpath = shutil.which("wslpath")
+            if not wslpath:
+                raise RuntimeError("Windows worktree paths require trusted wslpath normalization")
+            converted = subprocess.run([wslpath, "-u", path], capture_output=True, text=True)
+            if converted.returncode:
+                raise RuntimeError("Windows worktree path normalization failed")
+            path = converted.stdout.strip()
+        registered_roots.append(Path(path).resolve())
+    if ROOT.parent.resolve() not in registered_roots:
+        raise RuntimeError("Runtime override must belong to this repository's registered worktree")
+    for relative in ("deploy/.runtime/.env", "deploy/.runtime/image.env"):
+        git_value(checkout, "check-ignore", "--no-index", "--", relative)
+        if git_value(checkout, "ls-files", "--", relative):
+            raise RuntimeError("Runtime override materials must be ignored and untracked")
+
+
 def read_env():
+    validate_runtime_override()
     if not ENV.is_file():
         raise RuntimeError("Local credentials missing; hand off existing runtime materials for an existing site, never regenerate its passwords")
     values = {}
@@ -116,7 +161,7 @@ def compose(*args):
         command = [shutil.which("docker-compose")]
     else:
         raise RuntimeError("Docker Compose is required; this script never installs it")
-    image_lock = ROOT / ".runtime" / "image.env"
+    image_lock = RUNTIME / "image.env"
     if not image_lock.is_file():
         raise RuntimeError("Run build first; verified derived image lock is missing")
     image = image_lock.read_text(encoding="utf-8").strip().removeprefix("CRM_IMAGE=")
@@ -140,21 +185,29 @@ def build_image(proxy):
         if address.hostname not in ("127.0.0.1", "localhost") or address.username or address.password:
             raise RuntimeError("Build proxy must be an authorized credential-free loopback endpoint")
         command += ["--build-arg", f"HTTP_PROXY={proxy}", "--build-arg", f"HTTPS_PROXY={proxy}", "--build-arg", "NO_PROXY=localhost,127.0.0.1"]
-    command += ["-t", "crm-local:v1.90.0-r1", "-f", str(ROOT / "Dockerfile"), str(ROOT)]
+    command += ["-t", "crm-local:v1.90.0-resource-import-0.1.0", "-f", str(ROOT / "Dockerfile"), str(ROOT.parent)]
     subprocess.run(command, check=True)
     image = subprocess.check_output(
-        ["docker", "image", "inspect", "crm-local:v1.90.0-r1", "--format", "{{.Id}}"],
+        ["docker", "image", "inspect", "crm-local:v1.90.0-resource-import-0.1.0", "--format", "{{.Id}}"],
         text=True,
     ).strip()
     if not image.startswith("sha256:") or len(image) != 71:
         raise RuntimeError("Docker did not return an immutable derived image ID")
-    runtime = ROOT / ".runtime"
-    runtime.mkdir(exist_ok=True)
-    (runtime / "image.env").write_text(f"CRM_IMAGE={image}\n", encoding="utf-8")
-    print(f"Locked locally built CRM image: {image}")
+    runtime = RUNTIME
+    runtime.mkdir(parents=True, exist_ok=True)
+    content = f"CRM_IMAGE={image}\n"
+    (runtime / "built-image.env").write_text(content, encoding="utf-8")
+    try:
+        with (runtime / "image.env").open("x", encoding="utf-8") as stream:
+            stream.write(content)
+    except FileExistsError:
+        print("Existing active image lock retained; coordinate backup/deployment before activating built-image.env")
+    print(f"Built CRM candidate image: {image}")
 
 
 def init_env():
+    if "CRM_DEPLOY_RUNTIME_DIR" in os.environ:
+        raise RuntimeError("Runtime override only reuses existing materials; init-env is forbidden")
     content = (
         f"DB_PASSWORD={secrets.token_urlsafe(32)}\n"
         f"ADMIN_PASSWORD={secrets.token_urlsafe(32)}\n"

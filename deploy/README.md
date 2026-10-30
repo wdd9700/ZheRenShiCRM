@@ -6,7 +6,7 @@
 
 - CRM源码：官方稳定main谱系发布 `v1.90.0`，commit `36bd8859f2a6345a620477bc708d0546e8c3f08a`，非develop/v2。Dockerfile在安装后校验commit及两份上游yarn.lock未变化；Python额外依赖按该commit的pyproject解析，尚非全依赖逐包hash锁定或字节级可复现构建。
 - 基底：`ghcr.io/frappe/crm@sha256:c3873edce03a0e9327306092c5f392b182304d905f9286057f90fb5739f810ca`，linux/amd64 child `sha256:7c97745a316a9d33cfd213d96f4c91b6882e7ab917afcf4d6cc20d824f1826da`。真实 `bench version` 为 **frappe 15.125.0**，但官方发布镜像不含crm模块，不能直接部署。
-- `deploy/Dockerfile`补入上述固定CRM源码、构建资产，保留官方运行入口。`manage.py build`把实际派生image ID写入git忽略的`.runtime/image.env`；Compose统一用这个不可变ID，`pull_policy: never`，不依赖本地浮动tag运行。
+- `deploy/Dockerfile`补入上述固定CRM源码、构建资产及仓库内`resource_import` app，保留官方运行入口。`manage.py build`把实际派生image ID写入git忽略的`.runtime/built-image.env`；仅首次不存在活动锁时以exclusive方式创建`.runtime/image.env`，已有活动锁绝不覆盖。升级须在协调窗口备份并显式激活候选锁。Compose统一用活动不可变ID，`pull_policy: never`，不依赖本地浮动tag运行。
 - MariaDB **10.6.28**：`public.ecr.aws/docker/library/mariadb@sha256:f1c56f035ed268a0d7c2c2e06dc879f6319b997cb434cf822a4cfd72a7aa184d`。
 - Redis **6.2.24-alpine**：`public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319`。
 - v15依赖参考[官方安装页](https://docs.frappe.io/framework/v15/user/en/installation)及[历史Docker提交](https://github.com/frappe/frappe_docker/commit/eb3ce8a14698bb7826542d6d9b30342ac8b7da92)明确10.6/6.2。当前Docker拓扑参考提交 `61d35da827ebc04d01b64c9e78385597ccebc9d8`，其11.8/8.6不直接套给v15。初试旧项目`crm-mvp`的11.8/8.6容器和卷全部保留、不复用、不降级数据库目录。
@@ -20,7 +20,7 @@ Frappe CRM为AGPL-3.0，Framework为MIT；网络提供修改版服务时评估�
 - 最终项目固定`crm-mvp-v15`；卷`crm_mvp_v15_db`、`crm_mvp_v15_redis`、`crm_mvp_v15_sites`。首次部署先查同名资源；已有站点绝不再new-site或重建库。DB/Redis不发布端口，唯一入口`127.0.0.1:8088:8080`。
 - 初探54GiB RAM、根卷819GiB空闲；官方release压缩层约779MiB，派生Node依赖/镜像/数据库额外占空间，预留至少5GiB实验预算；不是生产容量建议。
 - `init-env`用标准库生成独立高熵DB/管理员密码，O_EXCL拒绝覆盖、不打印值，POSIX创建0600；DrvFS仍须依赖Windows ACL。本地`.env`对Docker管理员可见，不等于生产秘密管理。
-- 不提交`.env`、token、客户数据、渲染后的含秘密Compose、OCI缓存、日志、卷或备份。`.dockerignore`只允许Dockerfile进入构建上下文。
+- 不提交`.env`、token、客户数据、渲染后的含秘密Compose、OCI缓存、日志、卷或备份。构建上下文现在是仓库根，`deploy/Dockerfile.dockerignore`只放行Dockerfile与`apps/resource_import`源，排除pycache/egg-info；`deploy/.dockerignore`继续拒绝旧式deploy上下文的其他文件。
 - 不`down -v`、prune，不清理旧容器/镜像/卷。初始化/探针容器故意保留。仅configurator无状态一次性容器经tower批准可必要重建，保留sites/logs卷；其可写层已核验仅pycache。官方入口重建`sites/assets`镜像资产链接，不删除站点public/private资料。
 
 ## 从干净环境复现
@@ -155,6 +155,45 @@ docker exec crm-mvp-v15-backend-1 bench --site crm.localhost execute frappe.get_
 `python3 deploy/manage.py stop`只停止本项目、不删卷。后续用`bench --site crm.localhost backup --with-files`，在**同版本新站点真实恢复**并核对公私文件后才能切换；中立CSV保留来源ID，但不能替代数据库与文件备份。
 
 完整MVP后续必须验证：六列中文映射、重复/错误行幂等、企业/联系人关系、需求→Deal、沟通/任务时间线、双账号UI/API私域与共享权限、重启持久化、导出关系与同版本备份恢复。当前不接真实资料、不宣称这些已完成。Web/PWA优先，Electron不覆盖移动端；四端原生包/签名、移动布局、生产HTTPS/身份与升级策略均未验收。
+
+## 六列网页导入扩展（M7）
+
+实现与权限取舍详见 `docs/IMPORT_APP.md`、D-004。入口 `/resource-import`，当前仅System Manager/Administrator；普通Sales User/Sales Manager均不开放。姓名/解析联系值将进团队共享企业/Contact，页面独立默认未勾选的共享确认是强制条件。不同意共享时明确阻止（尚不支持仅私域Lead模式）；只用合成资料。原文不写共享Organization或FCRM Note，只写Lead。
+
+构建（仅镜像，不更新现有活动image lock，不重启服务）：
+
+```sh
+cd /mnt/p/CRM # 或本任务worktree
+python3 deploy/manage.py build --proxy http://127.0.0.1:7897
+# 专用Dockerfile ignore优先于根ignore，只有app源与Dockerfile进入上下文
+# 可选预备兼容回退镜像；固定旧CRM镜像必须已在本机，不自动拉未知tag
+# 旧CRM本体不含app，不能在站点安装app后直接切回它
+OLD_IMAGE=sha256:2408974e8c5b8f3feacbaf6cac3c62e69c41fe1cf10dec251dd6cbdd1b9de5f3
+docker tag "$OLD_IMAGE" crm-local:resource-import-compat-base
+test "$(docker image inspect crm-local:resource-import-compat-base --format '{{.Id}}')" = "$OLD_IMAGE"
+DOCKER_BUILDKIT=1 docker build --network none --pull=false -f deploy/Dockerfile.compat -t crm-local:resource-import-compat .
+# 显式复用现有私有runtime（路径须绝对且通过普通文件/非链接守卫），不复制或回显凭据：
+CRM_DEPLOY_RUNTIME_DIR=/mnt/p/CRM/deploy/.runtime python3 deploy/manage.py check
+```
+
+已有共享实例升级**必须由tower协调M6停止验证/写入，并记录窗口后才执行**：
+
+1. 记录当前运行所有app服务镜像ID，保留旧镜像及活动`image.env`的exclusive备份；不覆盖旧备份。执行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost backup --with-files`，核对数据库/公私文件备份已存在（内容与摘要不贴日志）。备份创建不等于恢复演练通过。
+2. 核对候选`built-image.env`中的ID与实际构建对应。显式将候选活动锁激活（构建命令不替操作者做这一步）；先`manage.py check`，再`manage.py up`重建Python服务及frontend/websocket/configurator等共享同镜像服务。不可只重启backend而遗留旧worker模块路径。此步有短暂维护窗口。
+3. 运行`docker exec crm-mvp-v15-backend-1 bench --site crm.localhost install-app resource_import`（仅首次），随后`bench --site crm.localhost migrate`、`clear-cache`。版本化迁移只add缺失字段/唯一索引、遇字段冲突拒绝；已有数据和M5备注不变。重新migrate用于幂等检查。
+4. `manage.py smoke`核验原CRM，再显式运行下方HTTP合成核验。普通用户拒绝/浏览器视觉及下载由tower协调M6/浏览器验收；未完成不得标记完成。
+5. 回退优先`bench --site crm.localhost set-config resource_import_disabled 1`并`clear-cache`关闭入口，保留app记录、字段和全部资料，切到预备兼容回退镜像ID（旧CRM+可加载app包），重建同组服务。**不uninstall-app，不删Custom Field，不切缺app的旧镜像，不删卷/合成记录。** 修复后显式将该flag改为0再clear-cache。数据库恢复必须另行审批并在新站点演练，不在此流程中冒险覆盖现库。
+
+HTTP操作核验（需要现有部署runtime，仅程序内部使用现有登录材料、不打印凭据；显式写入并保留M7合成资料）：
+
+```sh
+python3 deploy/verify_resource_import.py --runtime-dir /mnt/p/CRM/deploy \
+  --prefix M7UniqueRun001 --confirm-synthetic-write
+```
+
+核验覆盖匿名/登录页、POST/CSRF、预览无业务写入（仅短期Redis receipt）、共享/确认/文件来源篡改/缺失/跨会话receipt校验、逐行错误、失败回滚无企业孤儿、重复/并发双会话、原文/来源/完整hash、显式消歧与原生对象链接。每次使用新前缀；不会删除旧验收数据。此脚本不等于浏览器视觉/真实文件控件/失败CSV下载验收，也不等于非管理员实际会话或备份恢复验证。
+
+M7窗口实测：旧镜像`2408974e...`和主私有`pre-m7-image.env`保留；with-files新备份数据库非空+公/私tar+site config四件最近生成已核对，未恢复。安装中patch manifest漏pre_model_sync节、www controller应使用下划线、本站无encryption_key及Long Text会清洗HTML均经真实检查发现并修正，未通过时未宣称完成。最终14字段只增（保留五个早期Long Text，新导入只写五个Code verbatim原文；不变更字段类型/全局过滤器），两次migrate、实际唯一索引及HTTP矩阵核验见IMPORT_APP。当前候选`sha256:36a89c9b0ad6eae3842ba4a32c7c54cfa45c6a7c135041893ba55b9f2f07e238`、兼容回退`sha256:6490855bc7f8e2a78523ac40ad3b5b024d745965ac9c2e834c3bfa9b10641fe9`；M7HTTP001保留3企业/4联系人/6Lead。网页视觉和非管理员实会话待tower协调，不把管理员HTTP通过当完整MVP。
 
 ## 官方证据
 

@@ -1,0 +1,9 @@
+**
+!deploy/
+!deploy/Dockerfile
+!apps/
+!apps/resource_import/
+!apps/resource_import/**
+**/__pycache__
+**/*.pyc
+**/*.egg-info
