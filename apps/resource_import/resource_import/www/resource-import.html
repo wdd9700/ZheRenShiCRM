@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token | e }}">
+  <title>六列资源导入</title>
+  <style>
+    body { font: 16px/1.6 system-ui,sans-serif; margin: 0; background: #f5f7fa; color: #172b4d; }
+    main { max-width: 1280px; margin: auto; padding: 24px; }
+    h1 { font-size: 28px; } a { color: #155ab6; }
+    section { background: white; border: 1px solid #d8dfe8; border-radius: 10px; padding: 20px; margin: 18px 0; }
+    button, select, input { font: inherit; } button { padding: 8px 16px; margin: 6px 8px 6px 0; cursor: pointer; }
+    button:disabled { cursor: not-allowed; } .scroll { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; min-width: 1000px; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; border: 1px solid #d8dfe8; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 250px; }
+    th { background: #edf2f7; } select { max-width: 230px; } .error { color: #a51b1b; }
+    #status { white-space: pre-wrap; } .muted { color: #526079; } label { display: inline-block; }
+    @media(max-width:600px) { main { padding: 12px; } section { padding: 12px; } h1 { font-size: 24px; } }
+  </style>
+</head>
+<body><main>
+  <a href="/crm">返回原生CRM</a>
+  <h1>六列资源导入</h1>
+  <p>上传 → 预览和消歧 → 显式确认 → 查看结果。创建企业、联系人与需求线索，不自动创建商机。</p>
+  <section aria-labelledby="upload-heading">
+    <h2 id="upload-heading">1. 上传CSV</h2>
+    <p class="muted">UTF-8（可含BOM），最多1MiB / 500行。六列表头可重排；产品、需求、联系方式原文及来源会保存在需求线索。重复资料不覆盖既有数据。</p>
+    <p>表头：序号、姓名、公司名称、联系方式、公司产品、服务、需要的产品、服务（含逗号的标题请用CSV引号）。</p>
+    <p class="error">管理员导入（本轮仅合成数据）：创建企业/联系人将对现有Sales User角色开放，包括姓名、企业及解析后的联系方式。私域原文只保存在Lead并不使共享联系人变为私域。本页尚不支持仅建立私域Lead的模式；不接受共享请勿导入。</p>
+    <p><label><input id="shared-consent" type="checkbox"> 我明确同意创建或复用团队共享企业/联系人，并理解这些业务资料对现有Sales User角色开放。</label></p>
+    <label for="csv-file">资源CSV文件 </label><input id="csv-file" type="file" accept=".csv,text/csv">
+    <div><button id="template" type="button">下载空白模板</button><button id="preview" type="button" disabled>预览（不写入）</button></div>
+  </section>
+  <p id="status" role="status" aria-live="polite">请选择CSV文件。</p>
+  <section id="preview-panel" hidden aria-labelledby="preview-heading">
+    <h2 id="preview-heading">2. 逐行预览与消歧</h2>
+    <p>已有企业或联系人须显式选择。联系人必须已经关联该企业；关联不明请先在原生CRM整理，再重新预览。未选择/错误行会失败，其余行仍可导入。同批完全相同的联系人资料复用本批新建联系人。</p>
+    <div id="preview-table" class="scroll"></div>
+    <p><label><input id="confirm" type="checkbox"> 我已检查原文与关联，同意创建有效行的企业、联系人和需求线索。</label></p>
+    <button id="apply" type="button" disabled>确认导入有效行</button>
+  </section>
+  <section id="result-panel" hidden aria-labelledby="result-heading">
+    <h2 id="result-heading">3. 导入结果</h2>
+    <div id="result-table" class="scroll"></div>
+    <button id="download" type="button" disabled>下载失败行CSV</button>
+    <p class="muted">失败CSV含原六列、来源行号及原因；为防电子表格公式执行，危险前缀会增加单引号。它是报告，修正后请使用原六列表头重新上传。请求中断请重新预览后重试，不要假定整批成功或失败。</p>
+  </section>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const columns = ['序号','姓名','公司名称','联系方式','公司产品、服务','需要的产品、服务'];
+  let csvText = '', source = '', token = '', rows = [], failures = [], busy = false, generation = 0;
+  const status = text => { $('status').textContent = text; };
+  function controls() {
+    $('preview').disabled = busy || !csvText || !$('shared-consent').checked;
+    $('apply').disabled = busy || !token || !$('confirm').checked || !$('shared-consent').checked;
+    $('csv-file').disabled = busy;
+    $('shared-consent').disabled = busy;
+  }
+  function invalidate() {
+    token = ''; rows = []; $('confirm').checked = false;
+    $('preview-panel').hidden = true; $('result-panel').hidden = true;
+    controls();
+  }
+  function download(name, data) {
+    const url = URL.createObjectURL(new Blob(['\ufeff', data], {type:'text/csv;charset=utf-8'}));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function csv(data) {
+    return data.map(row => row.map(value => {
+      let s = String(value ?? ''); if (/^[\s]*[=+\-@]/.test(s) || /^[\t\r]/.test(s)) s = "'" + s;
+      return '"' + s.replace(/"/g, '""') + '"';
+    }).join(',')).join('\r\n');
+  }
+  function table(container, headers) {
+    const t = document.createElement('table'), head = document.createElement('thead'), tr = document.createElement('tr');
+    for (const title of headers) { const th = document.createElement('th'); th.textContent = title; th.scope = 'col'; tr.append(th); }
+    head.append(tr); t.append(head); const body = document.createElement('tbody'); t.append(body);
+    $(container).replaceChildren(t); return body;
+  }
+  function cell(tr, text) { const td = document.createElement('td'); td.textContent = String(text ?? ''); tr.append(td); return td; }
+  function selector(td, values, row, kind) {
+    if (!values.length) { td.textContent = '新建'; return; }
+    const select = document.createElement('select'); select.dataset.line = String(row.line); select.dataset.kind = kind;
+    select.setAttribute('aria-label', '第' + row.line + '行' + (kind === 'contact' ? '联系人' : '企业') + '选择');
+    const empty = document.createElement('option'); empty.value = ''; empty.textContent = '请选择（不自动合并）'; select.append(empty);
+    for (const item of values) {
+      const option = document.createElement('option'); option.value = typeof item === 'string' ? item : item.name;
+      option.textContent = typeof item === 'string' ? item : item.name + (item.compatible ? '' : '（企业未关联，不能选择）');
+      option.disabled = typeof item !== 'string' && !item.compatible; select.append(option);
+    }
+    td.append(select);
+  }
+  function renderPreview() {
+    const body = table('preview-table', ['行','状态', ...columns,'企业关联','联系人关联','错误']);
+    for (const row of rows) {
+      const tr = document.createElement('tr'); cell(tr,row.line); cell(tr,row.state);
+      for (const c of columns) cell(tr,row.raw[c]);
+      if (row.lead || row.state === '文件内重复' || row.errors.length) { cell(tr,'—'); cell(tr,'—'); }
+      else { selector(cell(tr,''),row.organizations,row,'organization'); selector(cell(tr,''),row.contacts,row,'contact'); }
+      cell(tr,row.errors.join('；')).className = 'error'; body.append(tr);
+    }
+    $('preview-panel').hidden = false;
+  }
+  async function post(method, payload) {
+    payload.shared_consent = $('shared-consent').checked;
+    const response = await fetch('/api/method/resource_import.api.' + method, {
+      method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-Frappe-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},
+      body:JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message?.error || ('请求未成功（HTTP ' + response.status + '）。请检查登录与权限，必要时刷新页面重新预览。'));
+    if (!result.message) throw new Error('服务器未返回结果，请重新预览。');
+    return result.message;
+  }
+  $('csv-file').addEventListener('change', async () => {
+    const current = ++generation; csvText = ''; source = ''; invalidate();
+    const file = $('csv-file').files[0]; if (!file) { status('请选择CSV文件。'); return; }
+    if (file.size > 1048576) { status('文件超过1MiB。'); return; }
+    try {
+      const text = new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+      if (current !== generation) return;
+      csvText = text; source = file.name; status('文件已读取，请预览。'); controls();
+    } catch { status('无法读取UTF-8文件，请转换编码后重试。'); }
+  });
+  $('template').addEventListener('click', () => download('resource-template.csv',csv([columns])));
+  $('confirm').addEventListener('change',controls);
+  $('shared-consent').addEventListener('change', () => { invalidate(); status('共享确认已改变，请重新预览。'); });
+  $('preview').addEventListener('click', async () => {
+    invalidate(); busy = true; controls(); status('正在只读预览…');
+    try { const result = await post('preview',{csv_text:csvText,source}); token = result.token; rows = result.rows; renderPreview(); status('预览完成：' + rows.length + '行，其中错误' + rows.filter(r=>r.errors.length).length + '行。请检查关联并确认。'); }
+    catch(error) { status(error.message); } finally { busy = false; controls(); }
+  });
+  $('apply').addEventListener('click', async () => {
+    if (!$('confirm').checked || !token || busy) return;
+    busy = true; controls(); status('正在导入，请勿关闭页面…');
+    const choices = {};
+    for (const s of document.querySelectorAll('select[data-line]')) { (choices[s.dataset.line] ||= {})[s.dataset.kind] = s.value; }
+    try {
+      const result = await post('apply',{csv_text:csvText,source,token,confirm:true,choices});
+      const body = table('result-table',['行','序号','状态','原生对象','失败原因']); failures = [];
+      for (const row of result.rows) {
+        const tr = document.createElement('tr'); cell(tr,row.line); cell(tr,row.raw['序号']); cell(tr,row.state); const td = cell(tr,'');
+        for (const [kind,link] of Object.entries(row.links || {})) { const a = document.createElement('a'); a.href = link.url; a.textContent = ({lead:'需求线索',organization:'企业',contact:'联系人'}[kind] || kind) + '：' + link.name; a.target = '_blank'; a.rel = 'noopener'; td.append(a,document.createElement('br')); }
+        cell(tr,row.error || '').className = 'error'; body.append(tr); if(row.state === '失败') failures.push(row);
+      }
+      $('result-panel').hidden = false; $('download').disabled = !failures.length;
+      token = ''; $('confirm').checked = false; status('导入完成：' + result.rows.length + '行；失败' + failures.length + '行。成功或已导入对象见下方链接。');
+    } catch(error) { token = ''; status(error.message + ' 结果未知，请重新预览后重试。'); }
+    finally { busy = false; controls(); }
+  });
+  $('download').addEventListener('click', () => download('resource-import-failures.csv',csv([[...columns,'来源行号','失败原因'],...failures.map(r=>[...columns.map(c=>r.raw[c]),r.line,r.error])])));
+})();
+</script>
+</main></body></html>

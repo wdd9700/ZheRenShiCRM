@@ -19,6 +19,7 @@
 | D-001 | 2026-10-31 | 团队集中服务端与跨端路径 | Validated（方向） | Web/PWA 优先；单用户仅最小测试 | 用户方向变化；真实跨端体验反馈 |
 | D-002 | 2026-10-31 | CRM 基座与可回退部署 | Provisional（直接镜像部分由D-003替代） | Frappe stable谱系；Twenty备选 | 业务/权限/恢复实测不满足 |
 | D-003 | 2026-10-31 | 官方镜像缺应用的派生构建 | Validated（本地基座烟测） | 固定Framework基底+CRM源码commit | 业务/权限失败，或完整官方镜像可用 |
+| D-004 | 2026-10-31 | 受认证六列资源导入 | Provisional（管理员合成闭环已实测，待独审） | 最小Frappe app，原生实体、双确认、幂等与行级事务 | 独审/升级回归；普通团队私域另验 |
 
 ### D-001｜团队为架构前提，跨端先复用 Web
 
@@ -65,6 +66,38 @@
 
 - **独审R1交接修复**：唯一P2指出忽略运行材料仍绑定临时wt-3，原文档长期使用该路径的建议不成立。选择显式本机`handoff-runtime --target-dir`，目标必须先有合并后匹配的跟踪代码及忽略规则；私有`.runtime`存放两文件，原子不覆盖复制、保护ACL、源保留、正文/摘要不输出，自动目标check/smoke。采用专用私有目录而非收紧整个deploy/递归ACL，保持团队代码和WSL访问边界。预合并仅演练私有fixture；合并后主checkout实际交接、Windows/WSL验收及tower确认是清理wt-3前强制门槛，未执行前不得称迁移完成。不生成新密码/站点、不删源或改主checkout产品代码。实现和验证见deploy/README.md。
 - **R1修复验证追加**：最终工具在私有Git fixture真实复制后，目标Windows和第一Ubuntu的check/smoke均通过；目标Ubuntu status仍见原项目。重复调用不改字节/mtime，公共deploy ACL不变；冲突、未忽略/已跟踪、代码/路径异常、硬链接与正常/断裂junction、不安全目标ACL及父DeleteChild均拒绝。显式仅保护专用目录后WSL可读；Git CRLF代码和含空格路径亦真实通过，运行材料不转换。源保留、凭据正文/摘要未输出，无新增用户决策；实际主checkout交接仍未执行，须合并后按README门槛完成。
+
+- **标准登录阻断与资产修复（M7回查）**：此前API密码登录/CRM Vite资产烟测遗漏Framework标准/login；浏览器实际请求裸`/frappe-web.bundle.js`404，jQuery/frappe.login未加载，表单退化GET。M9隔离network=none探针证实原base c3873的根assets.json有32键且目标hash文件存在，但sites/assets/assets.json不存在；M7 36a89两manifest均{}（M8未加入）。原D003 Dockerfile直接CRM-only build未preseed根manifest到sites/assets，esbuild无Framework入口后写{}，随后cp覆盖根manifest；M7原样继承该段，不能归咎M8。临时DOM改POST/name或注入sid不算标准登录验收。选择构建前复制官方既有assets到sites/assets，保留官方映射与hash产物，构建后强断言关键映射、原键不丢且目标文件存在；不手工映射、不重编Framework、不改上游。smoke增加Guest登录页JS/CSS及Content-Type检查；新干净tab正常表单登录→CRM/导入仍须独立浏览器验收。修复镜像由M9单一操作者先构建M7-only，部署仍需tower窗口，未验证前保持阻断。
+
+- **资产修复已部署与精确共享缓存失效**：M9标准构建精确`c8b870b20099170e05fecb648d6f08201cdd9f77`→`sha256:c47b7cc4bc53cf6388977eb03dab9a9a1658a1c1fdca0d9a8b5cc89c57bc9411`，隔离probe双manifest32键/全部目标存在；在tower窗口统一部署、旧锁/镜像/站点卷及配置保留。首次运行smoke仍失败，因get_assets_json使用shared=True缓存，旧共享assets_json仅8个RTL键，本站clear-cache/clear-website-cache不能失效。tower逐项授权只`frappe.cache.delete_value("assets_json", shared=True)`再清本站网页缓存，新请求主32+RTL8=40、无覆盖冲突，完整Guest/login哈希JS/CSS正确类型及真实管理员session/CRM smoke PASS。此精确共享静态键失效已纳README必需升级步骤，禁止泛化为flushdb/清会话/通配删除。M6 `93426e65c5f4a2b79dc2922f99ff8ace337f125a`在新干净Edge tab原生/login无DOM修改/无sid注入并preview200，旧资产404阻断解除；该时点标准会话apply及实际失败CSV仍待，不能将preview与早前临时会话apply拼为整链；后续同一标准会话的新CSV整链真实证据已在D-004追加。
+
+### D-004｜受认证六列资源导入扩展（M7）
+
+- **日期/状态**：2026-10-31 / Provisional，实施前记录。
+- **目标/已知事实**：用户要求真实网页上传、预览、确认及逐行结果。已读M5实际源码与MVP_WORKFLOW；原生导入一次只写一种实体、无自然幂等；Lead.organization实际为Data，需求/原文需additive字段。运行源码Frappe15.125.0/CRM1.90.0 www及CSRF已核验；实际角色限制仍等M6交接。
+- **候选**：原生单对象导入（不能覆盖六列跨实体）；浏览器逐条REST（事务/并发/权限不可控）；最小Frappe app `resource_import`（暂选，复用ORM/认证/原生www，无额外依赖）。不改Vue、不启用Server Script。
+- **决定/理由**：服务端单一解析计划写入；权限过滤候选、显式关联消歧、完整SHA256唯一键；站点数据库命名锁在最终commit之后释放、每行savepoint异常先回滚，防并发重复和孤儿。锁仅覆盖本app，不宣称阻止上游原生手工竞态。
+- **原文/回退**：Lead保存需求/产品/联系方式/来源与六列快照、实体Link；版本化迁移只增缺失字段，不覆盖既有字段。保留旧镜像与备份，需协调M6停写窗口才共享部署。不删字段、不uninstall；旧镜像若缺已安装app不可直接启动，须使用仍含app的兼容回退镜像。
+- **置信度/证据缺口**：中。具体契约和纠正M5截断SHA1、异常处理、破坏回退风险见 `IMPORT_APP.md`；真实HTTP、并发、权限、原文和视觉尚未验证。未声称完整MVP/恢复完成。
+- **实施中M6证据修订**：Organization/Contact对Sales User默认广泛开放；Lead按owner/分配过滤，Manager全读；FCRM Note无父权限继承。因此入口收紧仅System Manager/Administrator、不写Note、不把产品原文写Organization；原文只保存Lead。姓名/解析联系值同样可能私密，页面必须独立默认不勾选的共享确认，preview/apply均验shared_consent；不接受共享则明确阻止，未支持仅私域Lead模式。本轮只用合成数据，管理员导入不等于团队私域问题已修好。
+- **实施实证修订（原文与receipt）**：Frappe Document._sanitize_content会清洗Long Text中的HTML；经tower批准只增5个Code verbatim字段作为产品/需求/联系方式/来源JSON/六列JSON权威原文，保留早期5个Long Text但新导入不写、不改类型/删列、不全局ignore_xss_filter，共14字段（Lead13+Contact1）。历史导入缺verbatim返回人工核验错误，不自动覆盖、不冒称原文完整。Code存储不等于HTML可安全显示，网页坚持textContent并验真实浏览器。本站无encryption_key导致签名preview500，改现有Redis15分钟256-bit不透明receipt，只存user/session/source/完整文件digest/共享确认，不存CSV；apply重新校验身份、权限、内容与候选。篡改/跨会话/丢失/过期fail closed，receipt期内可幂等重试/并发，最终防重仍由DB唯一约束+锁负责。
+- **会话撤销错误响应修订**：M6禁用合成System Manager后，原会话有效receipt的apply由Framework拒绝417、业务零写，但响应含完整exc堆栈，原安全断言FAIL。只读固定v15.125.0源码证实Session.resume.validate_user在HTTPRequest构造时抛ValidationError，早于app handler及before_request/auth_hooks，故导入局部disable_traceback不能覆盖。官方System Settings.allow_error_traceback默认1，get_system_settings只读该站点DB单例而非site_config。tower选择在M6独占窗口记录单一旧值、正常保存为0、clear-cache，回退恢复该旧值；新站点部署亦须显式配置。备选app after_request错误normalizer暂不采用，避免扩大自定义拦截；不改核心、不盲重建镜像。
+- **安全断言与日志边界**：官方V1 report_error无条件保留exc_type，纯ValidationError类型名不是堆栈，tower明确允许；仍禁止exc/exception堆栈、文件路径/行号、调试内容、候选及私密正文，不静默抹掉历史FAIL。关闭会跳过report_error的errprint，其request-local错误列表与条件stdout输出会减少；>=500独立log_error_snapshot（有异常排除规则）及已启用的请求访问日志不由此开关关闭，417本来无持久snapshot保证，不能称日志完全不变。官方证据及可复现步骤见deploy/README.md；配置修复、角色撤回与视觉最终结果待M6独立回传，尚未标Validated。
+- **后续独立证据与当前阻断**：M6最终12API负测PASS（含disabled417无堆栈、角色撤回403、匿名/跨用户、业务零写），原设置1→0且账号恢复。首次正常save因既有language/time_zone缺失拒绝且未提交，后M6以ignore_mandatory仅保存目标设置并clear-cache；不作为通用部署默认。tower临时已登录浏览器真实preview/apply得到M7VISUAL001成功1/重复1/错误1，危险script/img以文本显示；下载落盘、原生链接/移动视觉仍未验。标准/login因D003上述manifest丢失而失败，DOM改POST/name与sid注入不算登录验收；须修复后新干净tab正常表单登录→preview→apply。已实现preseed/构建强断言及Guest登录资产smoke，本地模拟覆盖正常、空映射、错Content-Type及外站资产拒绝，尚待M9真实镜像构建与部署窗口，M7仍blocked、不报完整MVP。
+- **标准会话UI追加（替代上段当前blocked状态，保留历史）**：精确c8b870b已由M9构建/部署为c47b7cc镜像，精确shared assets_json失效及M6新干净tab原生登录已通过。M7沿用同一标准会话，真实上传独立m7-standard-ui.csv，明确共享确认→preview200→第二独立确认→apply200仅一次，M7STANDARDUI001成功1/重复1同Lead00034/缺姓名1；危险script显示为文本且未执行。真实浏览器失败报告另存为后Read及csv.reader逐字段PASS：UTF-8 BOM、8列、仅1错误行、中文引号逗号换行保真、公式前加单引号；非模拟DOM代替。原生Lead链接真实鼠标实点进入站点/crm/setup，非详情通过，后续依tower正常引导授权验收，不注入完成flag。
+- **正常初始化与隐私基线即时取舍及实证**：只读固定CRM路由/Setup.vue/控制器和本站单项，FCRM Settings.setup_completed=0为全站管理员引导；tower授权原生Skip setup及确认（不接邮箱/生成示例/邀请、不改国家货币）。tower另明确实验隐私基线，将既有System Settings.enable_telemetry从1改0；不声称此前零外发或该项阻止一切第三方请求。原生取消实际POST417 MandatoryError（缺Language/Time Zone），DB仍1/空/空，失败保留。固定Framework空时区回退Asia/Kolkata，now_datetime和新creation/modified用本站naive时间，改上海不只是显示且不迁移旧值。tower选择B：language=zh/time_zone=Asia/Kolkata，保持旧有效语义，不混合合成历史时区；真实团队上线前另行规划。正常System Settings UI的必填time_zone固定read_only，未改DOM/df绕过；经单独授权一次维护身份普通ORM save、无ignore_mandatory/ignore_permissions/SQL/db.set_value，事务内比对全部字段仅三目标业务值和modified变化，白名单通过才commit。fresh读取三值zh/Kolkata/0、traceback仍0、密码策略/评分/备份等不变；原生设置重载和不变值Save未报错。重载setup后原生Skip→确认POST200，单项setup_completed0→1，telemetry仍0。此是透明的维护初始化加正常UI引导，不冒充UI设置只读时区。
+- **最终M7视觉收敛**：同一标准登录会话、同一新CSV结果，经正常引导后逐一真实鼠标点击Lead/企业/Contact结果链接，新tab分别776603404/407/410；snapshot实见Lead00034、姓名与企业字段、企业联系人1，不以页面壳或200替代详情。390×844仿真两截图已读，页面宽390无整体横溢，长表局部横滚；非手机实机或原生包验收。已恢复metrics/focus仿真、停本人capture且释放窗口，不关用户tabs/session。实现代码自c8b870b不变，当前只补文档与独立样例，申请独审；无create专门负例仍未测，不改全局DocPerm造例。D-004仅管理员合成导入闭环已有真实证据，不标完整团队MVP/移动安装包/M8权限/恢复Validated。
+- **复评/用户决策**：普通可逆app与字段暂定无需用户审批；真实数据授权、公网暴露或破坏性操作另行决定。后续按HTTP/并发/双账号与视觉证据更新。
+
+### D-005｜原生Note/Task私域权限补强（M8）
+
+- **日期/状态**：2026-10-31 / Provisional，实施前记录；未通过仍阻断完整团队MVP。
+- **触发/证据**：M6真实HTTP证实私密FCRM Note detail及PUT越权均200，未共享Note正文经activities泄露。M8固定源码核对：permission hook False后仍有DocShare OR，query hook后亦share OR；get_docinfo顶层响应、activity counts和mentions存在旁路。单permission hook不足。
+- **候选**：A 在原生Note/Task新增默认Private、显式Shared可见性，覆盖多入口官方扩展（暂选，保留原生UI/历史）；B 独立私域对象（损失原生UI，须迁移，暂缓）；C 单permission hook（已被源码证伪）。不接受脆弱全局SQL补丁。
+- **决定/边界**：Shared只有可读父Lead/Deal者可读；写仍按拥有者/明确授权协作者，不能把父可读等同任意写。任务assignee是明确协作但仍须父可读。Comment定义正式共享业务沟通，UI须提示；私文使用Private Note。不自动发布旧Note/Task，不改正文，不向外发数据。
+- **置信度/验证**：中低；需双账号直接接口、列表、CSV、活动、通知、共享撤回及UI实测和独审。M7仍仅管理员共享商业对象确认，不因此扩权。
+- **回退/风险**：不得关闭安全hook重新暴露已经存入的私文；保留安全包、关闭访问或恢复隔离副本。不删权限字段，不把部署成功等同权限完整解决。
+- **复评/用户决策**：这是可逆安全修复暂选，不需等待用户审批；真实资料授权/数据迁移/删除或业务共享规则改变仍须用户决定。各旁路未全部实测通过前保持MVP阻断。
 
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
