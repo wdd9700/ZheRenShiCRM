@@ -33,7 +33,46 @@ When indexed retrieval seems useful:
 5. When the operation is reasonably small and authorized by the current task, indexing may proceed. Request user approval for substantial indexing operations, unclear data boundaries, or material resource consumption.
 6. Search the workspace with `xerj search --prefix <workspace-prefix> "<query>"`, or use `xerj def` for symbol discovery.
 
-The placeholders above must be replaced with actual values; they are not literal shell commands.
+### This Workspace's Configured Instance
+
+The concrete values for this repository are fixed; use them instead of the placeholders above. Wrappers live in `tools/xerj/` and `tools/xerj/README.md` documents the details.
+
+| Setting | Value |
+|---|---|
+| Indexed root | `P:\CRM` (main workspace only; never a worktree) |
+| Prefix | `crm-main` |
+| Endpoint | `http://127.0.0.1:9200` (also claims 9201/9202), loopback only |
+| Embedding | `lexical` (offline; not neural semantics) |
+| Runtime state | `P:\CRM\.tower\xerj` — hidden, excluded from autoindex and git |
+| Index mode | `--no-semantic --no-graph --code-analyzer code` |
+
+Start, stop, and status (PowerShell, copy-paste):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-start.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-status.ps1   # add -Map
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-stop.ps1
+```
+
+Indexing is dry-run by default. Review the scope first, then apply; re-running the same `-Apply` command is the incremental update:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-index.ps1           # dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-index.ps1 -Apply    # first and incremental
+```
+
+Do not add `--yes`, `--drop-indexed`, or `--replace-prefix` automatically; those accept a reduced plan or delete indexed documents and need an explicit human decision. A non-zero exit (3 = skipped/refused files, 4 = decision required) must be reported, not retried blindly.
+
+Query compactly and verify hits against the current file:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-search.ps1 -Query "module + identifier + behavior" -K 3 -Full 500
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File P:\CRM\tools\xerj\xerj-search.ps1 -Def -Query "ExactSymbol" -Lang typescript
+```
+
+Migration: stop the node, copy `data\`, `state\`, and `logs\` from `.tower\xerj` to a new absolute directory, set `XERJ_CRM_HOME` to that directory before starting, then verify with `-Map` and a known query. Scripts never delete the old directory or any index; keep both until verification passes.
+
+Security boundaries: never print or commit `admin.key`; do not share node logs (the first launch log may contain a one-time console setup link); keep the node on loopback and default auth; do not enable neural/proxy embeddings, MCP, external feedback, or model downloads. The current corpus contains project documents only — this loopback setup is an experiment, not a production security boundary for real customer data.
 
 Consult `xerj --help` and relevant subcommand help when needed. Avoid loading extensive documentation into context unnecessarily.
 
