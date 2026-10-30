@@ -1,0 +1,7 @@
+deploy/.runtime/
+deploy/.env
+deploy/.secrets/
+deploy/backups/
+deploy/*.log
+__pycache__/
+*.pyc

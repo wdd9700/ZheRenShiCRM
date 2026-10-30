@@ -1,0 +1,167 @@
+name: crm-mvp-v15
+
+services:
+  db:
+    image: public.ecr.aws/docker/library/mariadb@sha256:f1c56f035ed268a0d7c2c2e06dc879f6319b997cb434cf822a4cfd72a7aa184d
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+      MARIADB_AUTO_UPGRADE: "1"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - crm_mvp_v15_db:/var/lib/mysql
+    restart: unless-stopped
+
+  redis-cache:
+    image: public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    restart: unless-stopped
+
+  redis-queue:
+    image: public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - crm_mvp_v15_redis:/data
+    restart: unless-stopped
+
+  configurator:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        ls -1 apps > sites/apps.txt &&
+        bench set-config -g db_host db &&
+        bench set-config -gp db_port 3306 &&
+        bench set-config -g redis_cache redis://redis-cache:6379 &&
+        bench set-config -g redis_queue redis://redis-queue:6379 &&
+        bench set-config -g redis_socketio redis://redis-queue:6379 &&
+        bench set-config -gp socketio_port 9000 &&
+        bench set-config -g chromium_path /usr/lib/chromium/chromium-headless-shell
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: "no"
+
+  backend:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    environment:
+      GUNICORN_THREADS: "4"
+      GUNICORN_WORKERS: "2"
+      GUNICORN_TIMEOUT: "120"
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: unless-stopped
+
+  websocket:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: unless-stopped
+
+  frontend:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      NGINX_LISTEN_PORT: "8080"
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME:-crm.localhost}
+      PROXY_READ_TIMEOUT: "120"
+      CLIENT_MAX_BODY_SIZE: "50m"
+    depends_on:
+      - backend
+      - websocket
+    ports:
+      - "127.0.0.1:8088:8080"
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: unless-stopped
+
+  queue-short:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    command: ["bench", "worker", "--queue", "short,default"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: unless-stopped
+
+  queue-long:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: unless-stopped
+
+  scheduler:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    command: ["bench", "schedule"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+    restart: unless-stopped
+
+  create-site:
+    image: ${CRM_IMAGE:?run python3 deploy/manage.py build first}
+    pull_policy: never
+    profiles: ["setup"]
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        bench new-site --no-mariadb-socket
+        --db-root-password "$${DB_PASSWORD}"
+        --admin-password "$${ADMIN_PASSWORD}"
+        --install-app crm "$${FRAPPE_SITE_NAME}"
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in deploy/.env}
+      FRAPPE_SITE_NAME: ${FRAPPE_SITE_NAME:-crm.localhost}
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - crm_mvp_v15_sites:/home/frappe/frappe-bench/sites
+
+volumes:
+  crm_mvp_v15_db:
+    name: crm_mvp_v15_db
+  crm_mvp_v15_redis:
+    name: crm_mvp_v15_redis
+  crm_mvp_v15_sites:
+    name: crm_mvp_v15_sites

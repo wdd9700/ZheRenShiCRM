@@ -2,7 +2,7 @@
 
 > **过程文件，不是一次性总结。** Agent 在做出较大的临时决策后立刻记录，再沿临时决定推进；交付时必须回看全链。  
 > 创建日期：2026-10-31  
-> 当前状态：**模板已建立；尚无真实工程决策记录。** 不得把下面的示例误写为已实施事实。
+> 当前状态：D-001团队方向、D-002基座暂选、D-003派生镜像修复均已留过程记录；**可登录CRM基座及合成Lead写读烟测通过，完整团队MVP未验收**。保留初始记录并在相应条目追加实测，不将早期未知状态当最终结论。
 
 ## 用法
 
@@ -16,7 +16,52 @@
 
 | ID | 日期 | 主题 | 状态 | 临时方案 / 待选 | 复评条件 |
 |---|---|---|---|---|---|
-| — | — | 尚未开始真实选型 | — | — | — |
+| D-001 | 2026-10-31 | 团队集中服务端与跨端路径 | Validated（方向） | Web/PWA 优先；单用户仅最小测试 | 用户方向变化；真实跨端体验反馈 |
+| D-002 | 2026-10-31 | CRM 基座与可回退部署 | Provisional（直接镜像部分由D-003替代） | Frappe stable谱系；Twenty备选 | 业务/权限/恢复实测不满足 |
+| D-003 | 2026-10-31 | 官方镜像缺应用的派生构建 | Validated（本地基座烟测） | 固定Framework基底+CRM源码commit | 业务/权限失败，或完整官方镜像可用 |
+
+### D-001｜团队为架构前提，跨端先复用 Web
+
+- **日期/状态**：2026-10-31 / Validated（仅需求方向，不代表实现已验证）。
+- **触发与目标**：用户最新明确要求面向团队、集中服务端与跨端客户端，优先低迁移成本；旧稿“先单用户后团队”不再是架构约束。
+- **已核实事实**：tower 方向广播及 M1/M2 报告确认该更新；Electron 不覆盖 iOS/Android；本机没有可验证 macOS/iOS 原生构建签名的环境。
+- **候选与取舍**：一套响应式 Web/PWA + 集中服务端（复用基座，先选）；Electron/Tauri 桌面薄壳与 Capacitor 移动薄壳（确有原生需求后评估）；四套独立原生端（当前成本高，暂缓）。
+- **决定/置信度**：团队身份、私域/共享权限是第一阶段验收门槛；Web/PWA 为暂定低成本客户端路径。方向高置信，四端体验与薄封装可行性中低置信、未验证。
+- **边界/回退**：不承诺四端安装包；单用户只作最小烟测，不替代双账号 UI/API 越权验证。客户端不嵌共享管理员令牌；真实私域数据未授权不得进入演示。
+- **证据与下一步**：M1 官方能力调查、M2 本机工具调查；后续验证桌面/移动 Web、团队账号、拥有者/经理规则和私域隔离。
+- **复评/用户决策**：普通可逆选型无需用户拍板；真实资料共享、公网开放、付费原生分发等授权另行确认。
+
+### D-002｜条件首选 Frappe CRM stable，独立本地沙箱，不把开发 Compose 当生产
+
+- **日期/状态**：2026-10-31 / Provisional；记录于部署实现之前。
+- **触发与目标**：优先复用 CRM 跑通“导入→联系人/企业→需求→商机→沟通→跟进→时间线”，为团队保留安全可回退基线。
+- **已核实事实**：已读取 M1/M2 完整调查。M1 官方调查认为 Frappe stable main v1.x 的 Lead/Deal、Activity、Task 最贴近闭环；develop 为 v2 不稳定。官方生产文档采用 stable easy-install；仓库开发 Compose 含 latest 与样例密码，不能直接作为交付基线。
+- **候选与取舍**：
+  1. Frappe CRM stable：现成业务链与 Framework 权限/API/备份，首选；中文导入去重、CEO 私域、复杂对象新 UI、恢复尚未实测。
+  2. Twenty stable：对象扩展、导入治理和 OAuth 较强；扁平中文表需拆分，行级权限为 Organization Premium（自托管也如此），多态关系导出受限，暂为备选。
+  3. 从零开发：当前没有证据证明值得放弃现成业务逻辑，暂缓。
+- **许可证**：Frappe CRM AGPL-3.0；Frappe Framework 为 MIT（须按固定源码再核对）。Twenty 主体 AGPLv3，部分包 MIT、Enterprise 标记文件商业许可。修改后网络服务需评估 AGPL §13 对应源码义务；不将团队内网等同免除义务；本记录不是法律意见。
+- **临时决定/置信度**：首选官方 Frappe stable 发布谱系，后续锁定具体 CRM/Framework 版本、上游配置提交及镜像 digest；独立项目名/持久卷，只绑定 127.0.0.1，不改主机服务。基座中置信，部署低置信（尚未容器启动）。
+- **初始运行证据**：Windows Docker 29.3.1 客户端存在但 docker_engine pipe 缺失。经授权只读进入已有 Ubuntu-24.04，默认 uid=0、WSL2 kernel 6.6.87.2，Docker socket 存在且服务 active，54GiB RAM / 根卷819GiB空闲；未安装软件、未 sudo、未修改系统服务。内部 CLI/版本仍在核验，不能仅凭 socket 声称可部署。
+- **可逆性**：仅合成数据、独立卷；停止容器不删卷。更换基座前导出保留来源 ID 的中立 CSV，并备份数据库及公私文件，在同版本新站点恢复验证；不使用 down -v 作为回退。
+- **未验证边界/复评**：镜像能否拉取、健康/登录、中文六列导入幂等与错误行、团队 UI/API 隔离、重启持久化、导出关系、备份恢复均未通过。任一核心条件不满足则重新比较 Twenty，不无限堆自定义补丁。
+- **用户决策与后续授权**：普通本地隔离沙箱无需业务选型审批；扩大网络暴露、使用真实资料、付费 Premium、不可逆迁移仍需明确授权。初始只读/root限制已由用户经 tower 的最新授权覆盖：第一个 Ubuntu-24.04 为实验环境，允许本项目 root Docker 部署及必需的 Compose 安装；不碰第二个训练发行版、不删数据/卷/镜像、不改 Docker 服务或用户组。当前没有必须再交用户决定的业务选型卡点；网络可达性是操作阻碍，不是新审批要求。
+- **后续验证（2026-10-31）**：已安装授权的 Ubuntu 官方签名源 `docker-compose-v2=2.40.3+ds1-0ubuntu1~24.04.1`（唯一新增包、14.8MB下载/66.6MB磁盘；未改系统服务）。官方 GitHub Compose v5.1.1 项目本地下载超时，未执行未校验文件。Docker Hub不可达后以 Amazon ECR Docker Official Images公共镜像源拉取Framework v15保守依赖MariaDB10.6.28/Redis6.2.24-alpine并固定RepoDigest；对应新隔离v15项目DB健康、两个Redis PONG实测通过；旧11.8/8.6项目亦健康且卷保留，但不算v15兼容性证明，无发布端口。CRM stable digest大层经900s/600s拉取未完成；后续核对v1.90.0独立发布tag digest与stable不同，改锁发布tag digest而不声称二者一致；Framework精确运行版仍待镜像可用后的bench version。CRM登录/健康/合成数据闭环尚未通过，MVP未完成。配置、运行命令、完整digest及阻碍见 `deploy/README.md`。
+
+### D-003｜官方CRM发布镜像缺应用，改用固定源码派生镜像（替代D-002的直接镜像部署部分）
+
+- **日期/状态**：2026-10-31 / 构建前Provisional → Validated（仅本地基座烟测，验证追加见下）；Frappe基座选择不变。
+- **触发与已验证事实**：精确v1.90.0 OCI index c3873...通过标准skopeo完整复制（19 blob哈希全部一致）及docker load；实际apps仅frappe15.125.0，Python find_spec(crm)=None；new-site安装Framework后install-app crm报ModuleNotFoundError。[发布workflow固定commit](https://github.com/frappe/crm/blob/36bd8859f2a6345a620477bc708d0546e8c3f08a/.github/workflows/builds.yml)传旧APPS_JSON_BASE64 build-arg，而[已核对layered Containerfile固定commit](https://github.com/frappe/frappe_docker/blob/61d35da827ebc04d01b64c9e78385597ccebc9d8/images/layered/Containerfile)只读apps_json BuildKit secret、不接收该ARG：接口不匹配是源码事实，造成此发布镜像缺app是高置信因果推断（发布workflow未固定frappe_docker checkout，未还原当次CI全部日志）。未对外提交issue。
+- **候选**：继续用缺应用镜像（不可行）；切旧未知完整版本（仍要验证且丢当前稳定修复）；以已验证不可变Framework镜像为基底、补入固定CRM源码并构建资产（暂选）；转Twenty（保留，但此故障是打包而非业务不匹配）。
+- **临时选择**：只在deploy/增加派生Dockerfile，基底固定c3873...、CRM源码固定v1.90.0对应commit `36bd8859f2a6345a620477bc708d0546e8c3f08a`；以本地构建镜像ID锁运行，禁止移动tag悄然更新；不改上游、不删已建Framework站点/旧卷，成功后在现站点install-app crm恢复。依赖/资产实际构建及运行仍待验证。
+- **置信度/边界**：中；Framework与CRM谱系来自官方已核对版本，局部部署修复可逆，但构建依赖网络和原生资产仍未知。代码仍为AGPL-3.0；保存源码commit及构建步骤，不将修复打包当业务/权限完成。
+- **授权/回退**：第一个实验Ubuntu、项目级root Docker与必需构建工具/现有7897单进程代理均已获tower转达授权；不改系统代理或daemon，不触碰第二发行版、不删任何卷/容器。失败保留原官方镜像和已建站点，不生产迁移。
+- **复评/下一步**：派生镜像需import crm、bench version、资产构建、真实登录/健康通过才接受；构建复杂度失控或业务验证失败重新比较Twenty/完整旧稳定版本。详细结果追加deploy/README.md。
+- **构建验证追加**：固定源码与上游两份yarn.lock未变化断言通过。host网络下Framework默认Redis 127.0.0.1:13311超时；仅资产RUN改为network=none后按官方离线容错路径成功（Vite3315模块/PWA/翻译，16.5秒），未引入构建期数据库。import crm1.90.0、bench version crm1.90.0/frappe15.125.0通过；派生产物ID `sha256:2408974e8c5b8f3feacbaf6cac3c62e69c41fe1cf10dec251dd6cbdd1b9de5f3`。Node peer依赖/大chunk警告未改上游；Python依赖尚非逐包hash锁定，不声称字节级复现。
+- **运行配置保护追加**：获tower批准只重建无状态configurator，旧可写层仅pycache；旧image与退出0及logs/sites挂载均记录。重建后site_config SHA256完全不变、运行common中的db/Redis连接仍完整，apps.txt新增crm，未写空站点配置。另一次诊断误用无名docker run --rm，自动清理其自身容器/匿名卷，已报告越界并停用；无项目命名卷/业务资料受影响，后续探针全部固定命名保留。
+
+- **最终烟测追加**：原站点install-app crm成功exit0；9长驻服务运行，DBhealthy、两Redis PONG，bench version已在运行容器再次核验。WSL与Windows真实pong/Administrator登录会话/CRM HTML+JS资产通过；合成REST/CSRF Lead `CRM-LEAD-2026-00001`写读、重复烟测复用同ID通过。D-003可接受为本地基座部署修复；D-002仍须业务/团队权限/恢复验证，不是完整MVP完成。详细前后site_config哈希、授权保活到期、一次探针越界及残留资源见deploy/README.md。
+- **D-002后续纠正**：前段“Framework待测/网络失败/唯一新增包”是早期时点记录；当前Framework15.125.0已测、标准skopeo代理下载成功，另经授权安装skopeo+依赖与Buildx（固定版本见README），未改系统服务/全局代理。新增8小时有限WSL保活是获批临时开发保障，生命周期根因未证实；非生产部署方案。
 
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
