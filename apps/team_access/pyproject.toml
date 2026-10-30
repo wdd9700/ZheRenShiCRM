@@ -1,0 +1,15 @@
+[build-system]
+requires = ["flit_core>=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "team_access"
+authors = [{name = "CRM Team"}]
+description = "Private CRM activity access extension"
+requires-python = ">=3.10"
+dynamic = ["version"]
+dependencies = []
+
+[tool.bench.frappe-dependencies]
+frappe = "==15.125.0"
+crm = "==1.90.0"

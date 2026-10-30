@@ -1,0 +1,32 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+<section id="team-activities" data-csrf="{{ csrf_token | e }}" data-user="{{ user | e }}">
+  <h1>活动访问管理</h1>
+  <p>Private 仅拥有者、明确协作者及任务受派人可读写；关联父记录仍须可读。Shared 额外允许父记录读者阅读，绝不自动授予编辑权。仅拥有者可变更授权或关联。</p>
+  <p>CRM 原生 Comment 是向父记录读者发布的正式共享沟通，私人内容请使用 Private Note。撤回不能抹除别人此前已合法读取或导出的副本。</p>
+  <p>Shared 只发布当前正文，不公开既往私密版本或附件。新协作者可读写既往历史。此页不上传附件；原生私有附件仅供Private协作，含附件或私有文件内嵌链接的记录不能直接发布。请保留原Private，另建不含附件的共享摘要。</p>
+  <p><a href="/crm">返回 CRM</a></p>
+  <label>活动类型 <select id="activity-type"><option>FCRM Note</option><option>CRM Task</option></select></label>
+  <button id="activity-new" type="button">新建 Private 活动</button>
+  <button id="activity-refresh" type="button">刷新</button>
+  <p id="activity-status" role="status"></p>
+  <ul id="activity-list"></ul>
+  <form id="activity-form">
+    <input id="activity-name" type="hidden">
+    <label>标题 <input id="activity-title" required maxlength="140"></label><br>
+    <label>正文（纯文本输入；已有富文本以源码显示）<textarea id="activity-content" rows="8" cols="70"></textarea></label><br>
+    <fieldset id="activity-acl">
+      <legend>仅拥有者可改的授权设置</legend>
+      <label>父类型 <select id="activity-parent-type"><option value="">无父记录（只能 Private）</option><option>CRM Lead</option><option>CRM Deal</option></select></label>
+      <label>父记录编号 <input id="activity-parent" list="activity-parents" autocomplete="off"></label>
+      <datalist id="activity-parents"></datalist><br>
+      <label>可见范围 <select id="activity-visibility"><option>Private</option><option>Shared</option></select></label>
+      <label>明确读写协作者（完整账号，可空）<input id="activity-collaborator" autocomplete="off"></label><br>
+      <label id="activity-assignee-label">任务受派人（完整账号，可空）<input id="activity-assignee" autocomplete="off"></label>
+    </fieldset>
+    <p id="activity-access"></p>
+    <button type="submit">保存</button>
+  </form>
+</section>
+<script defer src="/assets/team_access/page.js"></script>
+{% endblock %}
