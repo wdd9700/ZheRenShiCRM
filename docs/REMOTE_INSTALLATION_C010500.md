@@ -14,7 +14,7 @@
 | 安装 `docker-ce`/`docker-ce-cli`/`containerd.io`/`docker-buildx-plugin`/`docker-compose-plugin` 及依赖 | 卸载、替换或降级任何既有软件包 |
 | `systemctl start docker` | `systemctl enable docker`（不设开机自启） |
 | 只读版本与 daemon 访问验证 | 拉取镜像、运行 `hello-world`、创建任何容器 |
-| 记录 Docker 自身网络的运行影响 | 改防火墙/安全组/sshd/swap、`usermod -aG docker`、停其他服务、付费扩容、升级系统 Python |
+| 记录 Docker 自身网络的运行影响（启动时会自行改写主机 iptables，见 §9） | 手工修改防火墙/安全组策略、改 sshd/swap、`usermod -aG docker`、停其他服务、付费扩容、升级系统 Python |
 
 `dev` 未被加入 `docker` 组，Docker daemon 只通过显式 `sudo` 访问；后续部署调用方式见 §11。
 
@@ -183,7 +183,7 @@ Installed size: 390 M
 Operation aborted.
 ```
 
-判定：**纯增量**。没有 Removing / Upgrading / Downgrading / Replacing 段，不触及系统 Python、sshd、防火墙或其他已装包；依赖全部来自系统 `alinux3-updates` 仓库，只有 Docker 自身包来自 `docker-ce-stable`，全部需通过已导入 key 的 RPM 验签。`docker-ce-rootless-extras` 是 `docker-ce` 的 weak dependency，属于该版本的默认安装集合，本轮保留。
+判定：**纯增量**。没有 Removing / Upgrading / Downgrading / Replacing 段，不触及系统 Python、sshd 或其他已装包；6 个 Docker 包来自 `docker-ce-stable`，6 个依赖来自系统 `alinux3-updates`，两个仓库都靠各自的 `gpgkey` 与 `gpgcheck=1` 保护（信任链详见 §7）。Docker 启动后会自行改写主机 iptables 规则，这属于安装后的运行时变化，见 §9，不能算作"防火墙零影响"。`docker-ce-rootless-extras` 是 `docker-ce` 的 weak dependency，属于该版本的默认安装集合，本轮保留。
 
 ## 7. 真实安装执行与结果
 
@@ -197,13 +197,13 @@ printf 'y\n' | sudo dnf --setopt=assumeyes=False install \
 执行结果（摘录，`Complete!` 表示事务成功）：
 
 ```
-  Installing       : fuse3-libs-3.3.0-19.1.al8.x86_64                       2/12 
-  Installing       : docker-ce-cli-1:26.1.3-1.el8.x86_64                    6/12 
-  Installing       : containerd.io-1.6.32-3.1.el8.x86_64                    7/12 
-  Installing       : docker-ce-3:26.1.3-1.el8.x86_64                       11/12 
-  Installing       : docker-ce-rootless-extras-26.1.3-1.el8.x86_64         12/12 
-  Verifying        : docker-ce-3:26.1.3-1.el8.x86_64                        9/12 
-  Verifying        : docker-compose-plugin-2.27.0-1.el8.x86_64             12/12 
+  Installing       : fuse3-libs-3.3.0-19.1.al8.x86_64                       2/12
+  Installing       : docker-ce-cli-1:26.1.3-1.el8.x86_64                    6/12
+  Installing       : containerd.io-1.6.32-3.1.el8.x86_64                    7/12
+  Installing       : docker-ce-3:26.1.3-1.el8.x86_64                       11/12
+  Installing       : docker-ce-rootless-extras-26.1.3-1.el8.x86_64         12/12
+  Verifying        : docker-ce-3:26.1.3-1.el8.x86_64                        9/12
+  Verifying        : docker-compose-plugin-2.27.0-1.el8.x86_64             12/12
 
 Installed:
   containerd.io-1.6.32-3.1.el8.x86_64
@@ -232,7 +232,18 @@ docker-compose-plugin-2.27.0-1.el8.x86_64
 docker-ce-rootless-extras-26.1.3-1.el8.x86_64
 ```
 
-最终 12 个包的 `Verifying` 阶段全部通过（RPM 签名由已导入的 `gpg-pubkey-621e9f35-58adea78` 验签），全部为 `Installing`，没有一条 `Removing`/`Upgrading`/`Replacing`/`Obsoleting`。
+上文的 `Verifying` 行是 **dnf 事务结束后的包核验输出**，不是逐包签名检查记录，本轮也没有单独的验签日志。因此这里按来源分别说明信任链，不把 12 个包归到同一个签名断言下：
+
+| 包（6 个） | 来源仓库 | 该仓库配置的 `gpgkey` | 对应已安装 key |
+|---|---|---|---|
+| `docker-ce`、`docker-ce-cli`、`containerd.io`、`docker-buildx-plugin`、`docker-compose-plugin`、`docker-ce-rootless-extras` | `docker-ce-stable`（`docker-ce.repo`，各段 `gpgcheck=1`） | `https://mirrors.aliyun.com/docker-ce/linux/centos/gpg` | `gpg-pubkey-621e9f35-58adea78`（完整指纹 `060A61C51B558A7F742B77AAC52FEB6B621E9F35`，§4 核验后导入） |
+| `fuse-overlayfs`、`fuse3`、`fuse3-libs`、`libcgroup`、`libslirp`、`slirp4netns` | `alinux3-updates`（`AliYun.repo`，`gpgcheck=1`） | `http://mirrors.cloud.aliyuncs.com/alinux/$releasever/RPM-GPG-KEY-ALINUX-3` | 系统既有的 `gpg-pubkey-cac33616-5fb603a2`（本轮未新增、未改动） |
+
+即：**Docker 自身 6 包由 Docker release key 覆盖，系统 6 个依赖由阿里云 ALinux 3 发行 key 覆盖**，两者是不同的信任来源。本轮可核证的签名证据只有三条：两个仓库都声明 `gpgcheck=1`、两个 key 实际存在于 rpm 信任库、以及事务完整执行成功且没有任何"跳过验签/签名不可用"的提示。
+
+**未采集逐包签名核验输出**（未运行 `rpm -K` 或 `rpmkeys --checksig`），所以本报告不主张"12 个包全部经 Docker key 独立验签"。若后续需要逐包签名断言，应在获准的只读窗口单独执行 `rpmkeys --checksig` 并留证，不重装。
+
+事务本身纯增量：12 条全部为 `Installing`，没有一条 `Removing`/`Upgrading`/`Replacing`/`Obsoleting`。
 
 DNF 事务历史只有一条记录，与预览一致：
 
@@ -319,7 +330,7 @@ uid=1000(dev) gid=1000(dev) groups=1000(dev),10(wheel)
 | dnf 事务历史 | — | 1 条，Install 12 |
 | 审计暂存目录 | — | `/home/dev/c010500-docker-install/`（两个 key 文件副本，`0600`，仅公钥） |
 
-Docker 的桥接、iptables MASQUERADE 与转发开关属于 Docker 正常运行时行为（未写入任何 sysctl drop-in 文件，`rpm -ql docker-ce containerd.io` 中无 `.conf`/sysctl 文件）。由于安装前未采集 `ip_forward` 基线，**不宣称该项由本次安装从 0 改为 1**，只记录现状。
+表中 `docker0`、路由与 iptables 的变化来自 Docker 启动时的自动网络配置，**是真实发生的主机防火墙规则改动**（filter 3→18、nat 4→9，新增 `DOCKER` 链与 `MASQUERADE`），不能描述为"防火墙零影响"；准确的表述是"没有手工修改防火墙/安全组策略，但 Docker 启动自动改写了主机 iptables"。这些规则未写入任何 sysctl drop-in 文件（`rpm -ql docker-ce containerd.io` 中无 `.conf`/sysctl 文件），属于运行时注入。由于安装前未采集 `ip_forward` 基线，**不宣称该项由本次安装从 0 改为 1**，只记录现状。
 
 运行中的 service 总数 19→22 与"可点名的新增单元只有 2 个"存在 1 个差额：安装前只采集了数量、未采集单元名清单，差额无法归因，此处如实保留不作推断。
 
@@ -330,7 +341,7 @@ Docker 的桥接、iptables MASQUERADE 与转发开关属于 Docker 正常运行
 - **未拉镜像**：`Images: 0`；未拉 `hello-world`，未导入 M13 候选镜像。
 - **未建容器/卷/项目网络**：`Containers: 0`、`Volumes: 0`，网络只剩默认三项。
 - **未部署 CRM**：未跑 `deploy/remote/trial.sh`（M13 分支），未创建 `~/crm-trial`、`crm-trial-c010400` Compose 项目，未监听 `127.0.0.1:8088`。
-- **未改基础设施**：防火墙/安全组、`sshd`、swap、`resolv.conf` 均未改动；未停任何既有服务；未扩容。
+- **未手工修改基础设施**：没有编辑任何防火墙/安全组策略，未改 `sshd`、swap、`resolv.conf`；未停任何既有服务；未扩容。注意 Docker 启动会**自动**改写主机 iptables（新增 `DOCKER` 链与 `MASQUERADE`，filter 3→18、nat 4→9，见 §9），因此"防火墙规则完全没变"不成立，准确说法是"没有人工调整基础设施策略"。
 - **未卸载或替换任何既有包**：本次事务纯增量；系统 Python 3.6.8 未动、未另装解释器。
 - **未执行 M8/M9 工作**：M8 仍 blocked、M9 仍 active，其验收不因本次安装推进。
 - **未验证容量**：M13 栈（9 个长驻服务、约 1.5 GB 镜像层）在 2 vCPU / 1.8 GiB / 无 swap 上是否可稳定运行，本轮完全没有测试；`docker0` 已创建但未经任何容器流量验证。
@@ -372,59 +383,82 @@ sudo docker compose -p crm-trial-c010400 ps -a
 2. **key 来源偏差（已获批）**：改用 `https://mirrors.aliyun.com` 与 `https://mirrors.tuna.tsinghua.edu.cn` 两个 HTTPS 镜像取同一份 key，`sha256` 相同且字节一致，完整指纹与 M13 指南固定值一致；tower 已确认"信任依据为先前独立固定指纹，镜像间相同 SHA 仅为辅助证据"。未关闭 TLS、未跳过导入前核验。
 3. **内网镜像端点无有效 TLS 证书**：`https://mirrors.cloud.aliyuncs.com/docker-ce/...` 返回 `SSL: no alternative certificate subject name matches target host name`。不接受关闭校验，因此仓库 `baseurl`/`gpgkey` 保留 `https://mirrors.aliyun.com`，未按 M13 指南改为内网 HTTP。
 4. **`dnf-plugin-releasever-adapter` 已预装**（`1.0-3.al8`），M13 指南中的安装步骤被跳过，未重装；其 `[releasevermapping] 3 = 8` 使 Docker 仓库解析到 CentOS 8 路径，符合预期。
-5. **镜像内容停留在 2024-05**：`docker-ce-stable` 的 `Repo-updated` 为 2024-05-23，可安装最高版本是 `docker-ce 26.1.3`（Compose 2.27.0、buildx 0.14.0）。若后续需要更新版本，需先解决官方源可达性或换用更新的镜像源，属独立决策。
+5. **镜像内容停留在 2024-05，版本已非最新**：`docker-ce-stable` 的 `Repo-updated` 为 2024-05-23，可安装最高版本是 `docker-ce 26.1.3`（Compose 2.27.0、buildx 0.14.0）。**安装成功不等于处于受维护或持续安全更新状态**：26.1.3 / 2.27.0 已是旧版本，缺后续补丁；本文件因此不构成生产推荐，也不代表版本已通过维护窗口评估。后续部署前应另行评估升级与安全更新路径（需先解决官方源可达性或换用更新的镜像源），属独立决策。
 6. **SSH 无 PQ KEX**：每次连接都打印 post-quantum 警告；不影响本次身份校验，但说明服务器侧 `sshd`/OpenSSH 较旧。未修改 `sshd`。
 7. **容量未验证**：1.8 GiB / 无 swap 下运行 M13 九服务栈的可行性仍属未知；Docker 本体启动后可用内存约 1.5 GiB，这不构成该栈可用的证据。
 
-## 13. 复现命令附录
+## 13. 历史命令摘要与只读核验清单
 
-完整可重放序列（不含任何私钥或口令内容；`<KEY>` 指会话附件中的私钥路径，只作 `-i` 参数）：
+**本节不是可以整体重跑的安装脚本，禁止整段复制执行。** 分成两部分：§13.1 是已经发生过的历史命令摘要，只用于审计追溯；§13.2 是纯查询的只读核验清单。任何再次安装的想法都必须回到 M13 指南重新走授权与人工审查，不能引用本节当脚本。
+
+### 13.1 历史命令摘要（不可整体重跑）
+
+| 阶段 | 当时执行的动作（摘要） | 结果 |
+|---|---|---|
+| 连接 | `ssh -i <KEY> -o UserKnownHostsFile=<m10-known_hosts> -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes dev@8.133.190.46` | 指纹 `SHA256:JHFV75F2oc1tYqjd4viv130aknkd7fOwtKEpmGtgy80` 一致 |
+| 预检 | `ssh-keygen -lf`、`sudo -n true`、`nproc`、`free -m`、`df -h /`、`swapon --show`、`rpm -qa` 过滤 docker 类包、`systemctl list-unit-files` 过滤 docker | 无既有 Docker；33G 可用；sudo NOPASSWD |
+| key | 两次 `curl`（阿里云、清华 HTTPS）→ `sha256sum` + `cmp` → `gpg --show-keys --fingerprint` 人工核对完整指纹 → **另一次调用**执行 `sudo rpm --import` | 两份 sha256 相同、指纹一致、`gpg-pubkey-621e9f35` |
+| 仓库 | `curl` 取 `docker-ce.repo` → 确认目标文件不存在 → `sudo install -m 0644` | 仅 `docker-ce-stable` 启用 |
+| 事务 | 先 `sudo dnf --setopt=assumeyes=False --assumeno install ...` 人工阅读事务 → **另一次调用**以 `assumeyes=False` + 单次 `y` 执行安装 | Install 12，无删除/升级 |
+| 启动 | `sudo systemctl start docker`（未 enable） | active / disabled |
+| 验证 | `sudo docker --version`、`sudo docker compose version`、`sudo docker info`、无 sudo `docker info`、`id dev` | 26.1.3 / v2.27.0；非提权被拒 |
+
+当时的执行确实分成"先看 key 与事务、再单独确认安装"的多次调用，而不是一条流水线；本表只是事后摘要，不保留那种人工暂停节奏。
+
+**重跑风险（逐条）**：
+
+- `curl -o docker-release.*.gpg` 会覆盖暂存目录里的 key 副本；
+- `sudo rpm --import` 会重复导入同一 key；
+- 行内 `test ! -e` 只是检查，**条件不成立时不会中止后续行**，紧跟的 `sudo install ... /etc/yum.repos.d/docker-ce.repo` 会覆盖现有仓库配置；
+- 指纹核对当时靠人工比对，若整段粘贴，`--assumeno` 预览与随后的单次 `y` 会连在一起，事务复核形同虚设；
+- 在已安装主机上重跑 `dnf install` 会走升级/重装路径，与本次"纯增量 Install 12"的记录不再等价。
+
+### 13.2 只读核验清单
+
+以下命令全部为查询，不安装、不导入、不覆盖、不启动任何东西，可安全用于事后复核（`<KEY>` 指会话附件中的私钥路径，只作 `-i` 参数）：
 
 ```sh
-# 0. 连接（严格主机身份）
+# 连接（严格主机身份）
 ssh -i <KEY> \
   -o UserKnownHostsFile=P:/CRM/.tower/worktrees/wt-10/deploy/.runtime/m10-known_hosts \
   -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes dev@8.133.190.46
 
-# 1. 只读预检
-ssh-keygen -lf <m10-known_hosts>          # SHA256:JHFV75F2oc1tYqjd4viv130aknkd7fOwtKEpmGtgy80
-sudo -n true                              # 免交互提权可用
-nproc; free -m; df -h /; swapon --show
-rpm -qa | grep -Ei 'docker|containerd|podman|runc'
-systemctl list-unit-files | grep -i docker
+# 主机身份（本地侧）
+ssh-keygen -lf <m10-known_hosts>   # 期望 SHA256:JHFV75F2oc1tYqjd4viv130aknkd7fOwtKEpmGtgy80
 
-# 2. key 获取与核验（关键指纹 pin）
-umask 077; cd "$HOME/c010500-docker-install"
-curl --fail --location --proto '=https' --tlsv1.2 -sS -o docker-release.aliyun.gpg \
-  https://mirrors.aliyun.com/docker-ce/linux/centos/gpg
-curl --fail --location --proto '=https' --tlsv1.2 -sS -o docker-release.tuna.gpg \
-  https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/centos/gpg
-sha256sum docker-release.*.gpg && cmp -s docker-release.aliyun.gpg docker-release.tuna.gpg
-gpg --show-keys --fingerprint --with-subkey-fingerprint docker-release.aliyun.gpg
-# 期望：060A 61C5 1B55 8A7F 742B 77AA C52F EB6B 621E 9F35
-sudo rpm --import docker-release.aliyun.gpg && rpm -q gpg-pubkey
+# 安装结果：只查询，不安装
+rpm -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
+rpm -q gpg-pubkey                                  # 应同时含 621e9f35（Docker）与 cac33616（ALinux 3）
+rpm -q dnf-plugin-releasever-adapter
+dnf repoinfo docker-ce-stable 2>/dev/null | grep -E 'Repo-status|Repo-baseurl|Repo-updated'
 
-# 3. 仓库配置（同一 HTTPS 源，不覆盖既有文件）
-curl --fail --location --proto '=https' --tlsv1.2 -sS -o /tmp/docker-ce.repo.upstream \
-  https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
-test ! -e /etc/yum.repos.d/docker-ce.repo
-sudo install -m 0644 -o root -g root /tmp/docker-ce.repo.upstream /etc/yum.repos.d/docker-ce.repo
-dnf repoinfo docker-ce-stable     # baseurl 应解析为 .../centos/8/x86_64/stable
+# 服务状态：不 start、不 enable
+systemctl is-active docker containerd
+systemctl is-enabled docker containerd             # 期望均为 disabled
+sudo systemctl status docker --no-pager -l | head -12
 
-# 4. 事务审查，再确认（不使用 -y / 不使用 yes 流水线）
-sudo dnf --setopt=assumeyes=False --assumeno install \
-  docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-printf 'y\n' | sudo dnf --setopt=assumeyes=False install \
-  docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# 版本与 daemon（sudo 下只读）
+sudo docker version --format '{{.Client.Version}} / {{.Server.Version}}'
+sudo docker compose version
+sudo docker buildx version
+sudo docker info --format '{{.ServerVersion}} {{.Driver}} {{.Containers}} {{.Images}} {{.DockerRootDir}}'
 
-# 5. 启动与验证（不 enable、不拉镜像、不建容器）
-sudo systemctl start docker
-systemctl is-active docker; systemctl is-enabled docker
-sudo docker --version; sudo docker compose version; sudo docker buildx version
-sudo docker info | grep -E 'Server Version|Storage Driver|Containers|Images'
-docker info            # 无 sudo，应 permission denied
-id dev                 # 不应出现 docker 组
+# 权限边界：应被拒绝 / 组内应为空
+docker info > /dev/null 2>&1; echo "non_sudo_exit=$?"   # 期望非 0
+id dev; getent group docker
+
+# 网络副作用快照：只读
+ip -4 addr show docker0
+ip -4 route | grep docker0
+sudo iptables -t filter -S | wc -l
+sudo iptables -t nat -S | grep -c DOCKER
+sudo ss -lntp | head
+
+# 资源与审计暂存
+free -m; df -h /
+ls -l /home/dev/c010500-docker-install/
 ```
 
-审计暂存目录 `/home/dev/c010500-docker-install/` 保留两份 key 副本（仅公钥、`0600`）作为来源证据；若需清理，由管理员另行决定，本轮未删除。
+若日后需要逐包签名证据，应在获准的只读窗口对已安装包单独执行 `rpmkeys --checksig`（需要本地 rpm 文件，或从 dnf 缓存取包）并留证；**本轮未执行、未采集该输出**，因此本文不作逐包验签结论，也不要求为此重装。
 
+审计暂存目录 `/home/dev/c010500-docker-install/` 保留两份 key 副本（仅公钥、`0600`）作为来源证据；若需清理，由管理员另行决定，本轮未删除。
