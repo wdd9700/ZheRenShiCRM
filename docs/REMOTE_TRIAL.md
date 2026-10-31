@@ -155,9 +155,45 @@ sh deploy/remote/trial.sh check
 
 `load-image` 在任何 daemon 调用前要求 tar SHA 精确等于上表固定值。`check` 核验 Compose、锁所指精确 ID、linux/amd64、三个 revision label 和 `image-rootfs-layers.txt` 中全部 diff_ids，不启动容器，也不证明应用健康。新 `init-env` 默认写经典 store config 锁；已有 containerd index 锁只在实际 index 及全部内容断言匹配时接受。两种身份不会互相静默 fallback，禁止浮动 tag、旧 `36a89c9b` 故障镜像或缺任一扩展的镜像。
 
-### 仅既有旧 index 锁的受控迁移（M15 专用）
+### 已部署旧树的工具更新与锁迁移（M15 专用）
 
-若远端已按旧包执行过 `init-env`，`image.env` 恰好为 `CRM_IMAGE=cae67cc3…`，且经典 store 已加载 `129b0357…`，**不要**重新 `init-env`、重生成 `.env` 或再次 `load-image`。先由独立审查后的新包执行：
+若远端已按 240b9a8 执行过 `init-env`，`image.env` 恰好为 `CRM_IMAGE=cae67cc3…`，且经典 store 已加载 `129b0357…`，**不要**重新 `init-env`、重生成 `.env` 或再次 `load-image`。旧 `trial.sh` 没有新迁移函数，必须先由单一操作者完成以下整组工具更新。
+
+在精确已审 tip 的干净 checkout 制作无 runtime 白名单包（完整提交由 tower/独审交接，不使用浮动分支名）：
+
+```sh
+UPDATE_COMMIT=<独审确认的完整40位提交>
+test "$(git rev-parse "$UPDATE_COMMIT^{commit}")" = "$UPDATE_COMMIT"
+test -z "$(git status --porcelain)"
+UPDATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/c010400-tools-update.XXXXXX")
+git archive --format=tar --output="$UPDATE_DIR/crm-c010400-tools-update.tar" "$UPDATE_COMMIT" -- \
+  deploy/remote/.gitattributes deploy/remote/.gitignore \
+  deploy/remote/SOURCE_SHA256SUMS deploy/remote/apply-tools-update.sh \
+  deploy/remote/compose.yml deploy/remote/docker.sh \
+  deploy/remote/image-rootfs-layers.txt deploy/remote/preflight.sh \
+  deploy/remote/release.env deploy/remote/trial.sh \
+  deploy/remote/update-from-240b9a8.sha256 deploy/remote/verify_backup.py \
+  docs/REMOTE_TRIAL.md
+(
+  cd "$UPDATE_DIR"
+  sha256sum crm-c010400-tools-update.tar > crm-c010400-tools-update.sha256
+)
+```
+
+将 tar 和原始 `.sha256` 一并交付到另一目录，先核验再解包。以下操作以 `dev` 运行，Docker 模式沿用 `CRM_TRIAL_DOCKER_SUDO=1`，不执行整个脚本 sudo：
+
+```sh
+cd /已核验交付目录
+sha256sum -c crm-c010400-tools-update.sha256
+UPDATE_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/c010400-update-staging.XXXXXX")
+tar -xf crm-c010400-tools-update.tar -C "$UPDATE_STAGING"
+sh "$UPDATE_STAGING/deploy/remote/apply-tools-update.sh" \
+  "$PWD/crm-c010400-tools-update.tar" \
+  "$(awk '{print $1}' crm-c010400-tools-update.sha256)" \
+  "$HOME/crm-trial"
+```
+
+`apply-tools-update.sh` 再独立核验 tar SHA、精确白名单和新层清单，要求现有工具与 240b9a8 哈希全一致，并把旧工具保留到 `deploy/remote.pre-c010400-update`。它只逐文件更新上述工具/文档并整组复核；**不复制、移动或删除 `.runtime`，不触碰 app、站点、容器或卷**。错误包、旧树异值、备份冲突、更新失败/中断或整组不一致均不得继续；保留现场和旧工具副本，停止并交 tower 处理，不能把部分更新当成就绪。只有脚本返回整组 `PASS` 才执行：
 
 ```sh
 cd "$HOME/crm-trial"
@@ -167,7 +203,7 @@ stat -c '%a %n' deploy/remote/.runtime/.env deploy/remote/.runtime/image.env \
 sh deploy/remote/trial.sh check
 ```
 
-该动作只接受精确旧 index 锁，先验证 config 的 ID、平台、labels 和完整 RootFS，再要求旧锁为非 symlink 的 0600 文件；它排他保留旧锁到 `image.env.pre-c010400-config`，在同目录原子更换新锁，不改 `.env`、站点、容器或卷。已有备份/临时路径、错误旧值、错误 config/平台/labels/diff_ids 均拒绝且不换锁。它不是通用自动升级，也不提供 config→index 或任意 ID 回退。
+锁迁移只接受精确旧 index 锁，先验证 config 的 ID、平台、labels 和完整 RootFS，再要求旧锁为非 symlink 的 0600 文件；它排他保留旧锁到 `image.env.pre-c010400-config`，在同目录原子更换新锁，不改 `.env`、站点、容器或卷。已有备份/临时路径、错误旧值、错误 config/平台/labels/diff_ids 均拒绝且不换锁。两个动作都只服务本次 M15 停点，不是通用升级器或任意 ID 回退。
 
 ## 4. 新站点、备份、安装与双迁移
 

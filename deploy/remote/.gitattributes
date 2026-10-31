@@ -3,4 +3,5 @@
 *.yml text eol=lf
 *.env text eol=lf
 *.txt text eol=lf
+*.sha256 text eol=lf
 SOURCE_SHA256SUMS text eol=lf
