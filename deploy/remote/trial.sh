@@ -21,15 +21,21 @@ if [ "${1:-}" = "--confirm-synthetic-only" ]; then
     CONFIRM=1
     shift
 fi
+CONFIRM_CLASSIC=0
+if [ "${1:-}" = "--confirm-classic-image-lock-migration" ]; then
+    CONFIRM_CLASSIC=1
+    shift
+fi
 
 usage() {
     cat <<'EOF'
-Usage: trial.sh ACTION [ARCHIVE] [--confirm-synthetic-only]
+Usage: trial.sh ACTION [ARCHIVE] [--confirm-synthetic-only] [--confirm-classic-image-lock-migration]
 Actions:
   verify-source                 Verify the 53 exact app/build source files
   init-env                     Generate new 0600 credentials; never overwrite
   load-image ARCHIVE           Load a verified image archive through the selected Docker mode
-  check                        Check Compose, loaded image ID and source labels
+  check                        Check Compose, locked image identity, platform, labels and RootFS
+  migrate-image-lock-to-config One-time exact index-to-config lock migration; requires classic confirmation
   create-site                  One-time new site; requires synthetic confirmation
   up                           Start/wait all trial services
   install-extensions           One-time resource_import then team_access install; requires confirmation
@@ -65,7 +71,18 @@ require_docker() {
 require_runtime() {
     [ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || fail 'new trial credentials are missing; run init-env once, never reuse local credentials'
     [ -f "$IMAGE_FILE" ] && [ ! -L "$IMAGE_FILE" ] || fail 'trial image lock is missing'
-    [ "$(cat "$IMAGE_FILE")" = "CRM_IMAGE=$CRM_IMAGE" ] || fail 'trial image lock differs from release.env'
+    IMAGE_LOCK=$(cat "$IMAGE_FILE")
+    case "$IMAGE_LOCK" in
+        "CRM_IMAGE=$CRM_IMAGE_CONFIG")
+            CRM_IMAGE=$CRM_IMAGE_CONFIG
+            CRM_IMAGE_LOCK_KIND=classic-config
+            ;;
+        "CRM_IMAGE=$CRM_IMAGE_INDEX")
+            CRM_IMAGE=$CRM_IMAGE_INDEX
+            CRM_IMAGE_LOCK_KIND=containerd-index
+            ;;
+        *) fail 'trial image lock must exactly select the pinned config or index; no fallback is allowed' ;;
+    esac
 }
 compose() {
     docker_cli compose -p "$PROJECT" --env-file "$ENV_FILE" --env-file "$IMAGE_FILE" -f "$REMOTE/compose.yml" "$@"
@@ -91,21 +108,29 @@ init_env() {
         printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_GENERATED"
         printf 'FRAPPE_SITE_NAME=%s\n' "$SITE"
     } > "$ENV_FILE")
-    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$CRM_IMAGE" > "$IMAGE_FILE")
+    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$CRM_IMAGE_CONFIG" > "$IMAGE_FILE")
     unset DB_GENERATED ADMIN_GENERATED
-    printf 'PASS: independent trial credentials and image lock created with private permissions; values not printed\n'
+    printf 'PASS: independent trial credentials and classic-store config lock created with private permissions; values not printed\n'
+}
+verify_image_identity() {
+    IMAGE=$1
+    EXPECTED_ID=$2
+    ACTUAL=$(docker_cli image inspect "$IMAGE" --format '{{.Id}}') || fail "locked image is unavailable: $EXPECTED_ID"
+    [ "$ACTUAL" = "$EXPECTED_ID" ] || fail "loaded image ID does not match the exact lock: $EXPECTED_ID"
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || fail 'candidate image platform mismatch'
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "crm.resource-import.revision"}}')" = "$CRM_RESOURCE_IMPORT_COMMIT" ] || fail 'resource_import revision label mismatch'
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "crm.team-access.revision"}}')" = "$CRM_TEAM_ACCESS_COMMIT" ] || fail 'team_access revision label mismatch'
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CRM_UPSTREAM_CRM_COMMIT" ] || fail 'upstream CRM revision label mismatch'
+    ACTUAL_LAYERS=$(docker_cli image inspect "$IMAGE" --format '{{range .RootFS.Layers}}{{println .}}{{end}}') || fail 'unable to read locked image RootFS layers'
+    EXPECTED_LAYERS=$(cat "$REMOTE/image-rootfs-layers.txt")
+    [ "$ACTUAL_LAYERS" = "$EXPECTED_LAYERS" ] || fail 'image RootFS diff_ids differ from the pinned config content; labels are not identity proof'
 }
 check() {
     require_runtime
     require_docker
     compose --profile setup config -q
-    ACTUAL=$(docker_cli image inspect "$CRM_IMAGE" --format '{{.Id}}') || fail 'exact candidate image is not loaded'
-    [ "$ACTUAL" = "$CRM_IMAGE" ] || fail 'loaded image ID mismatch'
-    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || fail 'candidate image platform mismatch'
-    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "crm.resource-import.revision"}}')" = "$CRM_RESOURCE_IMPORT_COMMIT" ] || fail 'resource_import revision label mismatch'
-    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "crm.team-access.revision"}}')" = "$CRM_TEAM_ACCESS_COMMIT" ] || fail 'team_access revision label mismatch'
-    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CRM_UPSTREAM_CRM_COMMIT" ] || fail 'upstream CRM revision label mismatch'
-    printf 'PASS: Compose, exact linux/amd64 image ID and three source revision labels; runtime health not yet proven\n'
+    verify_image_identity "$CRM_IMAGE" "$CRM_IMAGE"
+    printf 'PASS: Compose and %s image lock, linux/amd64, three labels and all RootFS diff_ids; runtime health not yet proven\n' "$CRM_IMAGE_LOCK_KIND"
 }
 mark() {
     (umask 077 && set -C && printf '%s\n' "$1" > "$RUNTIME/$1")
@@ -182,9 +207,33 @@ load_image() {
         *) fail 'load-image requires an absolute archive path' ;;
     esac
     [ -f "$IMAGE_ARCHIVE" ] && [ ! -L "$IMAGE_ARCHIVE" ] || fail 'load-image requires an ordinary existing archive file'
+    ARCHIVE_HASH=$(sha256sum "$IMAGE_ARCHIVE")
+    ARCHIVE_HASH=${ARCHIVE_HASH%% *}
+    [ "$ARCHIVE_HASH" = "$CRM_IMAGE_ARCHIVE_SHA256" ] || fail 'image archive SHA256 differs from the pinned delivery; refuse to load an unverified chain'
     require_docker
     docker_cli load -i "$IMAGE_ARCHIVE"
-    printf 'PASS: docker load returned zero; run init-env/stat/check to verify image identity and labels\n'
+    printf 'PASS: pinned archive loaded; classic store uses the config ID, containerd store uses the index ID; run check with the matching lock\n'
+}
+migrate_image_lock_to_config() {
+    [ "$CONFIRM_CLASSIC" -eq 1 ] || fail 'exact index-to-config migration requires --confirm-classic-image-lock-migration'
+    require_docker
+    [ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || fail 'existing dev-owned .env is required and must not be a symlink'
+    [ -f "$IMAGE_FILE" ] && [ ! -L "$IMAGE_FILE" ] || fail 'existing image lock must be an ordinary non-symlink file'
+    [ "$(stat -c %a "$IMAGE_FILE")" = 600 ] || fail 'existing image lock must already be mode 0600; no permission change is attempted'
+    OLD_LOCK=$(cat "$IMAGE_FILE")
+    [ "$OLD_LOCK" = "CRM_IMAGE=$CRM_IMAGE_INDEX" ] || fail 'image lock migration only accepts the exact previous index lock'
+    verify_image_identity "$CRM_IMAGE_CONFIG" "$CRM_IMAGE_CONFIG"
+    BACKUP="$RUNTIME/image.env.pre-c010400-config"
+    TEMP="$RUNTIME/.image.env.c010400.tmp"
+    [ ! -e "$BACKUP" ] && [ ! -L "$BACKUP" ] || fail 'previous lock backup already exists; preserve it and investigate'
+    [ ! -e "$TEMP" ] && [ ! -L "$TEMP" ] || fail 'migration temporary path already exists; preserve it and investigate'
+    (umask 077 && set -C && cat "$IMAGE_FILE" > "$BACKUP")
+    [ "$(cat "$BACKUP")" = "$OLD_LOCK" ] || fail 'previous lock backup verification failed; original lock retained'
+    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$CRM_IMAGE_CONFIG" > "$TEMP")
+    [ "$(cat "$TEMP")" = "CRM_IMAGE=$CRM_IMAGE_CONFIG" ] && [ "$(stat -c %a "$TEMP")" = 600 ] || fail 'new lock verification failed before atomic rename'
+    mv "$TEMP" "$IMAGE_FILE"
+    [ "$(cat "$IMAGE_FILE")" = "CRM_IMAGE=$CRM_IMAGE_CONFIG" ] || fail 'atomic image lock replacement did not verify; previous backup retained'
+    printf 'PASS: exact index lock migrated to config atomically; previous lock and .env retained unchanged\n'
 }
 inspect_volumes() {
     require_docker
@@ -196,6 +245,7 @@ case "$ACTION" in
     init-env) init_env ;;
     load-image) load_image ;;
     check) check ;;
+    migrate-image-lock-to-config) migrate_image_lock_to_config ;;
     create-site) create_site ;;
     up) up ;;
     install-extensions) install_extensions ;;

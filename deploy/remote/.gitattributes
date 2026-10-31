@@ -2,4 +2,5 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.env text eol=lf
+*.txt text eol=lf
 SOURCE_SHA256SUMS text eol=lf

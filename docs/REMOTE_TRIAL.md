@@ -11,12 +11,17 @@
 | M9 部署工具来源 | `a1ce4ca143a20cecf13db7e490b79d0349c4d59c` |
 | `resource_import` 来源 | `faa5f0330ad54bd9f4d02bb498ea305651c95ed9` |
 | M8 `team_access` 来源 | `0e5fed78841f8acad31278a3e06cb08b0e6e93d0` |
-| 候选镜像 ID | `sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705` |
-| 镜像大小（M9 inspect） | 1,539,417,571 字节；不是传输 tar 的摘要或大小 |
+| buildx OCI index 出处 | `sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705` |
+| linux/amd64 平台 manifest | `sha256:6014c9df39452ce0cf0e6834822d7d1de89b814ef11f1d6e78bb1ea5c1f50a60` |
+| 经典 store 可运行 config pin | `sha256:129b03571ac973784c7a3dab851ec31496db6b689bbbd8935337b068dea81c07` |
+| 交付 image tar SHA-256 | `a5588c193efce06e6e53591a3ce38046908c06c30c6cf097ba320387c545b7db` |
+| 镜像大小（仅 M9 containerd 口径） | 1,539,417,571 字节；不是跨 store 身份或 tar 完整性判据 |
 | 应用版本 | Frappe 15.125.0 / CRM 1.90.0 / resource_import 0.1.0 / team_access 0.1.0 |
 | 目录 / Compose 项目 | `~/crm-trial` / `crm-trial-c010400` |
 | 独立卷 | `crm_trial_c010400_{db,redis,sites,logs}` |
 | 网络 / 唯一发布端口 | `crm_trial_c010400_network` / `127.0.0.1:8088:8080` |
+
+M9 构建日志逐项证明 config `129b0357…` → linux/amd64 manifest `6014c9df…` → manifest list/index `cae67cc3…` 的导出关系；M15 交付 tar 进一步证明 manifest 指向 config 和 24 层，经典 overlay2 加载后 `.Id=config`。containerd image store 的 `.Id` 则是 index。四种摘要用途不同：tar SHA 只证明交付字节，index/manifest 只证明 OCI 出处，config+RootFS diff_ids 才是经典 store 可运行内容锁；三个 revision label 只作附加断言，不能反推身份。
 
 `deploy/remote/preflight.sh` 是只读预检；`trial.sh` 是后续运维入口；`compose.yml` 保留 DB、双 Redis、backend、websocket、frontend、双队列和 scheduler，不靠关闭重要服务凑启动。backend 仅按 M9 隔离恢复拓扑降为 1 worker / 2 threads，**这不是低内存可用性保证**。
 
@@ -148,7 +153,21 @@ stat -c '%a %n' deploy/remote/.runtime/.env deploy/remote/.runtime/image.env
 sh deploy/remote/trial.sh check
 ```
 
-`check` 只核验 Compose 渲染、镜像 ID、linux/amd64 和三个源码 revision label，不启动容器，也不证明应用健康。禁止改用浮动 tag、旧 `36a89c9b` 故障镜像或缺任一扩展的镜像。
+`load-image` 在任何 daemon 调用前要求 tar SHA 精确等于上表固定值。`check` 核验 Compose、锁所指精确 ID、linux/amd64、三个 revision label 和 `image-rootfs-layers.txt` 中全部 diff_ids，不启动容器，也不证明应用健康。新 `init-env` 默认写经典 store config 锁；已有 containerd index 锁只在实际 index 及全部内容断言匹配时接受。两种身份不会互相静默 fallback，禁止浮动 tag、旧 `36a89c9b` 故障镜像或缺任一扩展的镜像。
+
+### 仅既有旧 index 锁的受控迁移（M15 专用）
+
+若远端已按旧包执行过 `init-env`，`image.env` 恰好为 `CRM_IMAGE=cae67cc3…`，且经典 store 已加载 `129b0357…`，**不要**重新 `init-env`、重生成 `.env` 或再次 `load-image`。先由独立审查后的新包执行：
+
+```sh
+cd "$HOME/crm-trial"
+sh deploy/remote/trial.sh migrate-image-lock-to-config --confirm-classic-image-lock-migration
+stat -c '%a %n' deploy/remote/.runtime/.env deploy/remote/.runtime/image.env \
+  deploy/remote/.runtime/image.env.pre-c010400-config
+sh deploy/remote/trial.sh check
+```
+
+该动作只接受精确旧 index 锁，先验证 config 的 ID、平台、labels 和完整 RootFS，再要求旧锁为非 symlink 的 0600 文件；它排他保留旧锁到 `image.env.pre-c010400-config`，在同目录原子更换新锁，不改 `.env`、站点、容器或卷。已有备份/临时路径、错误旧值、错误 config/平台/labels/diff_ids 均拒绝且不换锁。它不是通用自动升级，也不提供 config→index 或任意 ID 回退。
 
 ## 4. 新站点、备份、安装与双迁移
 
