@@ -24,7 +24,19 @@ M10 已知主机为 2 CPU / 1.8 GiB RAM / 无 swap。该栈同时运行 9 个长
 
 主机 Python 3.6.8 不用于运行应用，也不用于 M9 `manage.py`（其代码使用 Python 3.9+ 接口）。应用 Python 固定在候选镜像内；本包远端运维使用 POSIX shell、标准系统工具和容器内 Python。不要替换系统 Python 或另装解释器来绕过这一边界。
 
-## 2. 仍需管理员执行的安装清单
+### Docker 访问模式（默认不提权）
+
+M14 已在用户明确授权下安装 Docker 26.1.3 / Compose 2.27.0；`dev` 未加入 Docker 组，普通 `docker info` 会被拒绝。脚本默认 `CRM_TRIAL_DOCKER_SUDO=0`，不会自动提权。需要在该主机以 `dev` 部署时，显式设置：
+
+```sh
+export CRM_TRIAL_DOCKER_SUDO=1
+sh /已存在的交付目录/preflight.sh
+# 后续 trial.sh 命令沿用同一导出值；恢复默认则 export CRM_TRIAL_DOCKER_SUDO=0
+```
+
+模式 1 只对 Docker CLI 使用 `sudo -n docker`，禁止 `sudo sh trial.sh`，不会把目录、凭据或备份的所有者改为 root。`sudo -n` 失败立即停止，没有普通/提权静默 fallback。两脚本均拒绝非空 `DOCKER_HOST` 和 `DOCKER_CONTEXT`，并要求 `docker context show` 为 `default`；`create-site` 把该模式显式传给子预检。不要用环境变量把操作重定向到其他 daemon。
+
+## 2. 管理员安装清单（M14 已完成后的复现参考）
 
 以下来源已经核对，但**命令本轮一条也没有执行**：
 
@@ -93,6 +105,7 @@ sha256sum "$CONTEXT/source-manifest.json"
 STAGING="$PWD/crm-trial-c010400-delivery"
 test ! -e "$STAGING"
 mkdir "$STAGING"
+# 以下 inspect/save 仅在已授权的本地镜像导出环境执行；远端 load/inspect 统一走 trial.sh 模式
 docker image inspect sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705
 docker save sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705 \
   > "$STAGING/crm-c010400-image.tar"
@@ -121,7 +134,7 @@ mkdir "$HOME/crm-trial"
 tar -xf crm-trial-c010400-source-and-tools.tar -C "$HOME/crm-trial"
 cd "$HOME/crm-trial"
 sh deploy/remote/trial.sh verify-source
-docker load -i "$DELIVERY_DIR/crm-c010400-image.tar"
+sh deploy/remote/trial.sh load-image "$DELIVERY_DIR/crm-c010400-image.tar"
 
 # 唯一一次初始化；先确认原生 Linux 权限，再做镜像/Compose 检查
 sh deploy/remote/trial.sh init-env
@@ -219,7 +232,7 @@ cd "$HOME/crm-trial"
 sh deploy/remote/trial.sh backup
 sh deploy/remote/trial.sh stop
 sh deploy/remote/trial.sh status
-docker volume inspect crm_trial_c010400_db crm_trial_c010400_redis crm_trial_c010400_sites crm_trial_c010400_logs
+sh deploy/remote/trial.sh inspect-volumes
 ```
 
 `stop` 不删容器、镜像、网络、卷或备份。不得执行 `down -v`、`prune`、`uninstall-app`、删 Custom Field 或覆盖现库。恢复仍须按 M9 在同版本、独立项目/卷中进行真实 restore 和权限验收，不能把 backup readability check 当恢复通过。

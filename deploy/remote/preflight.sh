@@ -26,6 +26,9 @@ if [ "${1:-}" = "--existing-dir" ]; then
     shift
 fi
 [ "$#" -eq 0 ] || { printf 'Usage: preflight.sh [--existing-dir]\n' >&2; exit 2; }
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=docker.sh
+. "$SCRIPT_DIR/docker.sh"
 
 printf 'INFO: trial directory=%s project=%s; no changes will be made\n' "$TRIAL_DIR" "$PROJECT"
 [ "$(uname -m)" = "x86_64" ] && pass 'x86_64 architecture' || fail 'the pinned image requires x86_64/linux'
@@ -71,51 +74,48 @@ else
     pass 'trial path is absent'
 fi
 
-if [ -n "${DOCKER_HOST:-}" ]; then
-    fail 'DOCKER_HOST is set; this trial requires an explicitly local Docker daemon'
-fi
 if ! command -v docker >/dev/null 2>&1; then
     fail 'Docker CLI is absent; administrator installation is still required'
 else
     pass 'Docker CLI exists'
-    if docker compose version >/dev/null 2>&1; then
-        docker compose version
-        pass 'Compose v2 exists'
+    if docker_cli compose version >/dev/null 2>&1; then
+        docker_cli compose version
+        pass 'Compose v2 exists in the selected access mode'
     else
-        fail 'Docker Compose v2 plugin is absent or unusable'
+        fail 'Compose v2 or selected Docker access failed; no privilege fallback is attempted'
     fi
-    if [ "$(docker context show 2>/dev/null || printf unknown)" = default ]; then
+    if [ "$(docker_cli context show 2>/dev/null || printf unknown)" = default ]; then
         pass 'default local Docker context'
     else
         fail 'Docker context is not default; refuse to target an ambiguous daemon'
     fi
-    if docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
-        pass 'current user can access the Docker daemon'
-        DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}')
+    if docker_cli version --format '{{.Server.Version}}' >/dev/null 2>&1; then
+        pass 'selected mode can access the local Docker daemon'
+        DOCKER_ROOT=$(docker_cli info --format '{{.DockerRootDir}}')
         ROOT_FREE=$(df -Pk "$DOCKER_ROOT" | awk 'NR==2 {print $4}')
         printf 'INFO: DockerRootDir=%s free=%sKiB\n' "$DOCKER_ROOT" "$ROOT_FREE"
         [ "$ROOT_FREE" -ge 8388608 ] || fail 'less than 8GiB free on the Docker filesystem'
         for VOLUME in crm_trial_c010400_db crm_trial_c010400_redis crm_trial_c010400_sites crm_trial_c010400_logs; do
-            if docker volume inspect "$VOLUME" >/dev/null 2>&1; then
+            if docker_cli volume inspect "$VOLUME" >/dev/null 2>&1; then
                 fail "volume already exists and will be preserved: $VOLUME"
             else
                 pass "volume absent: $VOLUME"
             fi
         done
-        if docker network inspect crm_trial_c010400_network >/dev/null 2>&1; then
+        if docker_cli network inspect crm_trial_c010400_network >/dev/null 2>&1; then
             fail 'trial network already exists and will be preserved'
         else
             pass 'trial network absent'
         fi
-        if docker container inspect crm-trial-c010400-create-site >/dev/null 2>&1; then
+        if docker_cli container inspect crm-trial-c010400-create-site >/dev/null 2>&1; then
             fail 'retained create-site container already exists; do not rerun initialization'
         else
             pass 'create-site container absent'
         fi
-        EXISTING=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Names}}')
+        EXISTING=$(docker_cli ps -a --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Names}}')
         [ -z "$EXISTING" ] && pass 'no containers in the trial Compose project' || fail "trial project already has containers: $EXISTING"
     else
-        fail 'current user cannot access the local Docker daemon; no group/sudo change is attempted'
+        fail 'local Docker daemon access failed in the selected mode; no privilege fallback or group change is attempted'
     fi
 fi
 

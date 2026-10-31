@@ -10,6 +10,12 @@ PROJECT=crm-trial-c010400
 SITE=crm.localhost
 ACTION=${1:-}
 [ "$#" -eq 0 ] || shift
+IMAGE_ARCHIVE=
+if [ "$ACTION" = load-image ]; then
+    [ "$#" -gt 0 ] || { printf 'load-image requires an explicit archive path\n' >&2; exit 2; }
+    IMAGE_ARCHIVE=$1
+    shift
+fi
 CONFIRM=0
 if [ "${1:-}" = "--confirm-synthetic-only" ]; then
     CONFIRM=1
@@ -18,10 +24,11 @@ fi
 
 usage() {
     cat <<'EOF'
-Usage: trial.sh ACTION [--confirm-synthetic-only]
+Usage: trial.sh ACTION [ARCHIVE] [--confirm-synthetic-only]
 Actions:
   verify-source                 Verify the 53 exact app/build source files
   init-env                     Generate new 0600 credentials; never overwrite
+  load-image ARCHIVE           Load a verified image archive through the selected Docker mode
   check                        Check Compose, loaded image ID and source labels
   create-site                  One-time new site; requires synthetic confirmation
   up                           Start/wait all trial services
@@ -31,6 +38,7 @@ Actions:
   backup                       Native backup --with-files and four-file readability check
   versions                     Show image app versions and installed-site apps
   status                       Show retained project containers
+  inspect-volumes              Inspect the four retained trial volumes
   stop                         Stop containers only; retain all volumes and resources
 EOF
 }
@@ -43,14 +51,16 @@ fail() {
 [ -f "$REMOTE/release.env" ] || fail 'release.env is missing'
 # shellcheck source=release.env
 . "$REMOTE/release.env"
+# shellcheck source=docker.sh
+. "$REMOTE/docker.sh"
 unset DB_PASSWORD ADMIN_PASSWORD FRAPPE_SITE_NAME CRM_TRIAL_SYNTHETIC_ONLY_ACK COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_PROFILES
 
 require_docker() {
-    [ -z "${DOCKER_HOST:-}" ] || fail 'DOCKER_HOST must be unset for the local trial daemon'
     command -v docker >/dev/null 2>&1 || fail 'Docker CLI is required; this script never installs it'
-    [ "$(docker context show 2>/dev/null || printf unknown)" = default ] || fail 'use only the default local Docker context'
-    docker compose version >/dev/null 2>&1 || fail 'Compose v2 is required'
-    docker version --format '{{.Server.Version}}' >/dev/null 2>&1 || fail 'current user cannot access the local Docker daemon'
+    DOCKER_CONTEXT_NAME=$(docker_cli context show 2>/dev/null) || fail 'Docker context query failed in the selected mode; sudo mode uses only sudo -n with no fallback'
+    [ "$DOCKER_CONTEXT_NAME" = default ] || fail 'use only the default local Docker context'
+    docker_cli compose version >/dev/null 2>&1 || fail 'Compose v2 or selected Docker access mode failed; no privilege fallback is attempted'
+    docker_cli version --format '{{.Server.Version}}' >/dev/null 2>&1 || fail 'local Docker daemon access failed in the selected mode; sudo mode uses only sudo -n'
 }
 require_runtime() {
     [ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || fail 'new trial credentials are missing; run init-env once, never reuse local credentials'
@@ -58,7 +68,7 @@ require_runtime() {
     [ "$(cat "$IMAGE_FILE")" = "CRM_IMAGE=$CRM_IMAGE" ] || fail 'trial image lock differs from release.env'
 }
 compose() {
-    docker compose -p "$PROJECT" --env-file "$ENV_FILE" --env-file "$IMAGE_FILE" -f "$REMOTE/compose.yml" "$@"
+    docker_cli compose -p "$PROJECT" --env-file "$ENV_FILE" --env-file "$IMAGE_FILE" -f "$REMOTE/compose.yml" "$@"
 }
 verify_source() {
     (cd "$ROOT" && sha256sum -c --status "$REMOTE/SOURCE_SHA256SUMS") || fail 'exact source verification failed; preserve the delivery and investigate'
@@ -89,12 +99,12 @@ check() {
     require_runtime
     require_docker
     compose --profile setup config -q
-    ACTUAL=$(docker image inspect "$CRM_IMAGE" --format '{{.Id}}') || fail 'exact candidate image is not loaded'
+    ACTUAL=$(docker_cli image inspect "$CRM_IMAGE" --format '{{.Id}}') || fail 'exact candidate image is not loaded'
     [ "$ACTUAL" = "$CRM_IMAGE" ] || fail 'loaded image ID mismatch'
-    [ "$(docker image inspect "$CRM_IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || fail 'candidate image platform mismatch'
-    [ "$(docker image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "crm.resource-import.revision"}}')" = "$CRM_RESOURCE_IMPORT_COMMIT" ] || fail 'resource_import revision label mismatch'
-    [ "$(docker image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "crm.team-access.revision"}}')" = "$CRM_TEAM_ACCESS_COMMIT" ] || fail 'team_access revision label mismatch'
-    [ "$(docker image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CRM_UPSTREAM_CRM_COMMIT" ] || fail 'upstream CRM revision label mismatch'
+    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || fail 'candidate image platform mismatch'
+    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "crm.resource-import.revision"}}')" = "$CRM_RESOURCE_IMPORT_COMMIT" ] || fail 'resource_import revision label mismatch'
+    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "crm.team-access.revision"}}')" = "$CRM_TEAM_ACCESS_COMMIT" ] || fail 'team_access revision label mismatch'
+    [ "$(docker_cli image inspect "$CRM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CRM_UPSTREAM_CRM_COMMIT" ] || fail 'upstream CRM revision label mismatch'
     printf 'PASS: Compose, exact linux/amd64 image ID and three source revision labels; runtime health not yet proven\n'
 }
 mark() {
@@ -108,7 +118,7 @@ create_site() {
     require_runtime
     require_docker
     [ ! -e "$RUNTIME/site-created" ] && [ ! -L "$RUNTIME/site-created" ] || fail 'site-created marker exists; refuse to repeat initialization'
-    CRM_TRIAL_DIR=$ROOT sh "$REMOTE/preflight.sh" --existing-dir
+    CRM_TRIAL_DIR=$ROOT CRM_TRIAL_DOCKER_SUDO=$CRM_TRIAL_DOCKER_SUDO sh "$REMOTE/preflight.sh" --existing-dir
     CRM_TRIAL_SYNTHETIC_ONLY_ACK=confirmed-synthetic-only
     export CRM_TRIAL_SYNTHETIC_ONLY_ACK
     compose --profile setup run --name crm-trial-c010400-create-site create-site
@@ -168,10 +178,25 @@ versions() {
     compose exec -T backend bench version
     compose exec -T backend bench --site "$SITE" execute frappe.get_installed_apps
 }
+load_image() {
+    case "$IMAGE_ARCHIVE" in
+        /*) ;;
+        *) fail 'load-image requires an absolute archive path' ;;
+    esac
+    [ -f "$IMAGE_ARCHIVE" ] && [ ! -L "$IMAGE_ARCHIVE" ] || fail 'load-image requires an ordinary existing archive file'
+    require_docker
+    docker_cli load -i "$IMAGE_ARCHIVE"
+    printf 'PASS: docker load returned zero; run init-env/stat/check to verify image identity and labels\n'
+}
+inspect_volumes() {
+    require_docker
+    docker_cli volume inspect crm_trial_c010400_db crm_trial_c010400_redis crm_trial_c010400_sites crm_trial_c010400_logs
+}
 
 case "$ACTION" in
     verify-source) verify_source ;;
     init-env) init_env ;;
+    load-image) load_image ;;
     check) check ;;
     create-site) create_site ;;
     up) up ;;
@@ -181,6 +206,7 @@ case "$ACTION" in
     backup) backup ;;
     versions) versions ;;
     status) require_runtime; require_docker; compose ps -a ;;
+    inspect-volumes) inspect_volumes ;;
     stop) require_runtime; require_docker; compose stop; printf 'PASS: project stopped; containers, image, network and all volumes retained\n' ;;
     -h|--help|help) usage ;;
     *) usage >&2; exit 2 ;;
