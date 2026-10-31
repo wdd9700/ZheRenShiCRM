@@ -1,6 +1,7 @@
 from team_access.permissions import MAX_ROWS, PRIVATE_TYPES, deny, get_record
 
-GRAPH_TYPES = ("Comment", "Communication", "ToDo", "Version", "CRM Notification", "Notification Log")
+GRAPH_TYPES = ("Comment", "Communication", "ToDo", "Version", "CRM Notification", "Notification Log", "CRM Call Log")
+GRAPH_NODES = GRAPH_TYPES + ("File",)
 
 
 def references(doc):
@@ -57,7 +58,7 @@ def private_roots(doctype=None, name=None, doc=None):
             if not get_record(dt, identifier):
                 deny()
             roots.add(key)
-        elif dt in (*GRAPH_TYPES, "CRM Call Log", "File"):
+        elif dt in GRAPH_NODES:
             record = get_record(dt, identifier)
             if not record:
                 deny()
@@ -79,7 +80,24 @@ def history_permitted(doc, user, seen=()):
 
     try:
         return all(can_contribute(dt, name, user, seen) for dt, name in private_roots(doc=doc)) and all(
-            can_reference(dt, name, user, seen) for dt, name in references(doc) if dt in (*GRAPH_TYPES, "File", "CRM Call Log")
+            can_reference(dt, name, user, seen) for dt, name in references(doc) if dt in GRAPH_NODES
         )
     except (frappe.PermissionError, frappe.DoesNotExistError):
         return False
+
+
+def validate_change(doc):
+    import frappe
+
+    if doc.doctype not in GRAPH_NODES:
+        return
+    old = get_record(doc.doctype, doc.get("name"))
+    if not old and doc.doctype == "Comment" and doc.get("comment_type") == "Attachment Removed":
+        return
+    current_roots = private_roots(doc=doc)
+    if old and not private_roots(doc=old).issubset(current_roots):
+        deny()
+    if frappe.session.user != "Administrator" and (
+        not history_permitted(doc, frappe.session.user) or old and not history_permitted(old, frappe.session.user)
+    ):
+        deny()

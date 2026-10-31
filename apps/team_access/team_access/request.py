@@ -33,9 +33,12 @@ def guard():
     from team_access.deleted import METHODS as snapshot_methods
 
     payload = args.get("doc") or args.get("docs") or args.get("document")
-    values = payload if isinstance(payload, dict) else {}
+    values = payload if isinstance(payload, (dict, list)) else {}
     if isinstance(payload, str) and payload.lstrip().startswith(("{", "[")):
         values = frappe.parse_json(payload)
+    from team_access.relations import guard_request
+
+    guard_request(parts, args, method, values)
     if method in snapshot_methods or (isinstance(values, dict) and values.get("doctype") == "Deleted Document"):
         doctype = "Deleted Document"
     if frappe.session.user == "Administrator" and doctype != "Deleted Document" and "Deleted Document" not in parts:

@@ -5,7 +5,16 @@ from team_access.permissions import PRIVATE_TYPES, PROTECTED, PARENTS, can_contr
 ACL_FIELDS = ("owner", "reference_doctype", "reference_docname", "custom_team_visibility", "custom_team_collaborator", "assigned_to")
 
 
+def validate_integrity(doc, method=None):
+    from team_access.relations import validate_parent
+    from team_access.references import validate_change
+
+    validate_parent(doc)
+    validate_change(doc)
+
+
 def validate(doc, method=None):
+    validate_integrity(doc)
     user = frappe.session.user
     if doc.doctype == "Deleted Document":
         from team_access.deleted import permitted_snapshot
@@ -18,15 +27,7 @@ def validate(doc, method=None):
         deny()
     if doc.doctype not in PROTECTED:
         return
-    from team_access.references import GRAPH_TYPES, history_permitted, private_roots
-
     old = get_record(doc.doctype, doc.get("name"))
-    if doc.doctype in GRAPH_TYPES:
-        removed_log = doc.doctype == "Comment" and doc.get("comment_type") == "Attachment Removed" and not old
-        if not removed_log and not history_permitted(doc, user):
-            deny()
-        if old and (not history_permitted(old, user) or private_roots(doc=old) != private_roots(doc=doc)):
-            deny()
     if doc.doctype in PRIVATE_TYPES:
         validate_private(doc, user)
     elif doc.doctype in ("CRM Notification", "Notification Log"):
@@ -125,6 +126,9 @@ def prevent_private_deletion(doc):
 
 
 def on_trash(doc, method=None):
+    from team_access.relations import reject_independent
+
+    reject_independent(doc.doctype)
     prevent_private_deletion(doc)
     if doc.doctype in PROTECTED and (frappe.session.user != "Administrator" or doc.doctype == "Deleted Document") and not permitted(doc, ptype="delete"):
         deny()

@@ -4,7 +4,7 @@ PRIVATE_TYPES = ("FCRM Note", "CRM Task")
 PARENTS = ("CRM Lead", "CRM Deal")
 PROTECTED = PRIVATE_TYPES + (
     "CRM Call Log", "Comment", "Communication", "File", "Version",
-    "CRM Notification", "Notification Log", "ToDo", "Dynamic Link", "Deleted Document",
+    "CRM Notification", "Notification Log", "ToDo", "Dynamic Link", "Communication Link", "Deleted Document",
 )
 MAX_ROWS = 2000
 READ_TYPES = (None, "read", "select", "print", "email", "export", "report")
@@ -63,6 +63,11 @@ def permitted(doc, user=None, ptype="read", seen=()):
         from team_access.deleted import permitted_snapshot
 
         return bool(user and user != "Guest" and permitted_snapshot(doc, user))
+    from team_access.relations import EDGE_TABLES, permitted as relation_permitted
+
+    if doc.doctype in EDGE_TABLES:
+        key = (doc.doctype, str(doc.get("name")))
+        return bool(user and user != "Guest" and key not in seen and len(seen) < 12 and relation_permitted(doc, user, ptype, (*seen, key)))
     if user == "Administrator":
         return True
     if not user or user == "Guest":
@@ -94,11 +99,9 @@ def permitted(doc, user=None, ptype="read", seen=()):
             return True
         return bool(reading and doc.get("custom_team_visibility") == "Shared" and doc.get("reference_doctype") in PARENTS and doc.get("reference_docname"))
     if dt == "CRM Call Log":
-        refs = [(doc.get("reference_doctype"), doc.get("reference_docname"))]
-        refs += [(link.get("link_doctype"), link.get("link_name")) for link in doc.get("links", [])]
-        if doc.get("note"):
-            refs.append(("FCRM Note", doc.note))
-        refs = [(d, n) for d, n in refs if d or n]
+        from team_access.references import references
+
+        refs = references(doc)
         if not refs:
             return user == doc.get("owner")
         if not all(d in (*PARENTS, *PRIVATE_TYPES, "Contact", "CRM Organization") and can_reference(d, n, user, seen) for d, n in refs):
@@ -130,8 +133,6 @@ def permitted(doc, user=None, ptype="read", seen=()):
             target = get_record(target_dt, target_name)
             return bool(target and permitted(target, user, "write", seen))
         return can_reference(target_dt, target_name, user, seen) if target_dt or target_name else True
-    if dt == "Dynamic Link":
-        return can_reference(doc.get("parenttype"), doc.get("parent"), user, seen) and can_reference(doc.get("link_doctype"), doc.get("link_name"), user, seen)
     if dt == "ToDo":
         if user not in (doc.get("owner"), doc.get("allocated_to"), doc.get("assigned_by")):
             return False
@@ -146,6 +147,10 @@ def permitted(doc, user=None, ptype="read", seen=()):
 
 
 def has_permission(doc, ptype=None, user=None, **kwargs):
+    from team_access.relations import reject_independent
+
+    if ptype not in READ_TYPES:
+        reject_independent(doc.doctype)
     if doc.doctype not in PROTECTED or ((user or frappe.session.user) == "Administrator" and doc.doctype != "Deleted Document"):
         return None
     if ptype == "create":

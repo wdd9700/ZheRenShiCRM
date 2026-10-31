@@ -14,7 +14,9 @@ def permitted_snapshot(doc, user):
         doctype = doc.get("deleted_doctype")
         if not isinstance(doctype, str) or not doctype or not doc.get("deleted_name"):
             return False
-        if doctype in (*PRIVATE_TYPES, "File", "ToDo", "CRM Notification", "Notification Log", "Deleted Document"):
+        from team_access.relations import EDGE_TABLES
+
+        if doctype in (*PRIVATE_TYPES, *EDGE_TABLES, "File", "ToDo", "CRM Notification", "Notification Log", "Deleted Document"):
             return False
         data = frappe.parse_json(doc.get("data"))
         if not isinstance(data, dict) or data.get("doctype") != doctype or data.get("name") is None or str(data.get("name")) != str(doc.get("deleted_name")):
@@ -25,7 +27,7 @@ def permitted_snapshot(doc, user):
             return False
         if doctype == "Comment" and data.get("comment_type") in ("Attachment", "Attachment Removed"):
             return False
-        if doctype in (*GRAPH_TYPES, "CRM Call Log"):
+        if doctype in GRAPH_TYPES:
             snapshot = frappe._dict(data)
             targets = references(snapshot)
             if private_roots(doc=snapshot) or not targets:

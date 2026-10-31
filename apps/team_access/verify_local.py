@@ -120,6 +120,7 @@ def build_environment(upstream):
     frappe.parse_json = lambda value: json.loads(value) if isinstance(value, str) else value
     frappe.throw = lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError())
     frappe.get_hooks = lambda *args: {}
+    frappe.get_meta = lambda dt: Doc(get_table_fields=lambda: [], get_field=lambda field: None, istable=0)
     frappe.db = types.SimpleNamespace(exists=lambda dt, name: (dt, str(name)) in records, get_value=lambda *args, **kwargs: None, set_value=lambda *args, **kwargs: writes.append(args))
     module("crm", __version__="1.90.0")
     for path, name in (
@@ -131,6 +132,8 @@ def build_environment(upstream):
         ("crm.fcrm.doctype.crm_notification.crm_notification", "CRMNotification"),
         ("frappe.core.doctype.comment.comment", "Comment"),
         ("frappe.core.doctype.communication.communication", "Communication"),
+        ("frappe.core.doctype.communication_link.communication_link", "CommunicationLink"),
+        ("frappe.core.doctype.dynamic_link.dynamic_link", "DynamicLink"),
         ("frappe.core.doctype.version.version", "Version"),
         ("frappe.core.doctype.file.file", "File"),
         ("frappe.desk.doctype.todo.todo", "ToDo"),
@@ -365,6 +368,9 @@ def run(upstream):
         verify_delete_feed(upstream)
     verify_snapshots()
     verify_r3(upstream)
+    from verify_relations import verify_r4
+
+    verify_r4(sys.modules[__name__], upstream)
     verify_driver()
     print("LOCAL ONLY: in-memory Frappe replacement, not installed framework/HTTP/socket/UI acceptance")
 
@@ -840,5 +846,5 @@ def verify_driver():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deterministic, standard-library-only permission regression; never connects to a site or database")
-    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion and full Communication update regressions")
+    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion, full Communication update, v1/v2 PUT parent-save and independent relation lifecycle regressions")
     run(parser.parse_args().upstream_root)

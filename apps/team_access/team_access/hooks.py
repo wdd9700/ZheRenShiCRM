@@ -18,8 +18,12 @@ after_request = ["team_access.request.after_request"]
 permission_query_conditions = {"*": "team_access.permissions.query_condition"}
 has_permission = {"*": "team_access.permissions.has_permission"}
 doc_events = {
-    "*": {"before_validate": "team_access.events.validate", "on_trash": "team_access.events.on_trash"},
-    "Communication": {"validate": "team_access.events.validate"},
+    "*": {
+        "before_validate": "team_access.events.validate", "validate": "team_access.events.validate",
+        "before_save": "team_access.events.validate_integrity", "before_submit": "team_access.events.validate_integrity",
+        "before_cancel": "team_access.events.validate_integrity", "before_update_after_submit": "team_access.events.validate_integrity",
+        "on_trash": "team_access.events.on_trash",
+    },
 }
 
 override_doctype_class = {
@@ -35,6 +39,8 @@ override_doctype_class = {
     "CRM Notification": "team_access.realtime.ActivityNotification",
     "Notification Log": "team_access.realtime.ActivityNotificationLog",
     "CRM Call Log": "team_access.realtime.ActivityCall",
+    "Communication Link": "team_access.relations.ActivityCommunicationLink",
+    "Dynamic Link": "team_access.relations.ActivityDynamicLink",
 }
 
 override_whitelisted_methods = {
