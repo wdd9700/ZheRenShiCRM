@@ -1,3 +1,4 @@
+import json
 import re
 
 import frappe
@@ -8,16 +9,21 @@ RAW_FIELDS = ("_comments", "_assign", "_liked_by", "_seen", "_user_tags", "__onl
 
 
 def reject_raw_fields(args, doctype=None):
+    values = dict(args)
+    for key in ("fields", "fieldname", "filters", "or_filters", "export_filters", "select_columns", "export_fields", "search_fields"):
+        if isinstance(values.get(key), str):
+            try:
+                values[key] = json.loads(values[key])
+            except ValueError:
+                pass
     for key in ("fields", "fieldname", "order_by", "group_by", "filters", "or_filters", "export_filters", "select_columns", "export_fields", "pluck", "searchfield", "search_fields"):
-        value = str(args.get(key) or "")
+        value = str(values.get(key) or "")
         if any(re.search(r"(?<![\w])" + re.escape(field) + r"(?![\w])", value, re.IGNORECASE) for field in RAW_FIELDS):
             deny()
     for key in ("fields", "fieldname", "select_columns", "export_fields", "pluck", "searchfield", "search_fields"):
-        value = args.get(key)
+        value = values.get(key)
         if "*" not in str(value or ""):
             continue
-        if isinstance(value, str) and value.lstrip().startswith("["):
-            value = frappe.parse_json(value)
         if key == "fields" and doctype and (value == "*" or isinstance(value, (tuple, list)) and list(value) == ["*"]):
             from frappe.model import get_permitted_fields
 

@@ -78,6 +78,10 @@ def put(doctype, name, **values):
     return doc
 
 
+def encoded_json(value):
+    return json.dumps(value).replace("_", r"\u005f").replace("*", r"\u002a").replace("name", r"\u006eame").replace("content", r"\u0063ontent")
+
+
 def forbidden(call):
     try:
         call()

@@ -78,6 +78,22 @@ def run(h, upstream=None):
                 h.forbidden(lambda key=key, value=value: responses.reject_raw_fields({key: value}, note.doctype))
         for projection in (["count(*) as total"], ["title", "count(*) as total"]):
             assert guarded(note.doctype, projection).fields == projection
+        for method in ("frappe.client.get_list", "frappe.desk.reportview.get", "frappe.desk.reportview.get_list", "frappe.desk.reportview.export_query"):
+            for projection in (["_assign"], ["name", "_liked_by as history"], ["_seen"], ["name", "*"]):
+                for value in (projection, json.dumps(projection), h.encoded_json(projection)):
+                    h.forbidden(lambda value=value, method=method: guarded(note.doctype, value, method=method))
+            for projection in (["name", "content"], ["*"]):
+                values = [guarded(note.doctype, value, method=method).fields for value in (projection, json.dumps(projection), h.encoded_json(projection))]
+                assert all((json.loads(value) if isinstance(value, str) else value) == values[0] for value in values)
+        for key, value in (("fieldname", ["_assign as history"]), ("filters", {"_seen": "history-viewer"}), ("or_filters", [["_liked_by", "=", "history-liker"]]), ("export_filters", {"_assign": "history-assignee"}), ("select_columns", {note.doctype: ["_assign"]}), ("export_fields", {note.doctype: ["_seen"]}), ("search_fields", ["_liked_by"])):
+            for variant in (value, json.dumps(value), h.encoded_json(value)):
+                h.forbidden(lambda key=key, variant=variant: responses.reject_raw_fields({key: variant}, note.doctype))
+        for key in ("select_columns", "export_fields"):
+            for value in ({note.doctype: ["name", "content"]}, json.dumps({note.doctype: ["name", "content"]}), h.encoded_json({note.doctype: ["name", "content"]})):
+                args = {key: value}
+                responses.reject_raw_fields(args, note.doctype)
+                assert args[key] == value
+        print("PASS R8 decoded JSON projection semantics: existing list/CSV guards reject encoded and canonical raw fields/aliases/mixed wildcard/filter/export selectors equally; legal body, export columns and safe wildcard retained without changing wire contracts")
         h.forbidden(lambda: responses.reject_raw_fields({"fields": ["*"]}))
         assert guarded("Contact", ["*"]).fields == ["*"]
         frappe.session.user = "Administrator"

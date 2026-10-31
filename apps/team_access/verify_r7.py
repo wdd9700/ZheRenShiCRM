@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from copy import deepcopy
+import hashlib
 import inspect
 import json
 import re
@@ -22,6 +23,11 @@ def environment(h, upstream=None):
         frappe.local = types.SimpleNamespace(response={})
         frappe.db = types.SimpleNamespace(**vars(frappe.db))
         controllers, metas, fixtures, saved_views, queries, loads = {}, {}, {}, {}, [], []
+        constants = {"default_fields": ("name", "owner", "creation", "modified", "modified_by"), "optional_fields": ("_user_tags", "_assign", "_liked_by", "_seen"), "no_value_fields": ()}
+        if upstream:
+            tree = h.ast.parse((upstream / "apps/frappe/frappe/model/__init__.py").read_text(encoding="utf-8"))
+            constants.update({node.targets[0].id: h.ast.literal_eval(node.value) for node in tree.body if isinstance(node, h.ast.Assign) and isinstance(node.targets[0], h.ast.Name) and node.targets[0].id in constants})
+            manifest = json.loads((upstream / "supplement-manifest-crm-schemas-M8R8.json").read_text(encoding="utf-8"))
         for dt, (slug, cls, body) in TYPES.items():
             methods = {"default_list_data": staticmethod(lambda body=body: {"rows": ["name", body, "status", "_assign"], "columns": [{"key": body, "label": "Body"}]})}
             if upstream:
@@ -37,8 +43,18 @@ def environment(h, upstream=None):
                 permitted.update(json.loads(kanban["kanban_fields"]))
                 permitted.add(kanban["title_field"])
             permitted -= {"_assign", "_liked_by", "_seen", "_user_tags"}
-            fields = [Doc(fieldname=name, label=name, fieldtype="Data", options="", hidden=0) for name in sorted(permitted | {"permission_denied"})]
-            metas[dt] = Doc(fields=fields, track_seen=1, default_fields=["name", "owner", "creation", "modified", "modified_by"], get_field=lambda name, fields=fields: next((field for field in fields if field.fieldname == name), None), get_table_fields=lambda: [], get_high_permlevel_fields=lambda: [], get_permlevel_access=lambda **kwargs: [0], get_valid_columns=lambda permitted=permitted: list(permitted | {"_assign", "_liked_by", "_seen", "_user_tags"}), get_permitted_fieldnames=lambda permitted=permitted, **kwargs: list(permitted), istable=0)
+            schema = {"fields": [{"fieldname": name, "label": name, "fieldtype": "Data"} for name in sorted(permitted)], "track_seen": 1}
+            if upstream:
+                path = f"apps/crm/crm/fcrm/doctype/{slug}/{slug}.json"
+                content = (upstream / path).read_bytes()
+                assert hashlib.sha256(content).hexdigest() == manifest["files"][path]["sha256"]
+                schema = json.loads(content)
+                assert schema["name"] == dt and any(row.get("role") == "Sales User" and row.get("read") for row in schema["permissions"])
+            fields = [Doc({"options": "", "hidden": 0, "permlevel": 0, **field}) for field in schema["fields"]]
+            fields.append(Doc(fieldname="permission_denied", label="Synthetic role-denied test field", fieldtype="Data", options="", hidden=0, permlevel=1))
+            permitted = {field.fieldname for field in fields if field.fieldtype not in constants["no_value_fields"] and not field.permlevel}
+            valid = permitted | set(constants["default_fields"]) | set(constants["optional_fields"]) | {"permission_denied"}
+            metas[dt] = Doc(fields=fields, track_seen=schema.get("track_seen", 0), default_fields=list(constants["default_fields"]), get_field=lambda name, fields=fields: next((field for field in fields if field.fieldname == name), None), get_table_fields=lambda fields=fields: [field for field in fields if field.fieldtype in ("Table", "Table MultiSelect")], get_high_permlevel_fields=lambda fields=fields: [field for field in fields if field.permlevel], get_permlevel_access=lambda **kwargs: [0], get_valid_columns=lambda valid=valid: list(valid), get_permitted_fieldnames=lambda permitted=permitted, **kwargs: list(permitted), istable=0)
             values = {body: "Visible current " + dt, "title": "Visible title", "status": "Open", "custom_team_visibility": "Shared", "custom_team_collaborator": "", "_assign": '["history-assignee"]', "_liked_by": '["history-liker"]', "_seen": '["history-viewer"]', "permission_denied": "role-hidden"}
             if dt in ("FCRM Note", "CRM Task"):
                 values.update(reference_doctype="CRM Lead", reference_docname="r7-crm-lead")
@@ -57,7 +73,7 @@ def environment(h, upstream=None):
             return deepcopy(h.records[(dt, str(key))])
         frappe.get_doc = get_doc
         h.module("frappe.model.document", get_controller=lambda dt: controllers[dt])
-        model = h.module("frappe.model", optional_fields=("_user_tags", "_assign", "_liked_by", "_seen"), default_fields=("name", "owner", "creation", "modified", "modified_by"))
+        model = h.module("frappe.model", **constants)
         model.get_permitted_fields = lambda dt, **kwargs: [*metas[dt].default_fields, *model.optional_fields, *metas[dt].get_permitted_fieldnames()]
         rv = {"frappe": frappe, "json": json, "_": lambda value: value, "default_fields": model.default_fields, "optional_fields": model.optional_fields, "child_table_fields": [], "get_permitted_fields": model.get_permitted_fields}
         def extract(field):
@@ -146,7 +162,7 @@ def verify_crm(h, upstream):
 
     with environment(h, upstream) as env:
         frappe, Doc = h.frappe, h.Doc
-        namespace = {"frappe": frappe, "json": json, "_": lambda value: value, "get_controller": lambda dt: env.controllers[dt], "no_value_fields": [], "COUNT_NAME": "count(name) as total_count", "get_views": lambda dt: [], "get_form_script": lambda *args: None, "set_activity_counts": lambda *args: None, "make_filter_tuple": lambda dt, key, value: [dt, key, *(value if isinstance(value, list) else ["=", value])]}
+        namespace = {"frappe": frappe, "json": json, "_": lambda value: value, "get_controller": lambda dt: env.controllers[dt], "no_value_fields": sys.modules["frappe.model"].no_value_fields, "COUNT_NAME": "count(name) as total_count", "get_views": lambda dt: [], "get_form_script": lambda *args: None, "set_activity_counts": lambda *args: None, "make_filter_tuple": lambda dt, key, value: [dt, key, *(value if isinstance(value, list) else ["=", value])]}
         h.load_native(upstream / "apps/crm/crm/api/doc.py", {"get_data", "parse_list_data", "convert_filter_to_tuple", "get_records_based_on_order"}, namespace)
         h.module("crm.api.doc", get_data=namespace["get_data"])
         note = env.fixtures["FCRM Note"]
@@ -170,15 +186,21 @@ def verify_crm(h, upstream):
                 h.forbidden(lambda payload=payload: call("FCRM Note", **payload))
             assert len(env.queries) == before
         for dt, (_, _, body) in TYPES.items():
-            for kwargs in ({}, {"rows": ["name", body, "permission_denied"], "columns": [{"key": body, "label": "Body"}]}, {"rows": ["*"]}, {"rows": json.dumps(["name", body]), "view": "{\"view_type\":\"list\"}"}):
+            for kwargs in ({}, {"rows": ["name", body, "permission_denied"], "columns": [{"key": body, "label": "Body"}]}, {"rows": ["*"]}, {"rows": h.encoded_json(["name", body]), "view": h.encoded_json({"view_type": "list"})}):
                 data = call(dt, **kwargs)
                 assert env.fixtures[dt][body] in json.dumps(data["data"])
                 assert all(marker not in json.dumps(data) for marker in ("history-assignee", "history-liker", "history-viewer", "role-hidden"))
                 assert not set(data["rows"]) & set(responses.RAW_FIELDS)
+            for payload in ({"rows": ["_assign as history"]}, {"columns": [{"key": "_seen as history"}]}, {"view": {"view_type": "group_by", "group_by_field": "_assign"}}, {"kanban_fields": ["_liked_by"]}):
+                for serialize in (lambda value: value, json.dumps, h.encoded_json):
+                    before = len(env.queries)
+                    h.forbidden(lambda payload=payload, serialize=serialize: call(dt, **{key: serialize(value) for key, value in payload.items()}))
+                    assert len(env.queries) == before
             grouped = call(dt, rows=["name", body], columns=[{"key": body, "label": "Body"}], view={"view_type": "group_by", "group_by_field": body})
             assert env.fixtures[dt][body] in grouped["group_by_field"]["options"]
+            column_field = "status" if frappe.get_meta(dt).get_field("status") else "title"
             for kwargs in ({"rows": ["name", body], "title_field": body, "kanban_fields": [body]}, {}):
-                kanban = call(dt, column_field="status", kanban_columns=[{"name": "Open"}], view={"view_type": "kanban"}, **kwargs)
+                kanban = call(dt, column_field=column_field, kanban_columns=[{"name": env.fixtures[dt][column_field]}], view={"view_type": "kanban"}, **kwargs)
                 assert env.fixtures[dt][body] in json.dumps(kanban["data"]) and "history-assignee" not in json.dumps(kanban)
             env.saved_views[dt] = Doc(rows=json.dumps(["name", body, "_assign"]), columns=json.dumps([{"key": body, "label": "Body"}, {"key": "_assign", "label": "Old cache"}]))
             before = len(env.loads)
@@ -215,7 +237,7 @@ def verify_rest(h, upstream):
         for dt, (_, _, body) in TYPES.items():
             for prefix, version in (("/api/resource/", "v1"), ("/api/v1/resource/", "v1"), ("/api/v2/document/", "v2")):
                 path = prefix + quote(dt, safe="")
-                for fields in ('["*"]', json.dumps(["name", body, "permission_denied"]), None):
+                for fields in ('["*"]', h.encoded_json(["*"]), json.dumps(["name", body, "permission_denied"]), h.encoded_json(["name", body, "permission_denied"]), None):
                     args = Doc()
                     if fields is not None:
                         args.fields = fields
@@ -231,8 +253,62 @@ def verify_rest(h, upstream):
                     else:
                         assert set(result[0]) == {"name"}
                     completed += 1
-                before = len(env.queries)
-                h.forbidden(lambda: guard(h, path, Doc(fields='["_assign as history"]')))
-                assert len(env.queries) == before
-        assert completed == 36
-    print("PASS R7 guard -> fixed v1/explicit-v1/v2 document_list -> full client.get_list/reportview validation -> native field permissions -> replacement query: 36 Note/Task/Lead/Deal bare/explicit/default positives, JSON string contract retained, private/raw/role-hidden negatives")
+                for fields in (["_assign"], ["_liked_by as history"], ["_seen"], ["name", "*"]):
+                    for serialize in (lambda value: value, json.dumps, h.encoded_json):
+                        before = len(env.queries)
+                        h.forbidden(lambda fields=fields, serialize=serialize: guard(h, path, Doc(fields=serialize(fields))))
+                        assert len(env.queries) == before
+        assert completed == 60
+    print("PASS R8 fixed-schema REST guard -> v1/explicit-v1/v2 document_list -> full client.get_list/reportview validation -> native field permissions -> replacement query: 60 Note/Task/Lead/Deal canonical/encoded bare/body/default positives, JSON string contract retained, equivalent raw/alias/mixed-wildcard negatives")
+    verify_reportview(h, upstream)
+
+
+def verify_reportview(h, upstream):
+    import csv
+    import io
+    from team_access import responses
+
+    with environment(h, upstream) as env:
+        frappe, Doc = h.frappe, h.Doc
+        captures = []
+        def csv_bytes(rows, params):
+            stream = io.StringIO(newline="")
+            csv.writer(stream).writerows(rows)
+            return stream.getvalue().encode("utf-8")
+        h.module("frappe.permissions", can_export=lambda *args, **kwargs: True)
+        h.module("frappe.desk.query_report", add_total_row=lambda values, keys, meta: values)
+        h.module("frappe.desk.utils", get_csv_bytes=csv_bytes, provide_binary_file=lambda title, extension, content: captures.append(content), pop_csv_params=lambda params: {})
+        h.module("frappe.utils.xlsxutils", handle_html=lambda value: value, make_xlsx=lambda *args: (_ for _ in ()).throw(AssertionError("unexpected Excel path")))
+        frappe.as_unicode = str
+        frappe.read_only = lambda: lambda fn: fn
+        class DatabaseQuery:
+            def __init__(self, doctype):
+                self.doctype = doctype
+            def execute(self, **kwargs):
+                rows = frappe.get_list(self.doctype, **kwargs)
+                self.fields = env.queries[-1][1]
+                return [[row.get(field) for field in self.fields] for row in rows] if kwargs.get("as_list") else rows
+        namespace = {**env.rv, "_": lambda value, **kwargs: value, "DatabaseQuery": DatabaseQuery, "DISALLOWED_PARAMS": ("cmd", "data", "ignore_permissions", "view", "user", "csrf_token", "join"), "is_virtual_doctype": lambda dt: False, "make_access_log": lambda **kwargs: None, "add_user_info": lambda *args: (_ for _ in ()).throw(AssertionError("unexpected historical profile lookup"))}
+        h.load_native(upstream / "apps/frappe/frappe/desk/reportview.py", {"get", "get_list", "execute", "get_form_params", "clean_params", "compress", "export_query", "_export_query", "get_field_info", "parse_field", "handle_duration_fieldtype_values"}, namespace)
+        for dt, (_, _, body) in TYPES.items():
+            column = "lost_notes" if dt == "CRM Deal" else body
+            env.fixtures[dt][column] = "Visible R8 current text " + dt
+            for method in ("get", "get_list", "export_query"):
+                path = "/api/method/frappe.desk.reportview." + method
+                for fields in (["_assign"], ["_liked_by as history"], ["_seen"], ["name", "*"]):
+                    for serialize in (lambda value: value, json.dumps, h.encoded_json):
+                        before = len(env.queries)
+                        h.forbidden(lambda fields=fields, serialize=serialize: guard(h, path, Doc(doctype=dt, fields=serialize(fields))))
+                        assert len(env.queries) == before
+                for serialize in (lambda value: value, json.dumps, h.encoded_json):
+                    args = Doc(doctype=dt, fields=serialize(["name", column, "permission_denied"]), filters={"name": env.fixtures[dt].name})
+                    if method == "export_query":
+                        args.update(file_format_type="CSV", selected_items=json.dumps([env.fixtures[dt].name]))
+                    guard(h, path, args)
+                    frappe.local.lang = "en"
+                    result = namespace[method]()
+                    text = captures[-1].decode("utf-8") if method == "export_query" else json.dumps(responses.sanitize(result, True))
+                    assert env.fixtures[dt][column] in text and env.fixtures[dt].name in text
+                    assert all(marker not in text for marker in ("history-assignee", "history-liker", "history-viewer", "role-hidden", "Never publish"))
+        assert ("ToDo", "r7-legacy") in h.records
+    print("PASS R8 fixed-schema guard -> complete native reportview get/get_list/export_query -> field permissions/replacement query -> compressed JSON or CSV sink: encoded and canonical denials precede query; 36 legal current-text positives retained; no historical profiles")
