@@ -22,10 +22,21 @@ def communication_rows(rows):
     return result
 
 
+def attachment_logs(doctype, name):
+    from team_access.permissions import MAX_ROWS, deny
+
+    check(doctype, name)
+    rows = frappe.get_all("Comment", filters={"reference_doctype": doctype, "reference_name": name, "comment_type": ["in", ["Attachment", "Attachment Removed"]]}, fields=["name", "creation", "content", "owner", "comment_type", "published"], order_by="creation desc", limit_page_length=MAX_ROWS + 1)
+    if len(rows) > MAX_ROWS:
+        deny()
+    return [row for row in rows if (record := get_record("Comment", row.name)) and permitted(record)]
+
+
 def scrub(doctype, name):
     info = frappe.response.get("docinfo")
     if not info or doctype not in (*PROTECTED, *PARENTS) or frappe.session.user == "Administrator":
         return
+    info["attachment_logs"] = attachment_logs(doctype, name)
     mapping = {
         "versions": "Version", "comments": "Comment", "attachment_logs": "Comment",
         "assignment_logs": "Comment", "info_logs": "Comment", "like_logs": "Comment",

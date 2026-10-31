@@ -25,6 +25,15 @@ def references(doc):
         result.append((doc.get("source_doctype"), doc.get("source_name")))
     if doc.doctype == "CRM Notification" and doc.get("comment"):
         result.append(("Comment", doc.get("comment")))
+    if doc.doctype == "Comment":
+        from team_access.attachment_logs import sources
+
+        targets = sources(doc)
+        if targets is None:
+            deny()
+        result.extend(targets)
+    if doc.doctype == "File":
+        result = [(doc.get("attached_to_doctype"), doc.get("attached_to_name"))]
     return [(dt, str(name) if name is not None else None) for dt, name in result if dt or name]
 
 
@@ -48,7 +57,7 @@ def private_roots(doctype=None, name=None, doc=None):
             if not get_record(dt, identifier):
                 deny()
             roots.add(key)
-        elif dt in (*GRAPH_TYPES, "CRM Call Log"):
+        elif dt in (*GRAPH_TYPES, "CRM Call Log", "File"):
             record = get_record(dt, identifier)
             if not record:
                 deny()
@@ -64,6 +73,13 @@ def private_roots(doctype=None, name=None, doc=None):
 
 
 def history_permitted(doc, user, seen=()):
-    from team_access.permissions import can_contribute
+    from team_access.permissions import can_contribute, can_reference
 
-    return all(can_contribute(dt, name, user, seen) for dt, name in private_roots(doc=doc))
+    import frappe
+
+    try:
+        return all(can_contribute(dt, name, user, seen) for dt, name in private_roots(doc=doc)) and all(
+            can_reference(dt, name, user, seen) for dt, name in references(doc) if dt in (*GRAPH_TYPES, "File", "CRM Call Log")
+        )
+    except (frappe.PermissionError, frappe.DoesNotExistError):
+        return False

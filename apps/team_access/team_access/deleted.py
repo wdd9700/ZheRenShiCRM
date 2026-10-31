@@ -23,6 +23,8 @@ def permitted_snapshot(doc, user):
 
         if any(data.get(key) and data.get(key) not in ("[]", "{}") for key in (*RAW_FIELDS, "_link_titles")):
             return False
+        if doctype == "Comment" and data.get("comment_type") in ("Attachment", "Attachment Removed"):
+            return False
         if doctype in (*GRAPH_TYPES, "CRM Call Log"):
             snapshot = frappe._dict(data)
             targets = references(snapshot)

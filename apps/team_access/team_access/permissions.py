@@ -75,6 +75,11 @@ def permitted(doc, user=None, ptype="read", seen=()):
     reading = ptype in READ_TYPES
     from team_access.references import GRAPH_TYPES, history_permitted
 
+    if dt == "Comment":
+        from team_access.attachment_logs import permitted as attachment_permitted
+
+        if not attachment_permitted(doc, user, seen):
+            return False
     if dt in GRAPH_TYPES and not history_permitted(doc, user, seen):
         return False
     if dt in PRIVATE_TYPES:

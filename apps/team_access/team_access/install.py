@@ -10,6 +10,9 @@ def preflight():
 
     if frappe.__version__ != "15.125.0" or crm.__version__ != "1.90.0":
         frappe.throw("Team Access 0.1 requires Frappe 15.125.0 and CRM 1.90.0; audit before upgrading.")
+    frappe.local.response["team_access_legacy_provenance_unverified"] = ["Communication", "File", "Comment", "Version", "CRM Notification", "Notification Log", "Deleted Document"]
+    if type(frappe.conf.get("team_access_synthetic_only")) is not int or frappe.conf.get("team_access_synthetic_only") != 1:
+        frappe.throw("This experimental candidate cannot reconstruct private provenance already erased by legacy unlink. Installation/migration requires the operator's reviewed synthetic-only site acknowledgement (team_access_synthetic_only=1). Do not import real customer data; current empty references do not prove legacy records safe.")
     from team_access.files import private_target
     from team_access.hooks import override_doctype_class, override_whitelisted_methods
 

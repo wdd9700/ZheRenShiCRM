@@ -16,11 +16,14 @@ from team_access.references import private_roots
 def private_document(doc):
     if doc.doctype in PRIVATE_TYPES:
         return True
-    if doc.doctype == "File":
-        from team_access.files import activity_roots
+    try:
+        if doc.doctype == "File":
+            from team_access.files import activity_roots
 
-        return bool(activity_roots(doc))
-    return bool(private_roots(doc=doc))
+            return bool(activity_roots(doc))
+        return bool(private_roots(doc=doc))
+    except (frappe.PermissionError, frappe.DoesNotExistError):
+        return True
 
 
 class PrivateUpdate:
@@ -28,8 +31,16 @@ class PrivateUpdate:
     def no_feed_on_delete(self):
         return private_document(self) or getattr(super(), "no_feed_on_delete", False)
 
+    def on_trash(self):
+        from team_access.events import prevent_private_deletion
+
+        prevent_private_deletion(self)
+        method = getattr(super(), "on_trash", None)
+        if method:
+            return method()
+
     def notify_update(self):
-        if not private_document(self):
+        if not getattr(frappe.local, "team_access_private_communication_update", False) and not private_document(self):
             return super().notify_update()
 
 
@@ -56,6 +67,20 @@ class ActivityComment(PrivateUpdate, Comment):
 
 
 class ActivityCommunication(PrivateUpdate, Communication):
+    def on_update(self):
+        if not private_document(self):
+            return super().on_update()
+        from team_access.hooks import override_doctype_class
+
+        if self.get("reference_doctype") and self.reference_doctype not in override_doctype_class:
+            raise frappe.PermissionError("Private communications require a reviewed parent controller")
+        previous = getattr(frappe.local, "team_access_private_communication_update", False)
+        frappe.local.team_access_private_communication_update = True
+        try:
+            return super().on_update()
+        finally:
+            frappe.local.team_access_private_communication_update = previous
+
     def notify_change(self, action):
         if not private_document(self):
             return super().notify_change(action)

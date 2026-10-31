@@ -51,8 +51,14 @@ def validate_attachment(doc):
 
 
 class ActivityFile(File):
+    def on_trash(self):
+        from team_access.events import prevent_private_deletion
+
+        prevent_private_deletion(self)
+        return super().on_trash()
+
     def notify_update(self):
-        if not activity_roots(self):
+        if not getattr(frappe.local, "team_access_private_communication_update", False) and not activity_roots(self):
             return super().notify_update()
 
     def before_insert(self):

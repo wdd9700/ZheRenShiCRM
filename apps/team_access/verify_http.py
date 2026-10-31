@@ -211,6 +211,14 @@ def prepare_legacy(a, b, maintenance, f):
     require(file_marker.encode() in success_bytes(b.request("GET", original["file_url"]), "pre-install alias byte reproduction"), "legacy alias baseline reproduces before extension")
     ordinary = create(a, "File", {"file_name": f["prefix"] + "-ordinary-parent.txt", "content": f["prefix"] + "-FORMAL-FILE", "is_private": 1, "attached_to_doctype": "CRM Lead", "attached_to_name": f["shared_parent"]})
     graph["ordinary_file"] = {key: ordinary[key] for key in ("name", "file_name", "file_url")}
+    response = b.rpc("frappe.desk.form.load.get_docinfo", {"doctype": "CRM Lead", "name": f["shared_parent"]})
+    require(response.status == 200, "pre-install attachment-log baseline")
+    logs = response.json().get("docinfo", {}).get("attachment_logs", [])
+    graph["attachment_logs"] = {}
+    for key, file in (("alias", alias), ("ordinary", ordinary)):
+        matching = [row["name"] for row in logs if row.get("comment_type") == "Attachment" and file["file_name"] in row.get("content", "") and file["file_url"] in row.get("content", "")]
+        require(bool(matching), "native pre-install File must generate independent attachment log")
+        graph["attachment_logs"][key] = matching
     f["legacy_graph"] = graph
 
 
@@ -220,7 +228,12 @@ def verify_legacy(a, b, f):
     for key, dt in (("note", "FCRM Note"), ("task", "CRM Task")):
         root = success(a.resource(dt, graph[key]), "legacy attachment root owner read")
         require(root["owner"] == a.user and root["title"].startswith(f["prefix"]), "refuse mutation of non-M8 attachment roots")
-    hidden = [graph["communication"]["name"], graph["communication"]["marker"], graph["file_marker"]]
+    require(set(graph.get("attachment_logs", {})) == {"alias", "ordinary"}, "native pre-install Attachment Comment IDs are required; old manifests must be prepared again in an isolated first-install environment")
+    hidden = [graph["communication"]["name"], graph["communication"]["marker"], graph["file_marker"], *graph["attachment_logs"]["alias"]]
+    for name in graph["attachment_logs"]["alias"]:
+        denied(b.resource("Comment", name), "old alias Attachment Comment direct denial")
+        clean(b.resource("Comment", params={"fields": ["name", "content"], "filters": {"name": name}}), [name, graph["alias"]["file_name"], graph["alias"]["file_url"]], "old alias Attachment Comment list", allow_denied=True)
+        require(name.encode() in success_bytes(a.rpc("frappe.desk.form.load.get_docinfo", {"doctype": "CRM Lead", "name": f["shared_parent"]}), "owner attachment log parent positive"), "owner retains authorized historical log through native parent authorization")
     for key in ("file", "alias"):
         hidden.extend(graph[key].values())
         denied(b.resource("File", graph[key]["name"]), "old alias metadata cannot bypass canonical roots")
@@ -232,6 +245,15 @@ def verify_legacy(a, b, f):
     require(graph["ordinary_file"]["file_name"].encode() in success_bytes(b.rpc("frappe.desk.form.load.get_filtered_attachments", gallery), "ordinary parent gallery"), "ordinary parent attachment remains visible")
     for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo", "frappe.desk.form.load.get_communications"):
         clean(b.rpc(method, {"doctype": "CRM Lead", "name": f["shared_parent"]}), hidden, "parent native response hides timeline-only multi-root Communication and alias")
+    clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), hidden, "old alias Attachment Comment hidden from parsed activities")
+    for method in ("frappe.desk.form.load.getdoc", "frappe.desk.form.load.get_docinfo"):
+        body = success_bytes(b.rpc(method, {"doctype": "CRM Lead", "name": f["shared_parent"]}), "ordinary attachment log parent positive")
+        require(all(name.encode() in body for name in graph["attachment_logs"]["ordinary"]), "ordinary native Attachment Comment remains visible")
+    for dt, name in (("FCRM Note", graph["note"]), ("CRM Task", graph["task"]), ("Communication", graph["communication"]["name"]), ("File", graph["file"]["name"]), ("CRM Lead", f["shared_parent"])):
+        denied(a.resource(dt, name, "DELETE"), "experimental retention prevents deletion before unlink or disk side effects")
+        success(a.resource(dt, name), "denied deletion retains synthetic record")
+    clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), hidden, "denied root deletion keeps Communication, alias and logs private")
+    denied(b.request("GET", graph["file"]["file_url"]), "denied root deletion does not expose bytes")
     success(update(a, "FCRM Note", graph["note"], {"custom_team_collaborator": b.user}), "grant only first attachment root")
     denied(b.request("GET", graph["file"]["file_url"]), "one of two activity roots cannot grant bytes")
     success(update(a, "CRM Task", graph["task"], {"assigned_to": b.user}), "grant second attachment root")
@@ -249,6 +271,35 @@ def verify_legacy(a, b, f):
 
 def communication(session, doctype, name, content):
     return session.rpc("frappe.core.doctype.communication.email.make", {"doctype": doctype, "name": name, "content": content, "subject": content, "communication_type": "Communication", "communication_medium": "Other", "send_email": 0}, True)
+
+
+def verify_pin_history(a, b, f):
+    note = success(a.resource("FCRM Note", f["note"]), "pin fixture owner")
+    require(note["owner"] == a.user and note["title"].startswith(f["prefix"]) and not note.get("custom_team_collaborator"), "pin tests refuse non-M8 or already-granted notes")
+    for pinned in (True, False):
+        success(a.rpc("crm.fcrm.doctype.fcrm_note.fcrm_note.set_pinned", {"name": f["note"], "pinned": pinned}, True), "native pin/unpin creates history")
+    def pin_rows(response):
+        data = success(response, "note activity response")[0]
+        def members(rows):
+            for row in rows:
+                yield row
+                yield from members(row.get("other_notes", []))
+        return [row for row in members(data) if row.get("activity_type") == "note" and row.get("data", {}).get("note") == f["note"] and row.get("data", {}).get("action") in ("pinned", "unpinned")]
+    rows = pin_rows(a.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}))
+    require({row["data"]["action"] for row in rows} == {"pinned", "unpinned"}, "owner sees both native pin Version projections")
+    identifiers = [row["name"] for row in rows]
+    success(update(a, "FCRM Note", f["note"], {"custom_team_visibility": "Shared"}), "publish current-only pin fixture")
+    try:
+        response = b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]})
+        clean(response, identifiers, "Shared-only aggregate hides pin/unpin Version identifiers")
+        require(not pin_rows(response), "Shared-only grouped pin history is absent")
+        success(update(a, "FCRM Note", f["note"], {"custom_team_collaborator": b.user}), "explicit pin-history writer grant")
+        require({row["name"] for row in pin_rows(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}))} >= set(identifiers), "current writer sees historical pin projections")
+        success(update(a, "FCRM Note", f["note"], {"custom_team_collaborator": ""}), "revoke pin-history grant")
+        clean(b.rpc("crm.api.activities.get_activities", {"name": f["shared_parent"]}), identifiers, "pin history grant revocation is immediate")
+    finally:
+        success(update(a, "FCRM Note", f["note"], {"custom_team_collaborator": "", "custom_team_visibility": "Private"}), "restore pin fixture privacy")
+    print("PASS real native pin/unpin Version aggregate owner/writer positives and Shared-only/revoked negatives including grouped notes")
 
 
 def verify_history(a, b, f):
@@ -346,6 +397,7 @@ def verify(a, b, f):
     clean(b.rpc("frappe.desk.search.search_link", {"doctype": "FCRM Note", "txt": f["prefix"]}), hidden, "link candidates")
     print("PASS private REST/native/list/count/search/CSV/activities in two real sessions")
     verify_legacy(a, b, f)
+    verify_pin_history(a, b, f)
     verify_history(a, b, f)
 
     public = f["prefix"] + "-PUBLIC-CURRENT"
@@ -397,7 +449,7 @@ def verify(a, b, f):
     print("PASS comments/mentions/notifications/private attachment download and mutation checks")
     require(f.get("legacy_shares"), "legacy DocShare OR negative was not prepared; do not label full boundary acceptance")
     print("PASS legacy DocShare OR rows did not bypass any tested boundary")
-    print("MANUAL REQUIRED: native CRM editors/sharing/CSP/PWA, Call/integration, converted Lead/Deal and automatic Email links, Version details/exports, upload variants, real socket revoke/open/close after full restart, Deleted Document private snapshot detail/list/export/single+bulk restore (including maintenance-role/admin application denial and formal-parent positive), and restart cache invalidation; not complete UI acceptance.")
+    print("MANUAL REQUIRED: native CRM editors/sharing/CSP/PWA, Call/integration, converted Lead/Deal and automatic Email links, Version details/exports, unknown/removed attachment logs and nested history copies, upload variants, native delete_doc/controller selection and no disk/queue side effects (including Administrator application denial, standalone/Shared Note/Task and all Lead/Deal), real socket B subscribed to shared parent AND Lead/Deal list before full private Communication on_update with no actor/timing events while ordinary formal events and persistence survive, Deleted Document detail/list/export/single+bulk restore, and restart/backup restore with explicit synthetic-only provenance acknowledgement. Private and parent deletion is unavailable, not complete CRUD or team MVP acceptance.")
 
 
 def success_bytes(response, label):

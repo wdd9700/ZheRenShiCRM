@@ -44,6 +44,15 @@ def communication_activities(parent, upstream):
     return result
 
 
+def attachment_activities(parent, upstream):
+    from team_access.docinfo import attachment_logs
+
+    parents = [(parent.doctype, parent.name)]
+    if parent.doctype == "CRM Deal" and parent.get("lead") and can_reference("CRM Lead", parent.lead, frappe.session.user):
+        parents.insert(0, ("CRM Lead", parent.lead))
+    return [{"name": row.name, "activity_type": "attachment_log", "creation": row.creation, "owner": row.owner, "data": upstream.parse_attachment_log(row.content, row.comment_type), "is_lead": dt == "CRM Lead"} for dt, name in parents for row in attachment_logs(dt, name)]
+
+
 @frappe.whitelist()
 def get_activities(name: str):
     from crm.api import activities as upstream
@@ -62,10 +71,19 @@ def get_activities(name: str):
 
         def keep(activity):
             kind = activity.get("activity_type")
-            if kind == "communication":
+            if kind in ("communication", "attachment_log"):
                 return False
             if kind == "note":
-                return activity.get("data", {}).get("note") in note_names
+                data = activity.get("data", {})
+                note_name = data.get("note")
+                if note_name not in note_names:
+                    return False
+                if data.get("action") == "added":
+                    return str(activity.get("name")) == str(note_name)
+                if data.get("action") not in ("pinned", "unpinned"):
+                    return False
+                version = get_record("Version", activity.get("name"))
+                return bool(version and version.get("ref_doctype") == "FCRM Note" and str(version.get("docname")) == str(note_name) and permitted(version))
             if kind in ("comment", "attachment_log"):
                 comment = get_record("Comment", activity.get("name"))
                 return bool(comment and permitted(comment))
@@ -86,6 +104,7 @@ def get_activities(name: str):
                         member["attachments"] = filter_rows("File", member["attachments"])
                     result.append(member)
         result.extend(communication_activities(parent, upstream))
+        result.extend(attachment_activities(parent, upstream))
         result.sort(key=lambda activity: activity["creation"], reverse=True)
         return upstream.group_note_activities(result), calls, notes, tasks, attachments
     finally:

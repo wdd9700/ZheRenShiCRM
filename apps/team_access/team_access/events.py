@@ -22,7 +22,8 @@ def validate(doc, method=None):
 
     old = get_record(doc.doctype, doc.get("name"))
     if doc.doctype in GRAPH_TYPES:
-        if not history_permitted(doc, user):
+        removed_log = doc.doctype == "Comment" and doc.get("comment_type") == "Attachment Removed" and not old
+        if not removed_log and not history_permitted(doc, user):
             deny()
         if old and (not history_permitted(old, user) or private_roots(doc=old) != private_roots(doc=doc)):
             deny()
@@ -108,6 +109,22 @@ def validate_private(doc, user):
             raise frappe.ValidationError("Collaborator must be able to read the linked parent")
 
 
+def prevent_private_deletion(doc):
+    from team_access.references import private_roots
+
+    if doc.doctype in (*PRIVATE_TYPES, *PARENTS):
+        raise frappe.PermissionError("Deletion of activities and CRM Lead/Deal is temporarily disabled to preserve private history. Keep the record and edit it or withdraw sharing instead.")
+    if doc.doctype == "File":
+        from team_access.files import activity_roots
+
+        roots = activity_roots(doc)
+    else:
+        roots = private_roots(doc=doc) if doc.doctype in PROTECTED else set()
+    if roots:
+        raise frappe.PermissionError("Deletion of private activity history, files and calls is temporarily disabled. No related records or files were removed.")
+
+
 def on_trash(doc, method=None):
+    prevent_private_deletion(doc)
     if doc.doctype in PROTECTED and (frappe.session.user != "Administrator" or doc.doctype == "Deleted Document") and not permitted(doc, ptype="delete"):
         deny()
