@@ -1,335 +1,297 @@
 # 远端合成部署真实执行记录（C010600）
 
-**状态：真实执行到镜像加载与凭据初始化，`trial.sh check` 门禁在目标主机失败并已按规则停止；站点、容器、卷、迁移与任何 HTTP/Windows 验收均未创建或执行。**
+**状态：已在 `dev@8.133.190.46` 上完成独立合成试用部署的真实建站、启动、扩展前备份、双扩展安装、两次迁移与 G1 观测；站点只监听 `127.0.0.1:8088`，使用全新合成的凭据与数据。未做 Windows 客户端安装、真实浏览器登录、权限矩阵、PWA、恢复演练，也未解除 M8/M9 门禁。**
 
-本文件只记录本轮实际发生的操作与观测结果。它**不是**生产批准，不解除 M8/M9 的权限与恢复门禁，也不把"镜像已加载"当成部署成功。失败点与根因见 §9，未执行项见 §11，需要决定的事项见 §12。
+本文件记录两轮真实执行：第一轮在 M13 精确 `240b9a8…` 的镜像身份门禁处失败并保留现场；M13 修复合约并独审 clean 后，第二轮按 `92f9de6…` 的工具更新包恢复，从 `check` 继续到 G1。文中所有结论都来自本轮实际命令输出；未执行项在 §13 明列，观测限制在 §14。
 
 ## 1. 授权与范围
 
-用户明确要求"服务端部署上线，客户端安装，我在 win 下试试"，并授权在该服务器使用 sudo 安装 Docker/Compose 用于调试、部署与实际测试；M14 已完成安装并合并，M13 精确 `240b9a8b2ee23fba281cc2a987ec6246fd00109c` 经独审 clean/hold 明确可进入已授权独立合成实测。
+用户明确要求"服务端部署上线，客户端安装，我在 win 下试试"，并授权在该服务器使用 sudo 安装 Docker/Compose 用于调试、部署与实际测试。M14 已完成安装并合并；M13 在 `240b9a8` clean/hold、`92f9de6` 工具更新 revision clean/hold（hold 只保留 M9 真实依赖与生产门禁）。
 
-| 本轮允许并实际执行 | 本轮禁止并未执行 |
+| 允许并实际执行 | 禁止并未执行 |
 |---|---|
-| 只读现场复核（身份、资源、Docker、冲突、注册表可达性） | 修改、升级或重装 Docker/系统；`systemctl enable`；改组、改 sshd/防火墙/安全区/swap |
-| 从精确 tip 取 M13 文件、复用已核证 M9 构建 context 组装交付 | 重新 build 镜像、改候选源码、改 `deploy/remote/*` |
-| 本地导出镜像 tar、远传输与两端摘要核验 | 把 image ID 当 tar 摘要；上传仍在校验中的文件 |
-| 远端解包、`verify-source`、`load-image`、`init-env` | 跳过门禁、忽略必填/权限、清库或重置后重试 |
-| — | 创建站点/容器/卷、启动栈、导入真实资料、删改任何既有资源 |
+| 只读现场复核、精确源码/镜像交付与两端摘要核验 | 重建镜像、改候选源码、改 `deploy/remote/*` 已审内容 |
+| 按已审脚本以 `dev` 更新整组工具、保留旧工具与 `.runtime`/`.env`/`apps` | 重新 `init-env`、重新 `load-image`、覆盖或重建凭据 |
+| 精确旧 index 锁 → config 锁的原子迁移（保留旧锁） | 重新生成镜像、切换 image store、加 `docker` 组、`systemctl enable` |
+| 建合成站点、启动 9 服务栈、扩展前备份、装两个扩展、双迁移、G1 观测 | 导入真实客户资料、清库/重置、`down -v`/`prune`/`uninstall-app`、删任何既有资源 |
+| 只读 HTTP ping 与路由观测 | Windows GUI 操作、公网暴露、改防火墙/安全区/sshd/swap |
 
-## 2. 连接、主机身份与凭据边界
+## 2. 连接与主机身份
 
-全程使用 Git Bash 的 `/usr/bin/ssh`，固定参数：`-o UserKnownHostsFile=…/m10-known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes`。私钥只作为 `-i` 参数传入，**未读取、未打印、未复制、未提交正文**；本轮未在本文件或任何消息里出现私钥、密码或 `.env` 内容。
-
-本轮重新计算专用 known_hosts 指纹：
+全程 Git Bash `/usr/bin/ssh`，固定 `-o UserKnownHostsFile=…/m10-known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes`；私钥只作 `-i` 参数，未读取/打印/复制正文；本文件不含任何密码、私钥或 `.env` 值。
 
 ```
 $ ssh-keygen -lf …/m10-known_hosts
 256 SHA256:JHFV75F2oc1tYqjd4viv130aknkd7fOwtKEpmGtgy80 8.133.190.46 (ED25519)
 ```
 
-与 M10/M14 记录逐字符一致，且在 `StrictHostKeyChecking=yes` 下连接成功，说明出示的 key 就是记录中的 key。**这仍是 TOFU 记录，未做带外认证**；若日后变化必须停止。每次连接仍打印 "connection is not using a post-quantum key exchange algorithm" 警告，说明服务器 sshd 较旧，本轮未修改。
+与 M10/M14 记录逐字符一致，且严格主机校验下连接成功。**仍是 TOFU 记录，未做带外认证**。每次连接仍打印无 PQ KEX 警告（服务器 sshd 较旧），未修改。
 
-## 3. 第 1 关：现场只读复核（通过）
+主机：`iZuf6htx2n3srizz88227cZ`，`Linux 5.10.134-19.8.al8.x86_64`，`alinux 3`，2 vCPU，MemTotal 1870 MiB，无 swap，`/dev/vda3` 40G；`dev` 在 `wheel`、**不在 docker 组**；Docker 26.1.3（`active` / `disabled`），Compose v2.27.0。
 
-先只读核对主机、资源、Docker 与目标冲突，未创建任何资源（除 §5 的交付目录）。
+## 3. 第一轮（`240b9a8`）：交付、预检、加载与门禁失败
 
-| 项 | 实测值 |
-|---|---|
-| 主机名 / 内核 / 架构 | `iZuf6htx2n3srizz88227cZ` / `5.10.134-19.8.al8.x86_64` / `x86_64` |
-| OS | `ID=alinux` `VERSION_ID=3`（Alibaba Cloud Linux 3） |
-| 用户 | `uid=1000(dev) gid=1000(dev) groups=1000(dev),10(wheel)`；**不在 docker 组** |
-| CPU | 2 |
-| 内存 / swap | MemTotal 1870 MiB，可用 1532 MiB；SwapTotal 0 kB（无 swap，本轮未添加） |
-| 磁盘 | `/dev/vda3` 40G 已用 5.1G 可用 33G；home 与 `/var/lib/docker` 同一文件系统 |
-| sudo | `sudo -n true` 成功（免交互） |
-| Docker 服务 | `active` / `enabled`？→ **`disabled`**（M14 只 start，未 enable，本轮未改） |
-| Docker 版本 | server 26.1.3 `linux/amd64`；Compose v2.27.0 |
-| 既有容器 / 卷 | **0 / 0** |
-| 网络 | 仅 `bridge`/`host`/`none`；无 `crm_trial_c010400_network` |
-| 监听端口 | 仅 `0.0.0.0:22` 与 `[::]:22`；**8088 未监听** |
-| 目标目录 | `~/crm-trial` 不存在；`~/c010500-docker-install`（M14 审计暂存）存在 |
-| 注册表只读探测 | `public.ecr.aws/v2/` → 401；`ghcr.io/v2/` → 401；`registry-1.docker.io` → 连接超时 |
+### 3.1 现场只读复核（通过）
 
-401 只证明端点与 TLS 可达（正常的 auth challenge），**不证明真实 digest pull 会成功**；Compose 的 db/redis 固定使用 `public.ecr.aws` digest，本轮未发生 pull。
+0 容器、0 卷，网络仅 `bridge/host/none`，`~/crm-trial` 不存在，8088 未监听，`/etc/docker` 无 `daemon.json`；`sudo -n true` 成功。注册表探测：`public.ecr.aws` 401、`ghcr.io` 401（可达），`registry-1.docker.io` 超时（401 只证明端点响应，随后真实 pull 另行验证，见 §7.1）。
 
-## 4. 第 2 关：交付准备与独立核证（通过）
+### 3.2 交付准备与独立核证（通过）
 
-### 4.1 源码 context
+复用 wt-9 已核证 context，M13 文件由 `git archive 240b9a8` 取得。**独立核证**（不只依赖随包 manifest）：逐条用 `git show <commit>:<path>` 取精确 blob，与交付文件和 `SOURCE_SHA256SUMS` 三方比对，**53/53 相等**（`faa5f03…` resource_import、`0e5fed7…` team_access、`a1ce4ca…` deploy；`deploy/Dockerfile*` 经 CRLF→LF 规范化后等值）。`source-manifest.json` LF 摘要 `e4877bea…4df5b374`。
 
-复用 wt-9 已核证的 `deploy/.runtime/integration-7d31d600dbcf49bbaf52b5c97dee6a42`（**未重新 build、未改任何 worker 源码、未读取未提交文件**）。M13 的 `deploy/remote/*` 与 `docs/REMOTE_TRIAL.md` 由 `git -C wt-13 archive 240b9a8b2ee23fba281cc2a987ec6246fd00109c` 取得，按 M13 §3.1 放入 context。
-
-交付 tar 只含 `apps deploy docs source-manifest.json`，实际检查 `deploy/remote/.runtime` 不存在，也没有 `candidate-image.env` / `build-result.json` / 任何 `.env`、日志、站点、数据库或 session 文件进入交付。
-
-### 4.2 独立核证（不只依赖 manifest 自证）
-
-逐条用 `git -C <wt-9> show <commit>:<path>` 取**精确 Git blob**，与交付文件内容和 `deploy/remote/SOURCE_SHA256SUMS` 三方比对：
-
-| 路径前缀 | 固定 commit | 条目 | 结果 |
-|---|---|---|---|
-| `apps/resource_import/` | `faa5f0330ad54bd9f4d02bb498ea305651c95ed9` | — | 一致 |
-| `apps/team_access/` | `0e5fed78841f8acad31278a3e06cb08b0e6e93d0` | — | 一致 |
-| `deploy/Dockerfile*` | `a1ce4ca143a20cecf13db7e490b79d0349c4d59c` | — | 一致（打包步骤按 M13 §3.1 做 CRLF→LF 规范化后才等值） |
-| 合计 | | **53** | **53/53 相等，0 不符** |
-
-三个 commit 的 `rev-parse <commit>^{commit}` 均等于固定值。
-
-`source-manifest.json` 规范化 LF 后：
+本地导出与传输摘要：
 
 ```
-e4877bea2686eff52e8708751492e4a5ae5fc1cf8bd8c3de3e6951684df5b374  source-manifest.json
-```
-
-与固定摘要一致（打包前 59 处 CRLF 被规范化，记录在案，不是内容改动）。
-
-### 4.3 镜像导出与交付摘要
-
-镜像导出在第一 Ubuntu（Ubuntu-24.04）本地 Docker 完成。**注意状态区别**：该发行版 `systemctl is-active docker` 仍为 `activating`，但 daemon 真实应答（`docker image inspect` / `docker save` 均成功）；本轮只读诊断，**未重启、未重装**，未触碰第二发行版。
-
-```
-$ sudo docker image inspect sha256:cae67cc3…3ba0705 --format …
-id=sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705
-size=1539417571 os=linux/amd64 created=2026-10-31T20:21:45.582152094+08:00
-labels: crm.resource-import.revision=faa5f033… / crm.team-access.revision=0e5fed78… / org.opencontainers.image.revision=36bd8859…
-```
-
-`docker save` 真实退出 0、tar 完整生成（1,539,445,760 字节）**之后**才计算摘要：
-
-```
-$ sha256sum crm-trial-c010400-source-and-tools.tar crm-c010400-image.tar
 33caf5473b79b46b7c1b1fb25deef801cbabf56779d04c2853f7e9a234e159a4  crm-trial-c010400-source-and-tools.tar
 a5588c193efce06e6e53591a3ce38046908c06c30c6cf097ba320387c545b7db  crm-c010400-image.tar
 ```
 
-`DELIVERY_SHA256SUMS` 只含相对 basename；把整个 staging 复制到另一目录后 `sha256sum -c` 两件均 OK（摘要未重建、未改写）。镜像 tar 的传输摘要与镜像 ID 是两件不同的事，本文件不混用。
+`docker save` 真实退出 0、tar 完整生成（1,539,445,760 字节）后才计算摘要；`scp` 退出 0（2m14s），远端 `sha256sum -c` 两件 OK（传输前后摘要一致）。镜像 ID 从未当作 tar 摘要。
 
-## 5. 第 3 关：传输与完整性（通过）
+### 3.3 预检（PREFLIGHT READY）
 
-远端先以独占 `mkdir` 新建交付目录（不覆盖任何既有目录），再 `scp` 三个文件：
+从同一已核验 tar 只提取 `preflight.sh` + `docker.sh` 到 `/tmp/crm-trial-preflight.8ZF2Wh`，`CRM_TRIAL_DOCKER_SUDO=1` 下 exit 0：x86_64、alinux 3、MemTotal 1915884KiB / available 1575060KiB、swap 0、home 与 `/var/lib/docker` 各余约 30GiB、四卷/网络/create-site 容器均不存在、无本项目容器、8088 空闲；预检前后目标目录均不存在。
 
-```
-$ scp … DELIVERY_SHA256SUMS crm-trial-c010400-source-and-tools.tar crm-c010400-image.tar dev@…:/home/dev/c010600-delivery/
-real 2m13.859s   SCP_EXIT=0
-```
+### 3.4 解包、源码校验、加载与新凭据
 
-远端重新计算并核对：
+`mkdir ~/crm-trial` → 解包 → `verify-source` PASS（53/53）→ `load-image` 退出 0（2m5s）→ `init-env` 只执行一次（`.runtime` 700，`.env`/`image.env` 600，值未打印）。
 
-```
-$ cd /home/dev/c010600-delivery && sha256sum -c DELIVERY_SHA256SUMS
-crm-trial-c010400-source-and-tools.tar: OK
-crm-c010400-image.tar: OK
-SUM_RC=0
-```
-
-即**传输前后摘要相同**，两个 tar 与本地生成物一致。
-
-## 6. 第 4 关：只读预检（PREFLIGHT READY）
-
-按指南从**同一个已核验 tar** 只提取两文件到独立非目标目录，不整包解压到目标目录：
-
-```
-PREFLIGHT_DIR=/tmp/crm-trial-preflight.8ZF2Wh
--rw-r--r-- docker.sh   -rwxr-xr-x preflight.sh
-TRIAL_DIR_ABSENT_BEFORE_PREFLIGHT
-$ CRM_TRIAL_DOCKER_SUDO=1 sh "$PREFLIGHT_DIR/deploy/remote/preflight.sh"
-```
-
-关键输出（原样摘录）：
-
-```
-PASS: x86_64 architecture
-PASS: Alibaba Cloud Linux 3
-INFO: MemTotal=1915884KiB MemAvailable=1575060KiB SwapTotal=0KiB
-PASS: at least 1.5GiB RAM detected
-WARN: no swap; this package will not add swap and cannot guarantee stability on a 1.8GiB host
-INFO: free space on home filesystem=32166304KiB
-PASS: at least 8GiB free on the home filesystem
-PASS: command openssl / sha256sum / tar / ss / awk / df
-INFO: host Python=3.6.8; application Python remains inside the pinned image
-WARN: host Python is below 3.9 and is not suitable for M9 manage.py; remote shell tools do not require it
-PASS: trial path is absent
-PASS: Docker CLI exists
-Docker Compose version v2.27.0
-PASS: Compose v2 exists in the selected access mode
-PASS: default local Docker context
-PASS: selected mode can access the local Docker daemon
-INFO: DockerRootDir=/var/lib/docker free=32166300KiB
-PASS: volume absent: crm_trial_c010400_db / _redis / _sites / _logs
-PASS: trial network absent
-PASS: create-site container absent
-PASS: no containers in the trial Compose project
-PASS: TCP port 8088 is free
-PREFLIGHT READY: proceed only after authorization; 1.8GiB/no-swap stability and all runtime acceptance remain unverified
-PREFLIGHT_RC=0
-TRIAL_DIR_STILL_ABSENT
-```
-
-`sudo -n` 模式生效，失败即停、无普通用户回退；预检前后目标目录均不存在。
-
-## 7. 第 5 关：解包与 `verify-source`（通过）
-
-```
-$ mkdir "$HOME/crm-trial" && tar -xf /home/dev/c010600-delivery/crm-trial-c010400-source-and-tools.tar -C "$HOME/crm-trial"
-$ cd "$HOME/crm-trial" && CRM_TRIAL_DOCKER_SUDO=1 sh deploy/remote/trial.sh verify-source
-PASS: 53 exact app/build source files match M9 candidate sources
-VERIFY_RC=0
-
-755 deploy/remote/preflight.sh   755 deploy/remote/trial.sh
-644 deploy/remote/release.env     644 source-manifest.json
-e4877bea2686eff52e8708751492e4a5ae5fc1cf8bd8c3de3e6951684df5b374  source-manifest.json
-```
-
-远端 manifest 摘要与固定值相同；脚本以显式 `sh` 调用，余下文件不需要执行位。
-
-## 8. 第 6 关：`load-image` 与 `init-env`（命令返回 0，但 ID 不符）
-
-```
-$ time sh deploy/remote/trial.sh load-image /home/dev/c010600-delivery/crm-c010400-image.tar
-Loaded image ID: sha256:129b03571ac973784c7a3dab851ec31496db6b689bbbd8935337b068dea81c07
-PASS: docker load returned zero; run init-env/stat/check to verify image identity and labels
-real 2m5.075s   LOAD_RC=0
-```
-
-`init-env` 只执行一次，生成新的独立合成凭据，**值未打印**：
-
-```
-PASS: independent trial credentials and image lock created with private permissions; values not printed
-INIT_RC=0
-700 deploy/remote/.runtime
-600 deploy/remote/.runtime/.env
-600 deploy/remote/.runtime/image.env
-CRM_IMAGE=sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705
-```
-
-## 9. 第 7 关：`check` 门禁**失败**并停止（本轮阻断点）
+### 3.5 门禁失败：镜像 ID 命名空间不匹配
 
 ```
 $ sh deploy/remote/trial.sh check
 Error response from daemon: No such image: sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705
-ERROR: exact candidate image is not loaded
-CHECK_RC=1
+ERROR: exact candidate image is not loaded      (exit 1)
 ```
 
-`compose --profile setup config -q` 在失败前已通过；失败发生在镜像 `.Id` 比较。
-
-### 9.1 现象与实测事实
-
-| 观测 | 值 |
-|---|---|
-| 远端加载后的镜像 | `129b03571ac9 <none>:<none> 4.19GB`（无 tag、无 repo digest） |
-| 远端 `.Id` | `sha256:129b03571ac973784c7a3dab851ec31496db6b689bbbd8935337b068dea81c07` |
-| 远端 `.Size` / 平台 | 4,187,705,330 / `linux/amd64` |
-| 远端 config labels | 三个 revision 与固定值**逐字符一致**（`faa5f033…`、`0e5fed78…`、`36bd8859…`） |
-| 固定的 `CRM_IMAGE` | `sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705` |
-
-### 9.2 根因：固定"镜像 ID"是 buildx manifest list 摘要
-
-M9 自身构建日志（`wt-9/deploy/.runtime/candidate-build-7d31d600-r3.log`）已经写明：
+加载结果是 `sha256:129b03571ac973784c7a3dab851ec31496db6b689bbbd8935337b068dea81c07`。根因由 M9 构建日志直接证明：
 
 ```
 #13 exporting config sha256:129b03571ac973784c7a3dab851ec31496db6b689bbbd8935337b068dea81c07
 #13 exporting manifest sha256:6014c9df39452ce0cf0e6834822d7d1de89b814ef11f1d6e78bb1ea5c1f50a60
+#13 exporting attestation manifest sha256:b2527381d33e7178e1feb74a100c0ee57c5eeedca23839b6d9d273a9a7be7cb1
 #13 exporting manifest list sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705
 ```
 
-- 第一 Ubuntu 的 Docker 使用 **containerd image store**（`Storage Driver: overlayfs`，`driver-type: io.containerd.snapshotter.v1`），此时 `.Id` 报的是 **manifest list（含 attestation manifest）摘要** → 记录成 `cae67cc3…`。
-- 目标主机是 Docker 26.1.3 **经典 overlay2 store**（M14 记录），`docker load` 只能按 **config 摘要**命名镜像 → `.Id = 129b0357…`。经典 store 的镜像 ID 定义就是 config 摘要，**cae67 在该 daemon 上不可能成为镜像 ID**。
+`cae67cc3…` 是 buildx 的 manifest list / OCI index 摘要；M9 构建机是 containerd image store（`.Id` 报 index），目标是经典 overlay2（`.Id` = config 摘要），所以该门禁在经典 store 上不可能通过。交付物内容等价已独立核验：tar 是合法 OCI layout、**26 个 blob 逐个自校验一致**、`manifest.json.Config=129b0357…`、`index.json` digest=`cae67cc3…`、24 层 diff_ids 与三 revision label 和远端加载镜像逐项相同；尺寸差异属口径（压缩 1,539,417,571 vs 未压缩 4,187,705,330），不能当身份判据。停止后 0 容器、0 卷、无站点，现场保留。
 
-因此 `release.env` 的 `CRM_IMAGE` 与 `trial.sh check` 的 `.Id` 比较跨了两个 digest 命名空间：这不是传输损坏、不是权限问题、不是资源不足，**同一条门禁在任何经典 store 主机上都会失败**。M13 只做过 mock（daemon 打桩），没有在经典 store 上跑过 `load → check`。
+## 4. M13 修复与第二轮恢复（`92f9de6`）
 
-### 9.3 交付物本身已核验等价（不是"忽略校验"）
+### 4.1 恢复前核对（与停点一致）
 
-- 本地 tar 是合法 OCI layout：26 个 blob 逐个自校验 sha256 全部一致；`manifest.json` 的 `Config` = `blobs/sha256/129b0357…`；`index.json` 的 digest = `cae67cc3…`（固定值确实存在于交付物中，作为 index 摘要）。
-- config blob 的 `labels`、`rootfs.diff_ids`（24 层）、`os/arch`、`created` 与本地镜像一致；远端加载后 labels/平台一致。
-- 尺寸差异属口径不同：containerd 报压缩内容 1,539,417,571 字节，经典 store 报未压缩层合计 4,187,705,330 字节。**size 同样不能作为跨 store 的身份判据。**
+指纹不变；主机/Docker 状态不变；0 容器 0 卷、仅默认网络；镜像仍 `129b03571ac9`；`~/crm-trial` 53 文件、manifest `e4877bea…`；旧工具（trial.sh 10454B、release.env 572B、compose.yml 5670B 等）；`.runtime` 700，`.env` 600/188B、`image.env` 600/82B=`cae67`；无任何 stage marker；`~/c010600-delivery` 两件 `sha256 -c` OK；仅 22 端口；27G 余。无意外变化。
 
-即：交付的镜像**内容**与 M9 候选一致，差异只在 `.Id` 的命名约定（index vs config digest）与尺寸口径。
+### 4.2 工具更新包（独立制作与复核）
 
-### 9.4 停止动作
+`git -C wt-13 archive 92f9de637007a4c9a25853375958f53bdb4e51a0` 取 13 文件白名单（`git status --porcelain` 为空，无未提交文件）：
 
-按"失败即停、保留现场、不给错误路径绕过"：未执行 `create-site`、`up`、`backup`、`install-extensions`、`migrate`、`enable-import`；未创建任何容器、卷、站点或网络；未修改 `release.env`、`trial.sh` 或任何已审代码；未删除任何既有资源。
+```
+f44c131d5d0c1f93b9cb3884f5954e3f6aefa7fbb3e9abdbac994cb0652ef461  crm-c010400-tools-update.tar
+```
 
-## 10. 现场保留资源（本轮创建，未清理）
+与 M13 作者和独审**各自复算**的值逐字符一致。远端新目录 `~/c010600-tools-update`，`sha256sum -c` OK，解包到 `/tmp/c010400-update-staging.is7bB0`。
 
-| 路径 / 资源 | 状态 |
+`apply-tools-update.sh`（以 `dev` 运行，不带整脚本 sudo，不调用 Docker）：
+
+```
+PASS: exact tool group updated; old tools retained at /home/dev/crm-trial/deploy/remote.pre-c010400-update; runtime, apps and Docker resources untouched
+```
+
+它先独立核验 tar SHA、13 项白名单、成员类型/路径，再要求既有工具与 `240b9a8` 的 10 项旧摘要全一致，把旧工具复制到 `deploy/remote.pre-c010400-update`，逐文件更新并整组比对。**runtime 与 apps 未变**（只记录一致性、不打印秘密或摘要）：`.env` 600 dev:dev 188B、inode 130932、mtime 1793461009 前后相同；`apps` 51 文件与两个哨兵 `hooks.py` 摘要前后相同。
+
+### 4.3 锁迁移与真实 `check`（通过）
+
+```
+$ sh deploy/remote/trial.sh migrate-image-lock-to-config --confirm-classic-image-lock-migration
+PASS: exact index lock migrated to config atomically; previous lock and .env retained unchanged
+
+600 dev:dev 188 deploy/remote/.runtime/.env
+600 dev:dev  82 deploy/remote/.runtime/image.env                          -> CRM_IMAGE=sha256:129b0357…
+600 dev:dev  82 deploy/remote/.runtime/image.env.pre-c010400-config       -> CRM_IMAGE=sha256:cae67cc3…
+
+$ sh deploy/remote/trial.sh check
+PASS: Compose and classic-config image lock, linux/amd64, three labels and all RootFS diff_ids; runtime health not yet proven
+```
+
+迁移只接受精确旧 index 锁，先验证 config 的 ID/平台/labels/完整 24 层 RootFS，再要求旧锁为 0600 非符号链接，原子替换并保留旧锁；`.env`、apps、站点、容器、卷均未被触碰。`check` 通过的是**身份与渲染**，不是应用健康。
+
+## 5. 建站与启动
+
+```
+$ sh deploy/remote/trial.sh create-site --confirm-synthetic-only      -> PASS (1m38s)
+$ sh deploy/remote/trial.sh up                                        -> PASS (9.4s, exit 0)
+```
+
+- `create-site` 只用 `bench new-site --install-app crm` 安装 CRM，并把合成声明、`resource_import_disabled=1`、`server_script_enabled=0`、`mute_emails=1` 写入新站配置；未自动安装扩展。
+- `up` 使用 `compose up -d --wait`，9 个长驻服务全部 Running/Healthy，DB healthy；frontend 仅 `127.0.0.1:8088->8080`。
+- 首次真实拉取 `public.ecr.aws` 固定 digest 的 mariadb 与 redis 成功（未用浮动 tag）。**Docker Hub 不可达不影响该栈**，因为 db/redis 固定走 `public.ecr.aws`；这是本轮栈的实际依赖路径，不代表其他镜像也可靠。
+
+## 6. 扩展前备份、扩展安装、双迁移与版本
+
+顺序由 `bench.log` 时间戳独立佐证，不只是脚本返回码：
+
+```
+16:27:37  bench --site crm.localhost backup --with-files
+16:27:44  bench --site crm.localhost install-app resource_import
+16:27:53  bench --site crm.localhost install-app team_access
+16:28:02  bench --site crm.localhost migrate
+16:28:10  bench --site crm.localhost migrate
+16:28:17  bench --site crm.localhost clear-cache
+```
+
+- **扩展前备份**（`backup`，exit 0）：四件齐 —— site config 208B、database 282KiB、public files 10KiB、private files 10KiB，stem `20261031_215738-crm_localhost`；只做读取完整性检查，**未做恢复演练**，因此不称恢复通过。
+- **install-extensions**（`--confirm-synthetic-only`，exit 0）：`resource_import` 后 `team_access`，两者均返回零。
+- **migrate**（exit 0）：两次完整 `bench migrate` 加一次 `clear-cache`。
+- **versions**：
+
+```
+crm 1.90.0
+frappe 15.125.0
+resource_import 0.1.0
+team_access 0.1.0
+frappe.get_installed_apps -> ["frappe", "crm", "resource_import", "team_access"]
+```
+
+## 7. G1 实测结果
+
+### 7.1 HTTP 与路由
+
+```
+GET /api/method/ping   Host: crm.localhost      -> {"message": "pong"}  HTTP 200  (0.34s)
+GET /api/method/ping   无 Host 覆盖              -> pong               HTTP 200
+GET /api/method/ping   Host: 127.0.0.1:8088     -> pong               HTTP 200
+GET /api/method/ping   Host: 127.0.0.1:18088    -> pong               HTTP 200
+GET /login             无 Host 覆盖              -> HTTP 200 text/html, title "Login"
+GET /login             Host: crm.localhost      -> HTTP 200 text/html
+```
+
+路由事实（非秘密字段）：nginx `frappe.conf` **只有一个** server 块，`server_name crm.localhost;`，因此对未匹配 Host 的请求充当默认 server；`sites/apps.txt` = `crm / frappe / resource_import / team_access`；`sites/` 下只有 `crm.localhost`。`common_site_config.json`：`db_host=db`、`db_port=3306`、`redis_cache=redis://redis-cache:6379`、`redis_queue=redis://redis-queue:6379`、`redis_socketio=redis://redis-queue:6379`、`socketio_port=9000`。`site_config.json` 非秘密项：`db_name=_c8b3e5206096f0bd`、`db_type=mariadb`、`mute_emails=1`、`resource_import_disabled=1`、`server_script_enabled=0`、`team_access_synthetic_only=1`（隐藏字段只有 `db_password`，未打印）。
+
+限定表述：**单站点 + 单 nginx server 块**下 127.0.0.1 访问可解析到该站点；多站点时行为会变，不承诺永久如此。
+
+### 7.2 服务、端口与容器计数
+
+`docker ps -a` 共 **11 个容器对象 = 9 个运行中长驻服务 + 2 个一次性容器（Exited 0）**：
+
+| 服务 | 状态 |
 |---|---|
-| `/home/dev/c010600-delivery/` | 两 tar + `DELIVERY_SHA256SUMS`；1.5G；`sha256sum -c` OK |
-| `/home/dev/crm-trial/` | 解包源码树（596K），53 文件 `verify-source` PASS |
-| `/home/dev/crm-trial/deploy/remote/.runtime/` | 目录 700；`.env`、`image.env` 均 600（新生成合成凭据，未打印）。`image.env` 现值锁定 `CRM_IMAGE=sha256:cae67cc3…`，不得重新 `init-env` 或覆盖 |
-| `/tmp/crm-trial-preflight.8ZF2Wh/` | 预检脚本临时副本（仅两文件） |
-| Docker 镜像 | 1 个未打 tag 镜像 `129b03571ac9`（4.19GB） |
-| Docker 容器 / 卷 / 网络 / 站点 | **0 / 0 / 仅默认三项 / 无** |
-| 磁盘 / 内存 | `/` 11G 已用、27G 可用；Mem used 413 MiB、available 1457 MiB |
-| 监听端口 | 仅 22；**8088 未监听** |
+| backend | Up |
+| db | Up (healthy) |
+| frontend | Up（仅 `127.0.0.1:8088->8080`） |
+| queue-short | Up |
+| queue-long | Up |
+| scheduler | Up |
+| websocket | Up |
+| redis-cache | Up（纯缓存，无具名持久卷） |
+| redis-queue | Up（`--appendonly yes`，挂 `crm_trial_c010400_redis`） |
+| configurator | Exited (0)（一次性初始化） |
+| create-site | Exited (0)（一次性建站） |
 
-## 11. 明确未执行（不得视为通过）
+两个 Redis 是**独立服务、独立容器**，不是同一实例的两种视图。监听端口只有 `0.0.0.0:22` 与 `127.0.0.1:8088`（外加 `[::]:22`），**未暴露公网 8088**。
 
-- **G1**：无四 app 集合、无 `bench version`、无两次 migrate 日志、无 9 服务运行、无 `docker compose ps`、无 HTTP `ping`、无 OOM/重启/内存观察。
-- **G2**：无标准网页登录、无 System Settings 基线、无资产/MIME 核验。
-- **G3**：无合成双用户、无权限矩阵；M8 完整矩阵与生产门禁**未因本轮推进**。
-- **G4**：Windows SSH 隧道未建立（服务端未启动，隧道没有可转发目标）。
-- **G5**：Edge PWA 安装未执行（同上）。
-- **G6**：保留式 `stop`/`backup` 未执行（无运行栈）；恢复演练未执行。
-- **未验证容量**：1.8 GiB / 无 swap 下运行 9 服务栈仍属未知；本轮只完成镜像加载与预检。
+### 7.3 重启、OOM 与资源
 
-## 12. 阻断与决定
+全部 11 个容器的 `RestartCount=0`、`State.OOMKilled=false`。一次 `docker stats` 快照（`--no-stream`）：
 
-阻断点唯一：`trial.sh check` 的镜像身份比较跨 store 命名空间（§9）。现场完整保留，可继续或回退，不影响任何既有资源。
+```
+backend 185.7MiB / db 139.4MiB / scheduler 60.7MiB / queue-long 45.3MiB
+queue-short 36.2MiB / websocket 22.7MiB / redis-cache 3.3MiB / redis-queue 2.4MiB
+frontend 3.1MiB        （合计约 499MiB）
+host: used 862MiB, available 1008MiB, buff/cache 365MiB, swap 0
+```
 
-**tower 已决定（2026-10-31）：采用方案 A —— 修正 M13 的镜像身份契约、独审后再部署；不要求为这种可逆的兼容性修复另行取得人类批准。同时明确禁止方案 C（绕过 `check`）、禁止重建镜像、禁止切换 image store。**
+## 8. 短期资源观察
 
-| 选项 | 内容 | 状态 |
-|---|---|---|
-| **A（已选）** | 修 M13 包：门禁改为校验**交付 tar 的 sha256 + config digest `129b0357…` + 三个 revision label + `linux/amd64`**；`cae67cc3…` 只作为 index/manifest-list 出处摘要 | 完整证据链已交 `remote-deployment-package`；等其修包并独审后恢复本条线继续 |
-| B | 在经典 store 上重建或 `skopeo copy --format docker-archive` 重导 | 禁止：等于换候选镜像 |
-| C | 一次性程序性例外，越过该检查 | 禁止：不得绕过已审门禁 |
-| D | 远端切换 containerd image store | 禁止：未授权的系统变更 |
+第一次取样循环（10 点、每点含逐容器 `docker stats --no-stream`）在本机 1.8 GiB 负载下每点过慢、超出预期时长，被**主动中止**（只终止本地采样会话，未改远端任何状态，采样期间站点持续可 ping）。随后改用合并 `docker inspect` 的轻量采样重跑，结果如下。
 
-**已存在 runtime 锁的迁移要求**：`~/crm-trial/deploy/remote/.runtime/image.env` 已在首次 `init-env` 中写为 `CRM_IMAGE=sha256:cae67cc3…`。修正后的包若改变镜像锁语义，必须先给出"已存在 runtime 锁如何被审查后迁移"的明确步骤（例如受控地只重写 `image.env`），再执行；**禁止重新 `init-env`、禁止覆盖或重建已生成的合成凭据**。
+### 8.1 采样（8 点，每 20 秒一次，约 2.5 分钟）
 
-本地交付物仅影响 M15 未提交的 runtime staging，不改变 M13 已审文件；M13 的修正由该分支 owner 完成并重新走独审。
+| # | 时间 | host used | host available | 运行容器 | 累计 restart | OOM | ping |
+|---|---|---|---|---|---|---|---|
+| 1 | 00:37:12 | 853 MiB | 1017 MiB | 9 | 0 | 0 | 200 |
+| 2 | 00:37:33 | 855 MiB | 1015 MiB | 9 | 0 | 0 | 200 |
+| 3 | 00:37:53 | 854 MiB | 1016 MiB | 9 | 0 | 0 | 200 |
+| 4 | 00:38:13 | 855 MiB | 1015 MiB | 9 | 0 | 0 | 200 |
+| 5 | 00:38:34 | 854 MiB | 1016 MiB | 9 | 0 | 0 | 200 |
+| 6 | 00:38:54 | 856 MiB | 1014 MiB | 9 | 0 | 0 | 200 |
+| 7 | 00:39:14 | 855 MiB | 1015 MiB | 9 | 0 | 0 | 200 |
+| 8 | 00:39:34 | 854 MiB | 1016 MiB | 9 | 0 | 0 | 200 |
 
-## 13. 凭据与后续 Windows 接入的信息边界
+`dmesg` 全量扫描 `out of memory|killed process` 命中 **0** 行。采样期间无自动扩容、无加 swap、未停任何其他服务、未降低权限。
 
-- **凭据只在远端 runtime**：`~/crm-trial/deploy/remote/.runtime/.env`（600，含 DB 与 Administrator 合成口令）、`image.env`（600）。本轮**未打印、未回传、未复制到本地或 Git**。安全获取方式：以 `dev` 身份登录后本地读取该文件，不要经命令参数、日志或聊天传递；`init-env` 拒绝覆盖，若确需重来必须先由人类决定如何处理已存在的 runtime。
-- **Windows 接入尚不可用**：服务端没有运行中的站点，`127.0.0.1:8088` 未监听，因此现在建立隧道没有意义。待 §12 决定后继续时，接入前提固定为：只回环 `127.0.0.1:8088`、SSH 隧道到 Windows `127.0.0.1:18088`、专用 known_hosts + `StrictHostKeyChecking=yes`、`IdentitiesOnly=yes`、`BatchMode=yes`，且不放开公网端口。本文件**不**声称 Windows 已安装或可访问。
+### 8.2 观察结论与限制
 
-## 14. 只读复核清单（可安全重放）
+- 2.5 分钟窗口内 host 内存稳定在 853–856 MiB used / 1014–1017 MiB available，运行容器恒为 9，累计 restart 恒 0，OOM 恒 0，ping 恒 200；完整 `docker stats` 快照（§7.3）显示容器合计约 499 MiB。
+- 这只是**短窗口的当前可用性证据**，不是长期稳定性或容量保证：1.8 GiB / 无 swap 余量仍薄，`bench migrate`、备份、索引重建、真实业务负载等峰值未在本窗口重复压测；观察时长和采样密度都远不足以称为"稳定运行"。
+
+## 9. 保留的资源清单
+
+| 资源 | 状态 |
+|---|---|
+| `~/crm-trial` | 源码树 + 工具（新 13 件）+ 旧工具备份 `deploy/remote.pre-c010400-update` + `.runtime` |
+| `.runtime/` | 700；`.env` 600（凭据，未打印）、`image.env` 600（config 锁）、`image.env.pre-c010400-config` 600（旧 index 锁）、marker `site-created` / `extensions-installed` / `migrated-twice` 均 600 |
+| `~/c010600-delivery` | 两 tar + `DELIVERY_SHA256SUMS`（`sha256 -c` OK） |
+| `~/c010600-tools-update` | 更新 tar + 原始 `.sha256` |
+| `/tmp/crm-trial-preflight.8ZF2Wh`、`/tmp/c010400-update-staging.is7bB0` | 预检/更新临时目录（仅脚本副本） |
+| 镜像 | `129b0357…`（4.19GB，untagged）+ 拉取的 mariadb/redis 固定 digest |
+| 命名卷 | `crm_trial_c010400_{db,redis,sites,logs}`，均创建于 2026-11-01 00:26:01 |
+| 匿名卷 | `da155ae8…`，label `com.docker.volume.anonymous`，归属 `redis-cache-1`（redis 镜像声明 `VOLUME /data`，compose 未给该服务挂具名卷），保留未删 |
+| 备份文件 | 站点卷内 `private/backups/20261031_215738-crm_localhost` 四件 |
+| 磁盘 | `/` 已用 12G，可用 26G |
+
+## 10. 未执行项（不得视为通过）
+
+- **G2**：未做 System Settings 基线（Show Full Error / telemetry）、未做真实浏览器表单登录、未核验登录页资产 hash/MIME。
+- **import 仍禁用**：`resource_import_disabled=1` 实测有效；未执行 `enable-import`。
+- **G3**：未创建合成双用户、未做任何权限矩阵；M8 完整矩阵与生产门禁未推进。
+- **G4/G5**：Windows SSH 隧道未建立、Edge PWA 未安装（未操作 GUI）。
+- **G6**：未执行 `stop`，未做同版本恢复演练；备份只验证可读。
+- **容量**：只做了短窗口观测，见 §8.2。
+
+## 11. 凭据与后续接入
+
+- 凭据只在远端：`~/crm-trial/deploy/remote/.runtime/.env`（600，含 DB 与 Administrator 合成口令）。本轮未打印、未回传、未复制到本地或 Git。安全获取方式：以 `dev` 登录后本地读取；不要经命令行参数、日志或聊天传递；`init-env` 拒绝覆盖，禁止重建。
+- Windows 接入前提（尚未执行，未声称可用）：SSH 隧道到 `127.0.0.1:18088`，专用 known_hosts + `StrictHostKeyChecking=yes` + `IdentitiesOnly=yes`，仅回环、不开公网；按 §7.1，单站点下 127.0.0.1 访问可直接解析到该站点。
+
+## 12. 只读复核清单
 
 以下命令全部为查询，不创建、不启动、不改配置（`<KEY>` 只作 `-i` 参数）：
 
 ```sh
 ssh -i <KEY> -o UserKnownHostsFile=<m10-known_hosts> \
   -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes dev@8.133.190.46 'sh -s' <<'EOS'
-cd /home/dev/c010600-delivery && sha256sum -c DELIVERY_SHA256SUMS
-cd "$HOME/crm-trial" && sha256sum source-manifest.json
-stat -c '%a %n' deploy/remote/.runtime deploy/remote/.runtime/.env deploy/remote/.runtime/image.env
-sudo -n docker images --format '{{.ID}} {{.Repository}}:{{.Tag}} {{.Size}}'
-sudo -n docker ps -a --format '{{.Names}} {{.Status}}' | wc -l
-sudo -n docker volume ls -q | wc -l
-sudo -n docker network ls
+cd "$HOME/crm-trial" && sha256sum -c deploy/remote/SOURCE_SHA256SUMS
+sha256sum source-manifest.json
+stat -c '%a %U:%G %s %n' deploy/remote/.runtime deploy/remote/.runtime/.env \
+  deploy/remote/.runtime/image.env deploy/remote/.runtime/image.env.pre-c010400-config
+cat deploy/remote/.runtime/image.env
+sudo -n docker ps -a --format '{{.Names}}|{{.Label "com.docker.compose.service"}}|{{.Status}}'
+sudo -n docker volume ls
 sudo -n docker image inspect sha256:129b03571ac973784c7a3dab851ec31496db6b689bbbd8935337b068dea81c07 \
   --format '{{json .Config.Labels}}'
+curl -sS -H 'Host: crm.localhost' http://127.0.0.1:8088/api/method/ping
 ss -ltn
-df -h /; free -m
 EOS
 ```
 
-Python 侧不复算凭据内容；`.env` 只需 `stat` 权限位，**不要 cat**。
+`.env` 只做 `stat`，不要 cat。
 
-## 15. 证据摘要
+## 13. 证据摘要
 
-| 阶段 | 实际命令（摘要） | 结果 |
+| 阶段 | 命令（摘要） | 结果 |
 |---|---|---|
-| 主机身份 | `ssh-keygen -lf m10-known_hosts`；`SHELL` 下 `hostname`/`uname`/`id`/`nproc`/`free`/`df` | 指纹一致；alinux 3、2 vCPU、1870 MiB、33G；Docker 26.1.3 active/disabled；0 容器 0 卷；8088 空闲 |
-| 交付准备 | `git archive 240b9a8`（M13 文件）+ 复用 wt-9 context；`sha256sum source-manifest.json` | 53 文件与三个固定 commit 的 blob 逐一相等；manifest LF 摘要 `e4877bea…` |
-| 镜像导出 | `sudo docker save sha256:cae67…3ba0705 > crm-c010400-image.tar` | 退出 0，tar 1,539,445,760 字节，摘要 `a5588c19…` |
-| 交付清单 | `sha256sum … > DELIVERY_SHA256SUMS`；复制到另一目录 `sha256sum -c` | 两件 OK |
-| 传输 | `scp` 三文件；远端 `sha256sum -c` | 退出 0（2m13s）；两件 OK |
-| 预检 | 从同一 tar 提取 `preflight.sh`+`docker.sh` 到 `/tmp`；`CRM_TRIAL_DOCKER_SUDO=1 sh preflight.sh` | PREFLIGHT READY（exit 0），目标目录仍不存在 |
-| 解包/源码 | `mkdir ~/crm-trial`；`tar -xf`；`trial.sh verify-source` | 53 文件 PASS |
-| 加载镜像 | `trial.sh load-image …/crm-c010400-image.tar` | 退出 0（2m5s）；加载 ID `129b0357…` |
-| 新凭据 | `trial.sh init-env`；`stat` | 700/600/600；值未打印 |
-| 门禁 | `trial.sh check` | **失败 exit 1**：`No such image: sha256:cae67…` |
-| 停止后状态 | `docker ps -a` / `volume ls` / `ss -ltn` / `df` / `free` | 0 容器、0 卷、仅 22 端口、27G 可用 |
+| 身份 | `ssh-keygen -lf m10-known_hosts` | `SHA256:JHFV75F2…y80`，TOFU |
+| 交付核证 | `git show <commit>:<path>` ×53 + `SOURCE_SHA256SUMS` | 53/53 相等；manifest `e4877bea…` |
+| 导出/传输 | `docker save`；`scp`；两端 `sha256sum -c` | tar 1,539,445,760B `a5588c19…`；传输退出 0 |
+| 预检 | 提取 `preflight.sh`+`docker.sh` 到 `/tmp`；`CRM_TRIAL_DOCKER_SUDO=1 sh …` | PREFLIGHT READY |
+| 源码 | `trial.sh verify-source` | 53 文件 PASS |
+| 加载 | `trial.sh load-image …` | 退出 0，ID `129b0357…` |
+| 第一轮门禁 | `trial.sh check` | **失败**：`No such image: sha256:cae67…` |
+| 工具更新 | `git archive 92f9de6` 13 文件；`apply-tools-update.sh` | tar `f44c131d…ef461`；整组 PASS；runtime/apps 未变 |
+| 锁迁移 | `migrate-image-lock-to-config` | PASS，原子替换 + 旧锁保留 |
+| 第二轮门禁 | `trial.sh check` | PASS（Compose、锁、平台、三 label、24 层） |
+| 建站/启动 | `create-site`；`up` | 均 PASS |
+| 备份/扩展/迁移 | `backup`；`install-extensions`；`migrate`；`versions` | 均 exit 0；四 app 与固定版本一致 |
+| G1 | `curl ping`；`docker ps -a`；`docker inspect`；`docker stats` | pong 200；9 运行 + 2 Exited(0)；restart 0 / OOM false |
 
-**结论：本轮真实完成了主机复核、精确源码与镜像交付核证、传输完整性、只读预检、远端解包、53 文件源码校验、镜像加载与新凭据初始化；在 `check` 门禁因镜像 ID 命名空间不匹配而失败后停止并保留现场。服务端未上线、站点未创建、Windows 未接入、M8/M9 门禁未推进。后续按 §12 方案 A：M13 修正镜像身份契约并独审通过后，从 `check` 继续。**
+**结论：本轮完成了独立合成试用的真实部署——工具更新、锁迁移、身份门禁、建站、启动、扩展前备份、双扩展安装、两次迁移与 G1 观测均真实通过。未执行 Windows 客户端、真实登录、权限矩阵、PWA 与恢复演练，服务端仍只监听回环，M8/M9 门禁未推进。**
