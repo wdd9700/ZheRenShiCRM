@@ -114,13 +114,14 @@ tar -C "$CONTEXT" -cf "$STAGING/crm-trial-c010400-source-and-tools.tar" \
 sh /已存在的交付目录/preflight.sh
 # PREFLIGHT READY 才继续；任何同名目录/卷/网络/容器或 8088 占用都停止，不覆盖
 
-# 在交付文件所在目录核对传输完整性，然后解包到刚确认不存在的 ~/crm-trial
+# 在交付文件所在目录核对传输完整性，保存其绝对路径，再解包到刚确认不存在的 ~/crm-trial
+DELIVERY_DIR=$(pwd -P)
 sha256sum -c DELIVERY_SHA256SUMS
 mkdir "$HOME/crm-trial"
 tar -xf crm-trial-c010400-source-and-tools.tar -C "$HOME/crm-trial"
 cd "$HOME/crm-trial"
 sh deploy/remote/trial.sh verify-source
-docker load -i crm-c010400-image.tar
+docker load -i "$DELIVERY_DIR/crm-c010400-image.tar"
 
 # 唯一一次初始化；先确认原生 Linux 权限，再做镜像/Compose 检查
 sh deploy/remote/trial.sh init-env
