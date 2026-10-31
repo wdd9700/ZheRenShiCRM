@@ -33,14 +33,24 @@ M10 已知主机为 2 CPU / 1.8 GiB RAM / 无 swap。该栈同时运行 9 个长
 
 M10 已确认 Docker/Compose 不存在，因此不执行官方文档中的旧版卸载步骤。管理员仍应先复核实际机器没有 Docker 旧包或冲突仓库；若发现任何既有安装/数据，停止并保留现场，不能照搬卸载命令。
 
-获得明确提权及系统变更授权后，由管理员在 Alibaba Cloud Linux 3 ECS 内执行：
+获得明确提权及系统变更授权后，由管理员在 Alibaba Cloud Linux 3 ECS 内执行。`curl`、`gpg` 必须已经存在，否则停止，不临时盲目安装其他工具：
 
 ```sh
+# 先经 HTTPS 获取 Docker 官方 key；文件保留供审计，不是私钥
+umask 077
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output docker-release.gpg https://download.docker.com/linux/centos/gpg
+gpg --show-keys --fingerprint docker-release.gpg
+# 必须人工核对完整指纹为 060A 61C5 1B55 8A7F 742B 77AA C52F EB6B 621E 9F35；不符则停止
+sudo rpm --import docker-release.gpg
+
 # 阿里云官方 Alibaba Cloud Linux 3 路径；ECS 内网镜像源
 sudo wget -O /etc/yum.repos.d/docker-ce.repo http://mirrors.cloud.aliyuncs.com/docker-ce/linux/centos/docker-ce.repo
 sudo sed -i 's|https://mirrors.aliyun.com|http://mirrors.cloud.aliyuncs.com|g' /etc/yum.repos.d/docker-ce.repo
-sudo dnf -y install dnf-plugin-releasever-adapter --repo alinux3-plus
-sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 不使用 -y；显式覆盖可能存在的全局 assumeyes，人工审查事务
+sudo dnf --setopt=assumeyes=False install dnf-plugin-releasever-adapter --repo alinux3-plus
+sudo dnf --setopt=assumeyes=False install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # 分开执行并核对结果；启用开机启动也是管理员决定
 sudo systemctl start docker
@@ -53,7 +63,7 @@ docker buildx version
 rpm -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin dnf-plugin-releasever-adapter
 ```
 
-若包管理器询问 Docker GPG 公钥，管理员必须核对 Docker 官方指纹 `060A 61C5 1B55 8A7F 742B 77AA C52F EB6B 621E 9F35`；不符则拒绝。这里下载的是仓库配置，随后由 DNF/RPM 验签，不是把远端脚本直接送入 shell。
+Docker key 必须先经 HTTPS 下载、完整指纹核验、显式导入，再允许包事务；`--setopt=assumeyes=False` 防止全局配置静默自动同意。若出现其他未知 key 提示，必须独立核验其官方指纹，否则拒绝；不得改回 `dnf -y`。仓库配置通过阿里云官方内网镜像取得，RPM 仍验签，不是把远端脚本直接送入 shell。
 
 本清单不包含 `usermod -aG docker`：Docker 组等价于高权限主机控制边界。安装后由管理员决定亲自执行部署还是另行授权 `dev` 访问 daemon；预检只检查当前用户能否访问，不自行改组或每次自动加 sudo。防火墙、安全组、sshd、swap 和其他系统服务均不在本包修改范围内。
 
@@ -64,7 +74,7 @@ rpm -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose
 在精确 `a1ce4ca` checkout 中重新生成源码 context，不使用旧缓存或未提交工作树文件：
 
 ```sh
-python deploy/prepare_integration.py \
+python3 deploy/prepare_integration.py \
   --resource-commit faa5f0330ad54bd9f4d02bb498ea305651c95ed9 \
   --access-commit 0e5fed78841f8acad31278a3e06cb08b0e6e93d0
 # 将输出的新 integration-* 绝对路径记为 CONTEXT，再复制本包；不得携带运行材料
@@ -72,20 +82,29 @@ mkdir -p "$CONTEXT/docs"
 cp -a deploy/remote "$CONTEXT/deploy/"
 cp docs/REMOTE_TRIAL.md "$CONTEXT/docs/"
 test ! -e "$CONTEXT/deploy/remote/.runtime"
-sha256sum "$CONTEXT/source-manifest.json"
-# 必须为 7d1506ba87354547e09a36c4884e4159c66b6d204909a3cc05751a5b0d15c031
 
+# 不改 M9 工具；在本打包步骤把 Windows CRLF/Linux LF 统一为 LF
+python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n"))' \
+  "$CONTEXT/source-manifest.json"
+sha256sum "$CONTEXT/source-manifest.json"
+# 规范化 LF 后必须为 e4877bea2686eff52e8708751492e4a5ae5fc1cf8bd8c3de3e6951684df5b374
+
+# 两件交付物放入同一全新 staging，清单只记录相对 basename
+STAGING="$PWD/crm-trial-c010400-delivery"
+test ! -e "$STAGING"
+mkdir "$STAGING"
 docker image inspect sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705
-mkdir "$CONTEXT/artifacts"
 docker save sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705 \
-  > "$CONTEXT/artifacts/crm-c010400-image.tar"
-tar -C "$CONTEXT" -cf crm-trial-c010400-source-and-tools.tar \
+  > "$STAGING/crm-c010400-image.tar"
+tar -C "$CONTEXT" -cf "$STAGING/crm-trial-c010400-source-and-tools.tar" \
   apps deploy docs source-manifest.json
-sha256sum crm-trial-c010400-source-and-tools.tar "$CONTEXT/artifacts/crm-c010400-image.tar" \
-  > DELIVERY_SHA256SUMS
+(
+  cd "$STAGING"
+  sha256sum crm-trial-c010400-source-and-tools.tar crm-c010400-image.tar > DELIVERY_SHA256SUMS
+)
 ```
 
-`prepare_integration.py` 的 53 文件 allowlist 和逐 blob SHA 是源码交付依据；`deploy/remote/SOURCE_SHA256SUMS` 是同一清单的 `sha256sum` 形式。镜像不提交 Git；只在授权的本地 Docker 环境导出。`docker save` tar 的 SHA 每轮写入 `DELIVERY_SHA256SUMS`，不能用镜像 ID 代替传输文件摘要，也不能把镜像大小当成 tar 完整性证明。传输仍须另行授权，使用已核验主机身份的 `scp`/SFTP，不粘贴私钥或密码到命令行。
+`prepare_integration.py` 的 53 文件 allowlist 和逐 blob SHA 是源码交付依据；`deploy/remote/SOURCE_SHA256SUMS` 是同一清单的 `sha256sum` 形式。`source-manifest.json` 必须按上述打包步骤规范化为 LF 并匹配固定摘要，Windows CRLF 与 Linux LF 不再导致平台歧义。两件交付物在同一 staging 生成只含相对 basename 的清单，复制整个 staging 后直接在另一目录运行同一 `sha256sum -c`，不重建或改写可信摘要。镜像不提交 Git；只在授权的本地 Docker 环境导出。`docker save` tar 的 SHA 每轮写入 `DELIVERY_SHA256SUMS`，不能用镜像 ID 代替传输文件摘要，也不能把镜像大小当成 tar 完整性证明。传输仍须另行授权，使用已核验主机身份的 `scp`/SFTP，不粘贴私钥或密码到命令行。
 
 ### 3.2 远端核验（以后执行）
 
@@ -101,7 +120,12 @@ mkdir "$HOME/crm-trial"
 tar -xf crm-trial-c010400-source-and-tools.tar -C "$HOME/crm-trial"
 cd "$HOME/crm-trial"
 sh deploy/remote/trial.sh verify-source
-docker load -i /已授权交付路径/crm-c010400-image.tar
+docker load -i crm-c010400-image.tar
+
+# 唯一一次初始化；先确认原生 Linux 权限，再做镜像/Compose 检查
+sh deploy/remote/trial.sh init-env
+stat -c '%a %n' deploy/remote/.runtime/.env deploy/remote/.runtime/image.env
+# 两个文件必须为 600；不要 cat、打印或复制其中的密码
 sh deploy/remote/trial.sh check
 ```
 
@@ -109,14 +133,10 @@ sh deploy/remote/trial.sh check
 
 ## 4. 新站点、备份、安装与双迁移
 
-确认操作员已审查“只放合成数据”后，依次执行；每步失败都停止，保留现场，不盲目重跑：
+确认操作员已审查“只放合成数据”，且上面的 init-env/stat/check 已成功后，依次执行；每步失败都停止，保留现场，不盲目重跑：
 
 ```sh
 cd "$HOME/crm-trial"
-sh deploy/remote/trial.sh init-env
-stat -c '%a %n' deploy/remote/.runtime/.env deploy/remote/.runtime/image.env
-# 两个文件应为 600；不要 cat、打印或复制其中的密码
-
 sh deploy/remote/trial.sh create-site --confirm-synthetic-only
 sh deploy/remote/trial.sh up
 sh deploy/remote/trial.sh backup
@@ -127,9 +147,9 @@ sh deploy/remote/trial.sh versions
 
 关键语义：
 
-- `init-env` 只在独立 runtime 中生成新随机密码，O_EXCL/防覆盖；不会读取本地凭据。
+- `init-env` 只在第 3.2 节执行一次，于独立 runtime 中生成新随机密码，O_EXCL/防覆盖；不会读取本地凭据。
 - `create-site` 再次执行只读资源冲突检查，并要求显式确认。它只由 `bench new-site --install-app crm` 安装 CRM，同时把合成声明、初始禁用导入、禁 Server Script 和禁邮件写入新站配置；**不会自动安装四个 app**。
-- 第一次 `backup` 必须发生在扩展安装前。`backup` 使用原生 `bench backup --with-files`，并完整读取最新数据库 gzip、公/私文件 tar 和站点配置；只输出 backup stem，不输出配置正文。备份存在不等于恢复成功。
+- 第一次 `backup` 必须发生在扩展安装前。`backup` 使用原生 `bench backup --with-files`，并完整读取当次新数据库 gzip、公/私文件 tar 和站点配置；只输出 backup stem，不输出配置正文。只有该命令及其完整性检查均返回 0 才能继续。脚本不写 backup 成功标记，`install-extensions` 也不读取备份标记，因此“先备份”是操作员必须执行的顺序门禁，**不是机器强制保证**；备份存在不等于恢复成功。
 - `install-extensions` 依次执行 `install-app resource_import`、`install-app team_access`；`migrate` 明确执行两次完整 `bench migrate` 后 `clear-cache`。任一失败不自动卸载、不删字段、不重复初始化。
 - 最终 `versions` 的镜像版本应包含四个 app，`frappe.get_installed_apps` 应只包含 `frappe`、`crm`、`resource_import`、`team_access`。数量/版本正确仍不等于权限通过。
 
@@ -224,6 +244,7 @@ docker volume inspect crm_trial_c010400_db crm_trial_c010400_redis crm_trial_c01
 - 53 个 app/build 源文件与 M9 `source-manifest.json` 全部一致；在合成副本中篡改 `team_access/install.py` 后 `verify-source` 拒绝。
 - `init-env` 防覆盖、三个显式合成确认拒绝路径及阶段顺序门禁通过；mock Docker 完整演练确认 create-site → up → 两个 install-app → 恰好两次 migrate → clear-cache → enable-import，重复 create/migrate 拒绝。mock 只验证编排，不是真实安装证据。
 - 合成四件备份夹具通过 gzip/tar/config 完整性验证；stub 预检在本地非 Alibaba OS 上明确失败且未创建目标目录。
-- Windows/WSL DrvFS 不呈现可靠 POSIX 权限（实测显示 777/644），因此**原生 Linux 0600 未在本地证实**；脚本使用 `umask 077` 和排他创建，远端仍必须执行第 4 节 `stat` 检查。
+- R1 修复后，Windows CRLF 输入与 Linux LF 输入均按制作步骤规范化为同一 LF manifest，SHA-256 固定为 `e4877bea2686eff52e8708751492e4a5ae5fc1cf8bd8c3de3e6951684df5b374`；指南中 init-env 仅出现一次，顺序静态断言为 init-env → stat → check → create-site。
+- R1 在第一 Ubuntu 原生 `/tmp` 隔离副本验证：交付 preflight 为 100644、未对包执行 chmod，内部显式 `sh` 调用无 Permission denied；脚本无 CRLF，runtime 为 0700、两个文件为 0600；只含相对 basename 的交付清单复制到另一目录后两件文件均 `sha256sum -c` OK。检查前后 Docker 服务均为 `activating`，状态未变；未调用真实 Docker daemon、未连接远端、未触碰第二发行版。原生远端权限仍必须按第 3.2 节 `stat` 验收。
 
 因此当前交付只能称为“可审查、可本地做静态/受控验证的远端试用部署材料”，不能称为服务端已上线、Windows 已安装试用或生产可用。

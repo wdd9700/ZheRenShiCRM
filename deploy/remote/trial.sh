@@ -108,7 +108,7 @@ create_site() {
     require_runtime
     require_docker
     [ ! -e "$RUNTIME/site-created" ] && [ ! -L "$RUNTIME/site-created" ] || fail 'site-created marker exists; refuse to repeat initialization'
-    CRM_TRIAL_DIR=$ROOT "$REMOTE/preflight.sh" --existing-dir
+    CRM_TRIAL_DIR=$ROOT sh "$REMOTE/preflight.sh" --existing-dir
     CRM_TRIAL_SYNTHETIC_ONLY_ACK=confirmed-synthetic-only
     export CRM_TRIAL_SYNTHETIC_ONLY_ACK
     compose --profile setup run --name crm-trial-c010400-create-site create-site
