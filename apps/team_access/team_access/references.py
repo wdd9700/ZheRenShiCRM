@@ -95,8 +95,8 @@ def validate_change(doc):
     if not old and doc.doctype == "Comment" and doc.get("comment_type") == "Attachment Removed":
         return
     current_roots = private_roots(doc=doc)
-    if old and not private_roots(doc=old).issubset(current_roots):
-        deny()
+    if old and private_roots(doc=old) != current_roots:
+        raise frappe.PermissionError("Existing activity provenance roots are frozen. Adding, removing or replacing private roots requires a reviewed atomic attachment lifecycle; no attachment scan or administrator exemption is available.")
     if frappe.session.user != "Administrator" and (
         not history_permitted(doc, frappe.session.user) or old and not history_permitted(old, frappe.session.user)
     ):

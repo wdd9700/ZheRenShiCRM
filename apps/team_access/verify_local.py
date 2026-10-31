@@ -846,5 +846,5 @@ def verify_driver():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deterministic, standard-library-only permission regression; never connects to a site or database")
-    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion, full Communication update, v1/v2 PUT parent-save and independent relation lifecycle regressions")
+    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion, full Communication update, v1/v2 PUT parent-save, independent relation lifecycle, existing-root freeze/preflight transition and first-insert/relink regressions")
     run(parser.parse_args().upstream_root)

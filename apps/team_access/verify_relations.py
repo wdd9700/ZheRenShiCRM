@@ -61,8 +61,10 @@ def verify_r4(h, upstream):
             events.validate(Doc(source, status="Completed"))
         records[(call.doctype, call.name)] = deepcopy(call)
         added = Doc(call, links=[Doc(doctype="Dynamic Link", link_doctype="CRM Task", link_name="7")])
-        events.validate(added)
+        h.forbidden(lambda: events.validate(added))
         assert references.private_roots(doc=added) == {("FCRM Note", "note"), ("CRM Task", "7")}
+        fresh = Doc(added, name="r5-first-call")
+        events.validate(fresh)
         h.native_denied.add(("CRM Task", "7", "a", "write"))
         h.forbidden(lambda: events.validate(added))
         h.native_denied.clear()
@@ -113,7 +115,10 @@ def verify_r4(h, upstream):
             snapshot_doc = Doc(deleted_doctype=dt, deleted_name="old-child", data=json.dumps({"doctype": dt, "name": "old-child", "parenttype": "Communication", "parent": comm.name, "parentfield": "timeline_links"}))
             assert not any(deleted.permitted_snapshot(snapshot_doc, user) for user in ("a", "b", "Administrator"))
         private()
-        print("PASS R4 unified graph provenance: Call main/note/links removal or replacement denied, authorized additions only tighten access; stored parent/type/field child authority and all-user REST/client/bulk independent mutation denial; snapshots denied, parent docinfo/activity copies and File aliases stay private, ordinary Contact parent validation preserved")
+        print("PASS R4 unified graph provenance with R5 existing-root freeze: Call main/note/links removal, replacement and addition denied; stored parent/type/field child authority and all-user REST/client/bulk independent mutation denial; snapshots denied, parent docinfo/activity copies and File aliases stay private, ordinary Contact parent validation preserved")
+        from verify_transitions import verify_freeze
+
+        verify_freeze(h)
         if upstream:
             verify_native(h, upstream, meta, private)
     finally:
@@ -329,13 +334,16 @@ def verify_native(h, upstream, meta, consumers):
             assert not any(item.startswith("db_update") for item in trace)
         records[("CRM Call Log", "r4-call")] = old_call
         links = deepcopy(old_call.links)
-        call_update(versions[0], {"links": [*links, Doc(doctype="Dynamic Link", link_doctype="FCRM Note", link_name="other-note")]})
-        h.forbidden(lambda: call_update(versions[1], {"links": links}))
+        h.forbidden(lambda: call_update(versions[0], {"links": [*links, Doc(doctype="Dynamic Link", link_doctype="FCRM Note", link_name="other-note")]}))
+        call_update(versions[1], {"links": links})
         consumers()
         trace.clear()
         assert bulk["_bulk_action"]("CRM Call Log", ["r4-ordinary-CRM Call Log"], "update", {"status": "Completed"}) == []
         assert "commit" in trace and "db_update:CRM Call Log" in trace
-        print("PASS actual fixed parent save/child-table sync allows ordinary Contact/Call/Communication association create and remove without independent child hooks; ordinary Call bulk persists; stored ownership prevents normalized child theft; main/note/links loss and combined mutations denied, authorized new private root saves without reopening downstream copies")
+        print("PASS actual fixed parent save/child-table sync allows ordinary Contact/Call/Communication association create and remove without independent child hooks; ordinary Call bulk persists; stored ownership prevents normalized child theft; main/note/links loss, addition and combined mutations denied, unchanged private roots still save")
+        from verify_transitions import verify_native as verify_native_freeze
+
+        verify_native_freeze(h, upstream, Saved, native, get_doc, versions, trace)
     finally:
         frappe.get_doc, frappe.db = original_get, original_db
         frappe.model, frappe.client, frappe.qb = original_model, original_client, original_qb
