@@ -53,7 +53,7 @@ done
 [ -d "$TARGET/deploy/remote/.runtime" ] && [ ! -L "$TARGET/deploy/remote/.runtime" ] || fail 'existing dev-owned runtime must be present and non-symlink'
 [ -f "$TARGET/deploy/remote/.runtime/.env" ] && [ ! -L "$TARGET/deploy/remote/.runtime/.env" ] || fail 'existing .env must be preserved as an ordinary non-symlink file'
 [ -f "$TARGET/deploy/remote/.runtime/image.env" ] && [ ! -L "$TARGET/deploy/remote/.runtime/image.env" ] || fail 'existing image lock must be preserved as an ordinary non-symlink file'
-while IFS= read -r HASH FILE; do
+while read -r HASH FILE; do
     ACTUAL_OLD=$(sed 's/\r$//' "$TARGET/$FILE" | sha256sum)
     ACTUAL_OLD=${ACTUAL_OLD%% *}
     [ "$ACTUAL_OLD" = "$HASH" ] || fail "existing tools differ from reviewed 240b9a8 content after LF normalization: $FILE"
@@ -63,7 +63,7 @@ EOF
 BACKUP="$TARGET/deploy/remote.pre-c010400-update"
 [ ! -e "$BACKUP" ] && [ ! -L "$BACKUP" ] || fail 'previous tool backup already exists; preserve it and investigate'
 mkdir -p "$BACKUP/deploy/remote" "$BACKUP/docs"
-while IFS= read -r HASH FILE; do
+while read -r HASH FILE; do
     cp -a "$TARGET/$FILE" "$BACKUP/$FILE" || fail 'old tool backup failed; no new tool was installed'
 done <<EOF
 $(cat "$STAGING/deploy/remote/update-from-240b9a8.sha256")
