@@ -119,9 +119,7 @@ create_site() {
     require_docker
     [ ! -e "$RUNTIME/site-created" ] && [ ! -L "$RUNTIME/site-created" ] || fail 'site-created marker exists; refuse to repeat initialization'
     CRM_TRIAL_DIR=$ROOT CRM_TRIAL_DOCKER_SUDO=$CRM_TRIAL_DOCKER_SUDO sh "$REMOTE/preflight.sh" --existing-dir
-    CRM_TRIAL_SYNTHETIC_ONLY_ACK=confirmed-synthetic-only
-    export CRM_TRIAL_SYNTHETIC_ONLY_ACK
-    compose --profile setup run --name crm-trial-c010400-create-site create-site
+    compose --profile setup run -e CRM_TRIAL_SYNTHETIC_ONLY_ACK=confirmed-synthetic-only --name crm-trial-c010400-create-site create-site
     mark site-created
     printf 'PASS: create-site returned zero; CRM only was installed by new-site, extensions still require separate installation\n'
 }

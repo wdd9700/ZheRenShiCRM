@@ -30,7 +30,7 @@ M14 已在用户明确授权下安装 Docker 26.1.3 / Compose 2.27.0；`dev` 未
 
 ```sh
 export CRM_TRIAL_DOCKER_SUDO=1
-sh /已存在的交付目录/preflight.sh
+sh /独立预检目录/deploy/remote/preflight.sh
 # 后续 trial.sh 命令沿用同一导出值；恢复默认则 export CRM_TRIAL_DOCKER_SUDO=0
 ```
 
@@ -121,15 +121,20 @@ tar -C "$CONTEXT" -cf "$STAGING/crm-trial-c010400-source-and-tools.tar" \
 
 ### 3.2 远端核验（以后执行）
 
-先在目标目录仍不存在时运行预检，再解包到 `~/crm-trial`。可将 `preflight.sh` 单独放到一个已存在的临时交付目录执行；不要把整个包先解压到目标再声称完成了“目标不存在”检查。
+先在已核验交付目录提取独立预检材料，在目标目录仍不存在时运行预检，再把完整包解包到 `~/crm-trial`。`preflight.sh` 必须连同其同目录依赖 `docker.sh` 一起提取，不能只复制单个脚本。
 
 ```sh
-sh /已存在的交付目录/preflight.sh
-# PREFLIGHT READY 才继续；任何同名目录/卷/网络/容器或 8088 占用都停止，不覆盖
-
-# 在交付文件所在目录核对传输完整性，保存其绝对路径，再解包到刚确认不存在的 ~/crm-trial
+# 在交付文件所在目录核对传输完整性并保存绝对路径；摘要不重建
 DELIVERY_DIR=$(pwd -P)
 sha256sum -c DELIVERY_SHA256SUMS
+
+# 从同一个已核验 tar 提取两文件到独立非目标目录
+PREFLIGHT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/crm-trial-preflight.XXXXXX")
+tar -xf crm-trial-c010400-source-and-tools.tar -C "$PREFLIGHT_DIR" \
+  deploy/remote/preflight.sh deploy/remote/docker.sh
+sh "$PREFLIGHT_DIR/deploy/remote/preflight.sh"
+# PREFLIGHT READY 才继续；任何同名目录/卷/网络/容器或 8088 占用都停止，不覆盖
+
 mkdir "$HOME/crm-trial"
 tar -xf crm-trial-c010400-source-and-tools.tar -C "$HOME/crm-trial"
 cd "$HOME/crm-trial"
