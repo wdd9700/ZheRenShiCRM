@@ -55,6 +55,7 @@ services:
     environment:
       CRM_IMAGE: ${CRM_IMAGE:?set immutable source image}
       CRM_RECOVERY_RUN_ID: ${CRM_RECOVERY_RUN_ID:-planning}
+      CRM_RECOVERY_SYNTHETIC_ONLY_ACK: ${CRM_RECOVERY_SYNTHETIC_ONLY_ACK:-not-confirmed}
     volumes:
       - recovery_sites:/home/frappe/frappe-bench/sites
       - recovery_logs:/home/frappe/frappe-bench/logs

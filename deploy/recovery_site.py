@@ -81,6 +81,14 @@ def validate_bundle():
     return source_config, files
 
 
+def synthetic_only_value(source, acknowledgement):
+    if acknowledgement != "confirmed-synthetic-only":
+        raise RuntimeError("Recovery requires the operator's explicit synthetic-only acknowledgement for this run")
+    if not isinstance(source, dict) or type(source.get("team_access_synthetic_only")) is not int or source["team_access_synthetic_only"] != 1:
+        raise RuntimeError("Recovery source configuration must contain the reviewed synthetic-only integer acknowledgement; no default is allowed")
+    return source["team_access_synthetic_only"]
+
+
 def write_new(path, value):
     descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -98,6 +106,7 @@ def main():
     if len(root_password) < 24:
         raise RuntimeError("Recovery requires its own high-entropy database root password")
     source, files = validate_bundle()
+    synthetic_only = synthetic_only_value(source, os.environ.get("CRM_RECOVERY_SYNTHETIC_ONLY_ACK"))
     sites = Path("sites")
     site = sites / SITE
     if site.exists() or site.is_symlink():
@@ -128,6 +137,7 @@ def main():
         "db_name": DB_NAME, "db_password": secrets.token_urlsafe(32), "db_type": "mariadb",
         "db_host": "recovery-db", "db_port": 3306, "mute_emails": 1, "pause_scheduler": 1,
         "maintenance_mode": 1, "server_script_enabled": 0, "host_name": "http://127.0.0.1:8089",
+        "team_access_synthetic_only": synthetic_only,
     }
     for key in ("encryption_key", "backup_encryption_key", "resource_import_disabled"):
         if key in source:

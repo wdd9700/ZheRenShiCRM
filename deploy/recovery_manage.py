@@ -26,17 +26,18 @@ def output(*args):
     return subprocess.check_output(list(args), text=True).strip()
 
 
-def compose_command(image):
+def compose_command(image, confirm_synthetic_only=False):
     if not shutil.which("docker"):
         raise RuntimeError("Existing Docker CLI and Compose v2 are required")
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("COMPOSE_") and key not in ("CRM_IMAGE", "DB_PASSWORD", "ADMIN_PASSWORD")}
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("COMPOSE_") and key not in ("CRM_IMAGE", "DB_PASSWORD", "ADMIN_PASSWORD", "CRM_RECOVERY_SYNTHETIC_ONLY_ACK")}
     environment["CRM_IMAGE"] = image
+    environment["CRM_RECOVERY_SYNTHETIC_ONLY_ACK"] = "confirmed-synthetic-only" if confirm_synthetic_only else "not-confirmed"
     command = ["docker", "compose", "-p", PROJECT, "--env-file", os.devnull, "-f", str(ROOT / "compose.recovery.yml")]
     return command, environment
 
 
-def check_config(image):
-    command, environment = compose_command(image)
+def check_config(image, confirm_synthetic_only=False):
+    command, environment = compose_command(image, confirm_synthetic_only)
     result = subprocess.run(command + ["--profile", "setup", "config", "--format", "json"], env=environment, capture_output=True, text=True, check=True)
     config = json.loads(result.stdout)
     services = config["services"]
@@ -75,6 +76,8 @@ def check_config(image):
             raise RuntimeError("Recovery service mount source/target/read-only allowlist changed")
         if name != "frontend" and service.get("ports"):
             raise RuntimeError("Only recovery frontend may publish a port")
+    if services["restore"].get("environment", {}).get("CRM_RECOVERY_SYNTHETIC_ONLY_ACK") != environment["CRM_RECOVERY_SYNTHETIC_ONLY_ACK"]:
+        raise RuntimeError("Recovery restore synthetic-only acknowledgement transport changed")
     ports = services["frontend"]["ports"]
     if len(ports) != 1 or ports[0].get("host_ip") != "127.0.0.1" or str(ports[0].get("published")) != "8089" or ports[0].get("target") != 8080:
         raise RuntimeError("Recovery must publish only loopback port 8089 to its frontend")
@@ -210,6 +213,8 @@ def verify_started(services, image):
 
 
 def restore(command, environment):
+    if environment.get("CRM_RECOVERY_SYNTHETIC_ONLY_ACK") != "confirmed-synthetic-only":
+        raise RuntimeError("Recovery requires the operator's explicit synthetic-only acknowledgement before runtime actions")
     if os.name == "nt":
         raise RuntimeError("Run runtime recovery only in the authorized first Ubuntu")
     run_id()
@@ -242,12 +247,17 @@ def main():
     parser.add_argument("--image", required=True, help="Exact source security image ID, never an old image lacking either app")
     parser.add_argument("--backup-stem")
     parser.add_argument("--confirm-isolated-recovery-window", action="store_true")
+    parser.add_argument("--confirm-synthetic-only-data", action="store_true", help="restore only: explicitly acknowledge this run contains reviewed synthetic data only; not a data authenticity check")
     args = parser.parse_args()
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.image):
         parser.error("--image must be an immutable SHA256 image ID")
     if args.action != "receive" and args.backup_stem:
         parser.error("--backup-stem applies only to receive")
-    command, environment = check_config(args.image)
+    if args.confirm_synthetic_only_data and args.action != "restore":
+        parser.error("--confirm-synthetic-only-data applies only to restore")
+    if args.action == "restore" and not args.confirm_synthetic_only_data:
+        parser.error("restore requires --confirm-synthetic-only-data for this reviewed synthetic-only run")
+    command, environment = check_config(args.image, args.confirm_synthetic_only_data)
     if args.action == "check":
         return
     if not args.confirm_isolated_recovery_window:

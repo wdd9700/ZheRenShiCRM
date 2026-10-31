@@ -1,6 +1,14 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
-状态：**M7-only 登录资产修复已构建、备份、统一部署并真实登录/导入幂等验证通过；共享窗口已释放。M8 新冻结候选 a743fca 待复审，未安装 team_access、未恢复、未通过安全版重启或权限验收。** 初始组合 509df32 仅用于早期离线探针，不可作为最终安全版。当前未经 tower 新授权不执行共享 Docker、HTTP、数据库、Redis 读取或写入。备份存在不代表恢复成功。仅第一个 Ubuntu-24.04、合成资料；不触碰第二发行版。
+状态：**M7-only 登录资产修复已构建、备份、统一部署并真实登录/导入幂等验证通过；本轮只读健康窗口已完成并释放。M8 精确候选 0e5fed78841f8acad31278a3e06cb08b0e6e93d0 的完整独审仍未完成；未安装 team_access、未恢复、未通过安全版重启或权限验收。** 修复复审 clean/hold 不是完整审查、合并或安装授权。初始组合 509df32 仅用于早期离线探针，不可作为最终安全版。当前未经 tower 新授权不执行共享 Docker、HTTP、数据库、Redis 读取或写入。备份存在不代表恢复成功。仅第一个 Ubuntu-24.04、合成资料；不触碰第二发行版。
+
+## 本轮精确来源归档与恢复确认适配（未构建、未运行恢复）
+
+- 2026-10-31 只读健康窗口：第一 Ubuntu Running、第二发行版 Stopped；主运行锁和7个应用服务仍一致使用 M7-only `sha256:c47b7cc4bc53cf6388977eb03dab9a9a1658a1c1fdca0d9a8b5cc89c57bc9411`，原 sites/DB/Redis 卷保留。主 checkout 的标准 status/smoke 与 Windows smoke 均通过，覆盖 Guest 登录映射资产/类型、ping、既有 Administrator 会话及 CRM 资产；没有新增业务记录或改账号。这不是最终安全版重启、业务图或权限持久化证明。原8小时保活进程当时仍存在，未重启、续期或终止；不能将应用退出或旧任务 lost 当成 OS 进程已经结束，也不能将短核验命令当正式保活。
+- 仅本地归档并立即逐文件核验 context `deploy/.runtime/integration-837f2d1c345048559fdab4b05fe09c79`：部署来源 `781fba11f2588fa38503c9539b1db096366c9304`，resource_import 来源 `faa5f0330ad54bd9f4d02bb498ea305651c95ed9`，team_access 来源 `0e5fed78841f8acad31278a3e06cb08b0e6e93d0`；53文件（18+33+2），manifest SHA256 `7d1506ba87354547e09a36c4884e4159c66b6d204909a3cc05751a5b0d15c031`。无 candidate-image.env/build-result.json，未 build、未探针、未改主镜像锁。**本节恢复确认适配提交后，该 context 是过时来源证据：保留原件，禁止用于最终 build；新 tip 独审后仍须重新归档核验。** 精确 blob 导出不要求 M8 先 rebase，但不代替正式依赖整合和新 tip 审查。
+- 本轮恢复适配只允许“双确认”：操作员在 `restore` 显式传 `--confirm-synthetic-only-data`，且备份源配置的 `team_access_synthetic_only` 必须严格为 Python/JSON 整数 `1`（拒绝 bool、字符串、浮点数、缺失或其他值）。CLI 不接受继承环境的确认；仅向 restore 服务传入本轮确认标记，Compose 渲染结果必须与之相同。`recovery_site.py` 在写 sites/common/site 配置和调用原生恢复前核验两条件，成功才将源整数值写到新副本；没有默认 `1`，不修改源配置或备份。**这是显式合成资料声明，不是资料真实性检测，也不许可引入真实资料。**
+- 离线验证通过：纯内存源/操作员确认15反例、环境偷渡剥除、5种非 restore action 错用 flag 拒绝、restore 缺 flag 在 Compose 前拒绝、显式传递及直接 restore 调用缺确认拒绝；内存执行 site main 验证成功写整数1/隔离目标/维护模式，4种失败不发生任何写入，源保持不变。第一 Ubuntu 的真实本地 Compose config 分别渲染未确认/已确认状态，确认字段仅出现在 restore；6种确认字段缺失/相反/非法值的渲染变异均拒绝。全部署 Python AST 和 `git diff --check` 通过。一次 WSL 调用因 Git Bash 路径转换失败，设置 `MSYS_NO_PATHCONV=1` 后上述本地渲染通过；未连接 daemon。
+- 仍未验证 Docker/MariaDB 初始化、0400 keys 实际读取、SHOW GRANTS、原生 restore、真实副本配置/HTTP/权限/业务图。未执行 build、容器或卷创建、receive/restore、install/migrate、删除或保活续期。后续 `--build` 使用 `docker build --network host`，get-app/pip 隔离构建可能访问 GitHub/PyPI；只有源码归档是离线，不能把构建声称为全离线。网络/7897代理及缓存完整性仍待独立授权核验。
 
 ## D006｜同版本、独立项目和卷的恢复演练
 
@@ -64,12 +72,12 @@
 - 后续 `receive --backup-stem <YYYYMMDD_HHMMSS-crm_localhost>`：需要独占窗口、显式 `--confirm-isolated-recovery-window` 和新32位hex `CRM_RECOVERY_RUN_ID`。拒绝已有恢复资源、占用端口、不一致源项目/service/镜像/app；仅源四件已选备份通过 tar 流进入新私有 Docker bundle 卷，不在 Windows 文件系统落秘密；源/接收端逐件SHA私下核对，不打印摘要。原备份保留。
 - 新卷、容器、网络必须带精确project/M9/run_id labels；bundle manifest和独立keys卷中的run-id双标记再校验。receive先拒绝同名资源，才创建本轮标记空卷；restore只接受本轮成功接收容器和同标记从未启动过DB/sites的卷，不以同名冒充新目标。任何失败保留现场，不force重试或清理。
 - `receive_recovery.py`：只在 network=none 自有命名接收容器运行，四件文件名/大小/SHA/gzip/tar/config 核验，O_EXCL拒绝覆盖；新独立 keys 卷生成高熵恢复 DB root 密码，0400/0600与目录0700，不输出秘密，不把密码放 CLI/env。MariaDB 用 `MARIADB_ROOT_PASSWORD_FILE`，恢复服务只读挂载 keys/bundle；尚未实际生成这些卷。
-- `restore`：拒绝现有恢复站点及任何先前启动过的目标数据库容器，原生 Framework `_restore` 同版本恢复 DB 与公私文件。仅继承 encryption_key/backup_encryption_key/导入禁用标志；连接严格写入独立 recovery-db/双Redis，关闭调度、邮件、Server Script，绝不复制源服务连接配置。恢复后 app 集合、preflight 和逐文件内容/清单核对通过才启动副本服务。
+- `restore`：除既有窗口确认外，必须显式传 `--confirm-synthetic-only-data`；确认由 CLI 经 Compose 仅传入 restore 服务，拒绝 ambient 环境偷渡和渲染结果篡改。恢复脚本同时要求源配置 `team_access_synthetic_only` 严格为整数1，两条件通过后才写新副本并保留该值；缺失/类型错误不默认、不写源、不冒充真实性检测。拒绝现有恢复站点及任何先前启动过的目标数据库容器，原生 Framework `_restore` 同版本恢复 DB 与公私文件。除此确认值，仅继承 encryption_key/backup_encryption_key/导入禁用标志；连接严格写入独立 recovery-db/双Redis，关闭调度、邮件、Server Script，绝不复制源服务连接配置。恢复后 app 集合、preflight 和逐文件内容/清单核对通过才启动副本服务。
 - 固定源码核对：Framework `commands/site.py::restore_backup` 内部调用 `_new_site(...source_sql, force=True)`；必须先在独立新 DB 卷/唯一新 DB 名上执行，不能因 CLI 未传 --force 就误称无覆盖风险。`_restore` 原生提取在恢复站点复制并清理**本次临时 tar 副本**；bundle只读、源所有旧备份不动。tower已明确认可仅本任务全新、从未接收业务写入的恢复DB/sites初始化及本次临时tar清理语义；**不是一般删除授权**，实际执行仍待窗口。
 - 恢复容器IP与未来backend不同：固定源码 `DbManager.get_current_host()` 用 `select user()`，而restore CLI/`_restore`不暴露`_new_site`的mariadb_user_host_login_scope参数，默认账号仅来自恢复容器IP。因此在新恢复DB内部另建同名站点账号host `%`，密码为新生成值，只授字面固定库 `_crm_recovery_b010200`（转义下划线通配），参数化SQL，不带GRANT OPTION或全局权限，私下核验SHOW GRANTS；与原生IP账号并存，不删除旧账号、不改源DB授权。tower已接受此候选方案，实际grant仍未执行。DB无发布端口，internal网络仅本项目服务加入。
 - `capture_state.py --snapshot-run M9...`：只针对两个固定站点的管理员持久化证据工具，不是权限测试。12类对象完整记录/子表摘要、自动 Link/Dynamic Link 关系及缺失引用计数；摘要只存站点 private/recovery-evidence 新0600文件，日志仅计数/断言，不打印摘要/原文。`--export-run M9... --confirm-synthetic-admin-export` 才生成完整 JSON 和逐类型 CSV，置于 private/recovery-exports 新0700目录，拒绝覆盖、公式前缀防护、JSON全文/关系及CSV全字段读回；不导出 User/__Auth/配置/凭据。尚未实际快照/导出业务资料。
 
-恢复工具目前通过全7个部署 Python 的 AST、git diff --check、第一 Ubuntu 本地 Compose 结构检查（精确固定镜像/挂载/卷/网络/端口/run标签，不连接daemon/源实例）。本地配置变异夹具另验证9种错误配置均拒绝：错app镜像、错DB digest、引用源卷名、错挂载目标、可写bundle、额外网络、非internal网络、非loopback端口和额外worker。本地一次性合成夹具验证了正常tar内容摘要、6种不安全archive输入拒绝（错目录、穿越、绝对路径、symlink、特殊文件、重复文件）、JSON/CSV中文/子表/公式转义及拒绝覆盖；首次夹具发现Windows默认编码读回中文不一致，已显式统一UTF-8并重跑PASS，夹具自动清理且无真实业务数据。启动后自有network/container标签、状态、网络与安全镜像核对逻辑、最终候选image revision labels校验仍未实际执行。这些检查不代表通过原生 DB 恢复或登录验证；窗口未授权前不得运行 receive/restore/up/stop/status。最终可复现执行命令和真实结果待窗口中补充。
+恢复工具目前通过全8个部署 Python 的 AST、git diff --check、第一 Ubuntu 本地 Compose 结构检查（精确固定镜像/挂载/卷/网络/端口/run标签，不连接daemon/源实例）。本地配置变异夹具另验证9种错误配置均拒绝：错app镜像、错DB digest、引用源卷名、错挂载目标、可写bundle、额外网络、非internal网络、非loopback端口和额外worker。本地一次性合成夹具验证了正常tar内容摘要、6种不安全archive输入拒绝（错目录、穿越、绝对路径、symlink、特殊文件、重复文件）、JSON/CSV中文/子表/公式转义及拒绝覆盖；首次夹具发现Windows默认编码读回中文不一致，已显式统一UTF-8并重跑PASS，夹具自动清理且无真实业务数据。启动后自有network/container标签、状态、网络与安全镜像核对逻辑、最终候选image revision labels校验仍未实际执行。这些检查不代表通过原生 DB 恢复或登录验证；窗口未授权前不得运行 receive/restore/up/stop/status。最终可复现执行命令和真实结果待窗口中补充。
 
 ### 执行前审查候选的离线复核
 
