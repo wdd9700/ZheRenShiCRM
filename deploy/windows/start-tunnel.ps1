@@ -10,6 +10,11 @@
     私钥与 known_hosts 只作为外部参数路径传入：脚本不读取、不打印、不复制私钥内容，
     不修改全局 SSH 配置，也不自动接受未知主机密钥（StrictHostKeyChecking=yes）。
 
+    启动时显式传 -F NUL（Windows 空设备）作为用户 SSH 配置，因此不读取
+    %USERPROFILE%\.ssh\config，也不受其内容或权限影响；为此只支持 Windows 内置
+    OpenSSH 客户端（%SystemRoot%\System32\OpenSSH\ssh.exe），不回退到 PATH 上的其他
+    ssh 实现。全局配置里的 ProxyCommand、额外转发、Match 等都不会影响本客户端。
+
     脚本在前台运行 ssh -N，按 Ctrl+C 结束；不创建计划任务、开机自启或后台服务，
     不结束其他进程。ssh 启动成功只代表端口转发就绪，不代表 CRM 已可用。
 
@@ -99,13 +104,7 @@ function Find-SshClient {
         return $candidate
     }
 
-    $command = Get-Command -Name 'ssh.exe' -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -ne $command) {
-        return $command.Source
-    }
-
-    throw '未找到 Windows OpenSSH 客户端 ssh.exe。请在“设置 → 系统 → 可选功能”确认已安装 OpenSSH 客户端；本脚本不会自动安装软件。'
+    throw '未找到 Windows 内置 OpenSSH 客户端（%SystemRoot%\System32\OpenSSH\ssh.exe）。本脚本只支持内置客户端并以其 -F NUL 隔离用户全局配置，不会回退到 PATH 上的其他 ssh 实现，也不会自动安装软件。请在“设置 → 系统 → 可选功能”确认“OpenSSH 客户端”已安装。'
 }
 
 try {
@@ -122,7 +121,9 @@ try {
 "@
     }
 
+    # -F NUL：显式空用户配置（Windows 空设备），不读取 %USERPROFILE%\.ssh\config。
     $sshArguments = @(
+        '-F', 'NUL'
         '-N'
         '-T'
         '-o', 'ExitOnForwardFailure=yes'

@@ -17,7 +17,7 @@ Edge 应用窗口（http://127.0.0.1:18088/crm）
 服务器 8.133.190.46:22 ──► 服务器回环 127.0.0.1:8088（compose frontend）
 ```
 
-脚本只做端口转发：不安装软件、不写系统服务、不建计划任务、不改 SSH 全局配置、不读取/复制/打印私钥内容。隧道在前台运行，Ctrl+C 即结束。
+脚本只做端口转发：不安装软件、不写系统服务、不建计划任务、不改 SSH 全局配置、不读取/复制/打印私钥内容。启动 ssh 时显式传 `-F NUL`（Windows 空设备 = 空配置），因此**不读取** `%USERPROFILE%\.ssh\config`，也不受其内容或权限影响。隧道在前台运行，Ctrl+C 即结束。
 
 ## 2. 固定 origin 契约 `http://127.0.0.1:18088`
 
@@ -33,7 +33,7 @@ Edge 应用窗口（http://127.0.0.1:18088/crm）
 |---|---|---|
 | 操作系统 | Windows 10/11 | — |
 | 浏览器 | Microsoft Edge（任意近版） | 打开 `edge://version` |
-| SSH 客户端 | Windows 自带 OpenSSH | `ssh -V`；脚本优先使用 `%SystemRoot%\System32\OpenSSH\ssh.exe` |
+| SSH 客户端 | **Windows 内置 OpenSSH**（`%SystemRoot%\System32\OpenSSH\ssh.exe`）。脚本只支持内置客户端，不回退到 PATH 上的其他 ssh（如 Git 自带的 ssh） | 确认该路径存在；脚本用它并显式传 `-F NUL` |
 | 服务器连通性 | `8.133.190.46:22` 可达 | `Test-NetConnection 8.133.190.46 -Port 22` |
 | 服务器 SSH 配置 | 允许密钥登录、`AllowTcpForwarding yes` | 由服务端部署任务确认，本文不假设已就绪 |
 | 私钥文件 | 使用者自行准备，只以路径传入 | 见 §4、§5 |
@@ -44,6 +44,8 @@ Edge 应用窗口（http://127.0.0.1:18088/crm）
 ## 4. 准备 known_hosts：主机身份校验不能跳过
 
 脚本固定使用 `StrictHostKeyChecking=yes`，并通过 `-o UserKnownHostsFile="<你的路径>"` 显式指定文件；文件必须已存在。脚本不会自动接受未知主机密钥，不会写全局 `known_hosts`，也不会复制私钥。
+
+同时，ssh 以 `-F NUL` 启动：`NUL` 是 Windows 空设备，等价于一份空用户配置。因此 `%USERPROFILE%\.ssh\config` **完全不参与**本次连接——里面的 `ProxyCommand`、`ProxyJump`、`Match`、额外转发或身份文件都不会生效，其内容与 ACL 也不再是启动前提。这是有意的隔离，不是绕过主机校验：`StrictHostKeyChecking=yes` 与显式 known_hosts 仍然生效。
 
 首次连接前，需要把服务器主机公钥写入专用文件，并且**先核对指纹**：
 
@@ -62,7 +64,7 @@ ssh-keyscan -t ed25519 8.133.190.46 | Add-Content -Path $kh
 
 - 无法核对指纹时不要继续：未知主机密钥会被 `StrictHostKeyChecking=yes` 拒绝，这是预期行为。
 - 不要把现有个人 `known_hosts` 里的其他主机条目混进来当「能连上」的证据；用专用文件更清楚。
-- 若 ssh 报 `Bad owner or permissions on ...`，那是本机该文件/目录的 ACL 问题（Windows OpenSSH 会拒绝权限过宽的配置）。按系统安全要求自行修正权限，**脚本不会绕过或修改 ACL**。
+- 若 ssh 报 `Bad owner or permissions on ...`，它指向的是本次显式传入的文件（私钥或 known_hosts），**不是**全局 `config`——全局配置已用 `-F NUL` 排除。按系统安全要求修正**那个文件**的权限后重试；`%USERPROFILE%\.ssh\config` 的权限不是使用本客户端的前提，**脚本不会绕过或修改任何 ACL**。
 
 ## 5. 启动、退出、重连
 
@@ -75,7 +77,7 @@ cd P:\CRM   # 换成你的 checkout 路径
 
 运行后：
 
-- 脚本先做本地预检（两个文件是否存在、18088 是否空闲、ssh 是否存在），打印将要执行的完整 ssh 命令（只有**路径**，没有私钥内容），然后在前台启动 `ssh -N -T`。
+- 脚本先做本地预检（两个文件是否存在、18088 是否空闲、内置 ssh 是否存在），打印将要执行的完整 ssh 命令（以 `-F NUL` 开头，只有**路径**，没有私钥内容），然后在前台启动 `ssh -N -T`。
 - 本地端口固定 18088、服务器回环端口固定 8088，脚本不提供改端口的参数；`-User`/`-HostName` 默认就是 `dev` / `8.133.190.46`，仅排障时才改，改动后即不对应本文的试用约定。
 - **退出**：在这个控制台按 Ctrl+C；关闭窗口同样会断开。ssh 会收到中断退出，若控制台直接回到提示符而没有结尾摘要，属正常。
 - **重连**：用同一命令再运行一次。脚本不重试、不换端口、不杀无关进程。
@@ -145,8 +147,9 @@ curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:18088/crm
 | known_hosts 缺失 | 传入不存在的 `-KnownHostsFile` | 明确报错，退出码 1 |
 | 端口占用拒绝 | 本机临时监听 127.0.0.1:18088 后运行脚本 | 拒绝启动、提示固定 origin 不换端口，退出码 1 |
 | 只做预检 | `-WhatIf` | 打印完整 ssh 命令，未启动 ssh、未连接服务器，退出码 0 |
-| ssh 参数解析 | 对同一组 `-o` 选项运行 `ssh -G`（含带空格的 known_hosts 路径） | `stricthostkeychecking`、`identitiesonly`、`preferredauthentications=publickey`、`localforward`、`userknownhostsfile` 均按预期解析 |
-| 连接失败报错 | `-HostName 127.0.0.1`（本机，非远端），ssh 因本机配置权限拒绝运行 | 原始错误照常显示，脚本给出 255 解释，退出码 255（`-File` 方式运行） |
+| 显式空配置生效 | 本机 `~/.ssh/config` 权限异常时，对比直接 `ssh -G` 与脚本同组选项的 `ssh -G -F NUL` | 不带 `-F` 报 `Bad owner or permissions`、退出 255；带 `-F NUL` 退出 0 且字段按预期解析，证明全局配置未被读取 |
+| ssh 参数解析（含带空格路径） | 对脚本同一组选项运行 `ssh -G -F NUL`（known_hosts 路径含空格） | `stricthostkeychecking`、`identitiesonly`、`preferredauthentications=publickey`、`localforward [127.0.0.1]:18088 [127.0.0.1]:8088`、`userknownhostsfile` 均按预期解析 |
+| 连接失败报错 | `-HostName 127.0.0.1`（本机，非远端），本机 22 端口拒绝连接 | ssh 原始错误（`Connection refused`）照常显示，脚本给出 255 解释，退出码 255（`-File` 方式运行） |
 
 未验证（必须在服务端就绪后由人工在同一台电脑上执行）：
 
@@ -165,6 +168,9 @@ $tokens = $null; $errors = $null
 $errors
 
 .\deploy\windows\start-tunnel.ps1 -IdentityFile <私钥路径> -KnownHostsFile <known_hosts 路径> -WhatIf
+
+# 证明全局配置不参与：即使 ~/.ssh/config 有权限问题，带 -F NUL 的 -G 仍应退出 0
+& "$env:SystemRoot\System32\OpenSSH\ssh.exe" -G -F NUL -o StrictHostKeyChecking=yes dev@8.133.190.46
 ```
 
 ## 11. 不做什么、不声称什么
@@ -175,4 +181,5 @@ $errors
 - 不声称已完成 GUI 验收：本文的「已本地执行」仅覆盖脚本语法和可控失败路径。
 - 不创建计划任务、开机自启、后台服务；不自动结束无关进程；不静默换端口。
 - 不读取、复制、打印私钥内容；不自动接受未知主机密钥；不修改 ACL 或 SSH 全局配置。
+- 不读取用户全局 SSH 配置（启动时显式传 `-F NUL`），也不回退到 PATH 上的其他 ssh 实现；不要求使用者先修好 `%USERPROFILE%\.ssh\config` 才能使用本客户端。
 - 不新增任何仓库依赖；客户端安装不在本仓库产物内，删除仓库文件不影响 Edge 里已安装的应用（反之亦然）。
