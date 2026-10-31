@@ -95,7 +95,9 @@ def guard():
 
     if doctype in (*PROTECTED, *PARENTS):
         frappe.local.team_access_doctype = doctype
-        reject_raw_fields(args)
+        reject_raw_fields(args, doctype)
+        if method == "frappe.desk.reportview.export_query" and str(args.get("export_in_background", "0")) not in ("0", "False", "false"):
+            raise frappe.PermissionError("Activity exports must run synchronously with current permissions")
     if method == "upload_file" or (method and method.endswith(".upload_file")):
         from team_access.files import private_target
 
@@ -135,8 +137,6 @@ def guard():
             if args.get("query") or args.get("ignore_user_permissions") not in (None, False, 0, "0", "false"):
                 deny()
         if method == "frappe.desk.reportview.export_query":
-            if str(args.get("export_in_background", "0")) not in ("0", "False", "false"):
-                raise frappe.PermissionError("Activity exports must run synchronously with current permissions")
             if args.get("selected_items"):
                 selected = frappe.parse_json(args.pop("selected_items"))
                 filters = append_filter(doctype, args.get(field))

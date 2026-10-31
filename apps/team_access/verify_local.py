@@ -371,6 +371,9 @@ def run(upstream):
     from verify_relations import verify_r4
 
     verify_r4(sys.modules[__name__], upstream)
+    from verify_r6 import run as verify_r6
+
+    verify_r6(sys.modules[__name__], upstream)
     verify_driver()
     print("LOCAL ONLY: in-memory Frappe replacement, not installed framework/HTTP/socket/UI acceptance")
 
@@ -846,5 +849,5 @@ def verify_driver():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deterministic, standard-library-only permission regression; never connects to a site or database")
-    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion, full Communication update, v1/v2 PUT parent-save, independent relation lifecycle, existing-root freeze/preflight transition and first-insert/relink regressions")
+    parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion, full Communication update, v1/v2 PUT parent-save, independent relation lifecycle, existing-root freeze/preflight transition, first-insert/relink and ToDo -> Shared -> wildcard CSV/compressed-user-info regressions")
     run(parser.parse_args().upstream_root)
