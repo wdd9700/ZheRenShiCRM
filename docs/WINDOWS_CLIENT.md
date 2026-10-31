@@ -1,6 +1,6 @@
 # Windows 试用客户端：SSH 回环隧道 + Edge「安装此站点为应用」
 
-**状态：实现候选，端到端未验收。** 本文给出在本机 Windows 上试用 CRM 的具体做法，并逐项区分「已本地验证」与「必须等服务器就绪后人工验证」的部分（见 §10）。它不是生产上线方案，也不代表所有团队权限问题已解决。
+**状态：实现候选，端到端未验收。** 2026-11-01 已做真实连接尝试：网络、主机密钥与隧道参数均通过，但本机私钥文件 ACL 过宽被 Windows OpenSSH 拒绝，隧道未建立（详见 §10）。Edge 安装仍未执行。本文逐项区分「已实测」与「未验证」（见 §10），它不是生产上线方案，也不代表所有团队权限问题已解决。
 
 - 启动脚本：`deploy/windows/start-tunnel.ps1`
 - 客户端形态：Edge 安装的 **Web 应用**（不是 exe / MSIX / 原生安装包）
@@ -36,7 +36,7 @@ Edge 应用窗口（http://127.0.0.1:18088/crm）
 | SSH 客户端 | **Windows 内置 OpenSSH**（`%SystemRoot%\System32\OpenSSH\ssh.exe`）。脚本只支持内置客户端，不回退到 PATH 上的其他 ssh（如 Git 自带的 ssh） | 确认该路径存在；脚本用它并显式传 `-F NUL` |
 | 服务器连通性 | `8.133.190.46:22` 可达 | `Test-NetConnection 8.133.190.46 -Port 22` |
 | 服务器 SSH 配置 | 允许密钥登录、`AllowTcpForwarding yes` | 由服务端部署任务确认，本文不假设已就绪 |
-| 私钥文件 | 使用者自行准备，只以路径传入 | 见 §4、§5 |
+| 私钥文件 | 使用者自行准备，只以路径传入；文件 ACL 必须仅本人（及 SYSTEM、Administrators）可读，否则 Windows OpenSSH 会拒绝加载 | 见 §4、§5；脚本不改 ACL |
 | known_hosts 文件 | 使用者自行准备，路径显式传入且文件须存在 | 见 §4 |
 | 本机端口 | `127.0.0.1:18088` 空闲 | `Get-NetTCPConnection -LocalPort 18088 -State Listen` 应为空 |
 | 服务端应用 | CRM 已部署并在服务器回环 8088 监听 | 由服务端任务确认；未就绪时客户端无法验收 |
@@ -64,6 +64,7 @@ ssh-keyscan -t ed25519 8.133.190.46 | Add-Content -Path $kh
 
 - 无法核对指纹时不要继续：未知主机密钥会被 `StrictHostKeyChecking=yes` 拒绝，这是预期行为。
 - 不要把现有个人 `known_hosts` 里的其他主机条目混进来当「能连上」的证据；用专用文件更清楚。
+- 私钥同样受 Windows OpenSSH 的权限检查：若文件还对其他用户或组可读（例如继承了共享/沙箱目录的 ACE），ssh 会报 `Bad permissions` 或 `UNPROTECTED PRIVATE KEY FILE`，并拒绝加载私钥。这是 OpenSSH 的安全要求，客户端没有关闭它的选项；脚本不会修改 ACL，也不会复制或移动私钥。请把私钥放在仅你本人（及 SYSTEM、Administrators）可读的位置后重试。
 - 若 ssh 报 `Bad owner or permissions on ...`，它指向的是本次显式传入的文件（私钥或 known_hosts），**不是**全局 `config`——全局配置已用 `-F NUL` 排除。按系统安全要求修正**那个文件**的权限后重试；`%USERPROFILE%\.ssh\config` 的权限不是使用本客户端的前提，**脚本不会绕过或修改任何 ACL**。
 
 ## 5. 启动、退出、重连
@@ -158,6 +159,28 @@ curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:18088/crm
 - Edge 安装流程、独立窗口、固定到任务栏/开始菜单、登录态保持、断线负例、卸载。
 - Edge「设置 → 应用」是否出现条目。
 - 非管理员 Windows 账户下的行为。
+
+### 2026-11-01 真实连接尝试（未通过：卡在本机私钥权限）
+
+准备与预检（均已实测）：
+
+- `Test-NetConnection 8.133.190.46 -Port 22` = True。
+- 专用 known_hosts 只有一条 `256 SHA256:JHFV75F2oc1tYqjd4viv130aknkd7fOwtKEpmGtgy80 8.133.190.46 (ED25519)`，与提供值一致。
+- 18088 启动前空闲；`-WhatIf` 通过并显示 `-F NUL`、strict、显式 known_hosts 与固定转发参数。
+
+实际启动后 ssh 在认证前退出 255，原始错误要点：
+
+```
+Bad permissions. Try removing permissions for user: 550C-wdd9700\CodexSandboxUsers ... on file <私钥>
+WARNING: UNPROTECTED PRIVATE KEY FILE!
+This private key will be ignored.
+Load key "<私钥>": bad permissions
+dev@8.133.190.46: Permission denied (publickey,...)
+```
+
+- 结论：TCP 22 与主机密钥校验均已通过，失败点是**本机私钥文件 ACL 过宽**（继承了 `CodexSandboxUsers` 与一个未知 SID 的 ReadAndExecute ACE），不是网络、端口或服务器问题。
+- 本轮未建立隧道；未修改任何 ACL、未复制或读取私钥、未启用 ssh-agent、未改用其他 ssh 实现、未重复启动进程；18088 仍空闲。
+- 处理要求：把私钥放到仅本人（及 SYSTEM、Administrators）可读的位置后，用同一命令重试。不复制或移动私钥、不切换其他 ssh 实现绕过该保护；若将来获准修 ACL，须先备份该单个文件的原始 owner/DACL/继承状态（不含私钥正文），只移除非允许读者，并按原文精确恢复，而不是简单重新开启继承。在此之前不宣称隧道或客户端可用。
 
 复现本地检查（可选）：
 
