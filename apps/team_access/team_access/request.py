@@ -24,6 +24,7 @@ def guard():
     request = frappe.local.request
     parts = [unquote(p) for p in request.path.strip("/").split("/")]
     args = frappe.form_dict
+    collection = request.method == "GET" and ((parts[:2] == ["api", "resource"] and len(parts) == 3) or (parts[:3] == ["api", "v1", "resource"] and len(parts) == 4) or (parts[:3] == ["api", "v2", "document"] and len(parts) == 4))
     method = args.get("cmd")
     if method:
         parts = []
@@ -96,6 +97,8 @@ def guard():
     if doctype in (*PROTECTED, *PARENTS):
         frappe.local.team_access_doctype = doctype
         reject_raw_fields(args, doctype)
+        if collection and not args.get("cmd") and isinstance(args.get("fields"), (list, tuple)):
+            args["fields"] = frappe.as_json(args["fields"])
         if method == "frappe.desk.reportview.export_query" and str(args.get("export_in_background", "0")) not in ("0", "False", "false"):
             raise frappe.PermissionError("Activity exports must run synchronously with current permissions")
     if method == "upload_file" or (method and method.endswith(".upload_file")):

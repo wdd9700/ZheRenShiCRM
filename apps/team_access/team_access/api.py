@@ -120,11 +120,16 @@ def get_data(doctype: str, filters=None, order_by="modified desc", **kwargs):
     if not isinstance(filters, dict) or not isinstance(defaults, dict):
         raise frappe.ValidationError("CRM list filters must be objects")
     filters.update(defaults)
+    from team_access.projections import finish, prepare
+
+    options = {key: value for key, value in kwargs.items() if key in inspect.signature(original).parameters}
+    options, default_result = prepare(doctype, options, filters, order_by)
     if doctype in PROTECTED:
         names = frappe.get_list(doctype, filters=append_filter(doctype, filters), pluck="name", limit_page_length=0)
         filters["name"] = ["in", names]
-    options = {key: value for key, value in kwargs.items() if key in inspect.signature(original).parameters}
     result = original(doctype=doctype, filters=filters, order_by=order_by, **options)
+    if doctype in (*PROTECTED, *PARENTS) and frappe.session.user != "Administrator":
+        result = finish(result, default_result)
     rows = result.get("data", [])
     if result.get("view_type") == "kanban":
         rows = [row for column in rows for row in column.get("data", [])]
