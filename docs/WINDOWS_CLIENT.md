@@ -1,6 +1,6 @@
 # Windows 试用客户端：SSH 回环隧道 + Edge「安装此站点为应用」
 
-**状态：实现候选，端到端未验收。** 2026-11-01 已做真实连接尝试：网络、主机密钥与隧道参数均通过，但本机私钥文件 ACL 过宽被 Windows OpenSSH 拒绝，隧道未建立（详见 §10）。Edge 安装仍未执行。本文逐项区分「已实测」与「未验证」（见 §10），它不是生产上线方案，也不代表所有团队权限问题已解决。
+**状态：实现候选；隧道与匿名 HTTP 已验证，Edge 安装未做，端到端未验收。** 2026-11-01 已完成真实 SSH 回环隧道与匿名路由/静态资产验证（详见 §10）：`/api/method/ping` 与 `/login` 200、匿名 JS/CSS 200 且 MIME 正确；匿名 `/crm` 返回 403「Not Permitted」而非跳登录，需先登录。本文逐项区分「已实测」与「未验证」，它不是生产上线方案，也不代表所有团队权限问题已解决。
 
 - 启动脚本：`deploy/windows/start-tunnel.ps1`
 - 客户端形态：Edge 安装的 **Web 应用**（不是 exe / MSIX / 原生安装包）
@@ -65,6 +65,7 @@ ssh-keyscan -t ed25519 8.133.190.46 | Add-Content -Path $kh
 - 无法核对指纹时不要继续：未知主机密钥会被 `StrictHostKeyChecking=yes` 拒绝，这是预期行为。
 - 不要把现有个人 `known_hosts` 里的其他主机条目混进来当「能连上」的证据；用专用文件更清楚。
 - 私钥同样受 Windows OpenSSH 的权限检查：若文件还对其他用户或组可读（例如继承了共享/沙箱目录的 ACE），ssh 会报 `Bad permissions` 或 `UNPROTECTED PRIVATE KEY FILE`，并拒绝加载私钥。这是 OpenSSH 的安全要求，客户端没有关闭它的选项；脚本不会修改 ACL，也不会复制或移动私钥。请把私钥放在仅你本人（及 SYSTEM、Administrators）可读的位置后重试。
+- 若既有私钥只是 ACL 过宽、经明确授权需要就地收紧：先只读记录原 owner/DACL/继承状态（SDDL，不含密钥正文）并保存到本机 ignored runtime，写明精确恢复方法；再仅对**该单个文件**执行 `icacls <该文件> /inheritance:r /grant:r "<你的账号>:F" "NT AUTHORITY\SYSTEM:F" "BUILTIN\Administrators:F"`，修改后核对 owner 未变、DACL 受保护、只剩这三个主体、文件大小与修改时间未变。不要递归、不要改父目录或其他密钥、不要改全局 SSH 配置、不要复制私钥；未获授权时不要自行修改。
 - 若 ssh 报 `Bad owner or permissions on ...`，它指向的是本次显式传入的文件（私钥或 known_hosts），**不是**全局 `config`——全局配置已用 `-F NUL` 排除。按系统安全要求修正**那个文件**的权限后重试；`%USERPROFILE%\.ssh\config` 的权限不是使用本客户端的前提，**脚本不会绕过或修改任何 ACL**。
 
 ## 5. 启动、退出、重连
@@ -106,14 +107,16 @@ curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:18088/login
 curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:18088/crm
 ```
 
-- 期望：`/login` 返回 200；`/crm` 返回 200 或重定向到登录页（具体以服务端实际行为为准，本轮未验证）。
+- 期望：`/login` 返回 200；`/crm` 在**已登录**时返回应用页面（匿名时会先被服务端拒绝，见下）。
 - 若 ssh 仍在运行但这两个请求超时/连接被重置，问题在服务端应用未就绪（容器未起、8088 未监听），不是客户端。
 - 脚本不会替你探测这两个地址，也不会自动打开浏览器，避免把「SSH 已启动」误报成「CRM 已就绪」。
 
+2026-11-01 经本隧道实测（匿名、未加 Host 覆盖）：`/api/method/ping` → 200 `{"message":"pong"}`（`application/json`，约 0.04s）；`/login` → 200 `text/html`（344,161 字节）；`/app` → 301 到 `/login?redirect-to=%2Fapp`；**匿名 `/crm` → 403「Not Permitted」**（浏览器 Accept/UA 下相同），这是服务端对该路由的匿名处理，不是隧道或端口问题。因此匿名直接打开 `/crm` 不会跳登录，请按 §7 先登录。
+
 ## 7. 用 Edge 安装为应用（真实步骤）
 
-1. 保持隧道运行，打开 Edge 访问 `http://127.0.0.1:18088/crm`。
-2. 用你自己的 CRM 账号在页面表单登录（不要注入 Cookie 或 sid）。
+1. 保持隧道运行，用 Edge 打开 `http://127.0.0.1:18088/login?redirect-to=/crm`（或 `http://127.0.0.1:18088/login`）。**匿名直接打开 `/crm` 当前返回 403「Not Permitted」，不会跳登录**（2026-11-01 实测）。
+2. 用你自己的 CRM 账号在页面表单登录（不要注入 Cookie 或 sid），登录成功后再进入 `http://127.0.0.1:18088/crm`。
 3. 打开 `⋯（设置及其他） → 更多工具 → 应用 → 将此站点作为应用安装`。地址栏出现安装图标时也可以从那里安装。
 4. 打开 `edge://apps`，应看到应用卡片；可「固定到任务栏」「固定到开始菜单」。
 5. 从开始菜单或任务栏启动，应为独立窗口、无地址栏。
@@ -152,13 +155,14 @@ curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:18088/crm
 | ssh 参数解析（含带空格路径） | 对脚本同一组选项运行 `ssh -G -F NUL`（known_hosts 路径含空格） | `stricthostkeychecking`、`identitiesonly`、`preferredauthentications=publickey`、`localforward [127.0.0.1]:18088 [127.0.0.1]:8088`、`userknownhostsfile` 均按预期解析 |
 | 连接失败报错 | `-HostName 127.0.0.1`（本机，非远端），本机 22 端口拒绝连接 | ssh 原始错误（`Connection refused`）照常显示，脚本给出 255 解释，退出码 255（`-File` 方式运行） |
 
-未验证（必须在服务端就绪后由人工在同一台电脑上执行）：
+未验证（仍需登录态、浏览器或服务端配合才能完成）：
 
-- 到 `8.133.190.46` 的真实隧道：22 可达、主机密钥核验、密钥认证、`AllowTcpForwarding`。
-- `/login`、`/crm` 的真实响应；manifest / Service Worker 的路径、MIME 与作用范围。
+- 登录后的 `/crm` 应用页面与 CRM 前端 bundle 的实际加载（匿名 `/crm` 为 403，见下）。
+- manifest / Service Worker 的路径、MIME 与作用范围。
 - Edge 安装流程、独立窗口、固定到任务栏/开始菜单、登录态保持、断线负例、卸载。
 - Edge「设置 → 应用」是否出现条目。
 - 非管理员 Windows 账户下的行为。
+- 匿名 `/crm` 返回 403 是否为本部署的预期行为（需服务端确认；客户端不掩盖、不加 Host 覆盖）。
 
 ### 2026-11-01 真实连接尝试（未通过：卡在本机私钥权限）
 
@@ -181,6 +185,27 @@ dev@8.133.190.46: Permission denied (publickey,...)
 - 结论：TCP 22 与主机密钥校验均已通过，失败点是**本机私钥文件 ACL 过宽**（继承了 `CodexSandboxUsers` 与一个未知 SID 的 ReadAndExecute ACE），不是网络、端口或服务器问题。
 - 本轮未建立隧道；未修改任何 ACL、未复制或读取私钥、未启用 ssh-agent、未改用其他 ssh 实现、未重复启动进程；18088 仍空闲。
 - 处理要求：把私钥放到仅本人（及 SYSTEM、Administrators）可读的位置后，用同一命令重试。不复制或移动私钥、不切换其他 ssh 实现绕过该保护；若将来获准修 ACL，须先备份该单个文件的原始 owner/DACL/继承状态（不含私钥正文），只移除非允许读者，并按原文精确恢复，而不是简单重新开启继承。在此之前不宣称隧道或客户端可用。
+
+### 2026-11-01 私钥 ACL 修正（经授权）与真实隧道验证
+
+- 授权范围：仅该单个附件私钥文件；未递归、未改父目录/其他密钥/SSH 配置、未启用 agent、未复制或读取密钥正文、未改用其他 ssh 实现。
+- 备份：修改前以只读方式记录 owner/DACL/继承状态（SDDL）到本机 ignored runtime `deploy/.runtime/m12-private-key-acl-backup-20261101.txt`（无密钥正文），文件内写明精确恢复方法（用该 SDDL 重新 `Set-Acl`）。
+- 修改：仅对该文件执行 `icacls <该文件> /inheritance:r /grant:r "<账号>:F" "NT AUTHORITY\SYSTEM:F" "BUILTIN\Administrators:F"`。
+- 核对：owner 未变（`550C-WDD9700\74090`）；DACL 受保护、继承已断开；只剩 3 个 ACE；文件大小 419 与 LastWriteTime 未变；未自动恢复宽松 ACL。
+
+隧道与匿名 HTTP（未加 Host 覆盖、未登录、未读远端 `.env`、未改服务器）：
+
+| 检查 | 结果 |
+|---|---|
+| 18088 | 启动前空闲；启动后只监听 `127.0.0.1`（ssh pid 43556，脚本任务 pid 38836） |
+| `/api/method/ping` | 200，`{"message":"pong"}`，`application/json`，约 0.04s |
+| `/login` | 200，`text/html`，344,161 字节 |
+| `/app` | 301 → `/login?redirect-to=%2Fapp` |
+| `/crm`（匿名） | 403「Not Permitted」（浏览器 Accept/UA 相同），不是隧道问题 |
+| `/login` 页面实际引用 | login.bundle CSS 200 `text/css`；website.bundle CSS 200 `text/css`；frappe-web JS 200 `application/javascript`；`/assets/team_access/access.js` 200 `application/javascript`；`/website_script.js` 200 `text/javascript` |
+| known_hosts | 未改写（94 字节、1 条、修改时间不变） |
+
+隧道保留运行供后续浏览器试用：结束脚本（Ctrl+C）或停止对应后台任务、结束 ssh 进程即断开；未创建计划任务或开机自启。登录、Edge 安装与 PWA 能力仍未验证，不能据此宣布 Windows 安装完成。
 
 复现本地检查（可选）：
 
