@@ -88,7 +88,7 @@ def check_config(image, confirm_synthetic_only=False):
         raise RuntimeError("Recovery must use only its exact isolated volume names")
     if any(value.get("driver_opts") for value in config["volumes"].values()):
         raise RuntimeError("Recovery refuses host/external storage driver overrides")
-    print("PASS: local Compose isolation, image consistency, no background jobs, internal network and loopback-only port")
+    print("PASS: local Compose isolation, image consistency, no background jobs, internal network and declared loopback port; runtime ingress still requires verification")
     return command, environment
 
 
@@ -132,7 +132,10 @@ def new_volumes():
         owned("volume", name)
 
 
-def receive(image, stem):
+def receive(image, stem, source_project="crm-mvp-v15"):
+    if source_project not in ("crm-mvp-v15", "crm-m9-source-c1102"):
+        raise RuntimeError("Recovery accepts only the original project or the explicit isolated synthetic source")
+    SOURCE = source_project + "-backend-1"
     if os.name == "nt":
         raise RuntimeError("Runtime recovery operations must run in the authorized first Ubuntu, not the Windows Docker daemon")
     run_id()
@@ -147,8 +150,10 @@ def receive(image, stem):
     port_free()
     source_image = output("docker", "inspect", SOURCE, "--format", "{{.Image}}")
     labels = json.loads(output("docker", "inspect", SOURCE, "--format", "{{json .Config.Labels}}"))
-    if source_image != image or labels.get("com.docker.compose.project") != "crm-mvp-v15" or labels.get("com.docker.compose.service") != "backend":
+    if source_image != image or labels.get("com.docker.compose.project") != source_project or labels.get("com.docker.compose.service") != "backend":
         raise RuntimeError("Recovery backup source project/service/security image mismatch")
+    if source_project == "crm-m9-source-c1102" and (labels.get("crm.recovery.mission") != "M9" or labels.get("crm.recovery.run_id") != "b4a562ef23334fc0bdc41f3b90996a2d"):
+        raise RuntimeError("Isolated synthetic source identity marker mismatch")
     versions = output("docker", "exec", SOURCE, "bench", "version")
     for line in ("frappe 15.125.0", "crm 1.90.0", "resource_import 0.1.0", "team_access 0.1.0"):
         if line not in versions.splitlines():
@@ -156,6 +161,10 @@ def receive(image, stem):
     apps = output("docker", "exec", SOURCE, "bench", "--site", "crm.localhost", "execute", "frappe.get_installed_apps")
     if set(json.loads(apps)) != {"frappe", "crm", "resource_import", "team_access"}:
         raise RuntimeError("Source must have both extension apps installed before recovery backup")
+    if source_project == "crm-m9-source-c1102":
+        check = "import json; from pathlib import Path; c=json.loads(Path('sites/crm.localhost/site_config.json').read_text()); print('confirmed' if type(c.get('team_access_synthetic_only')) is int and c['team_access_synthetic_only']==1 and c.get('resource_import_disabled')==1 and c.get('mute_emails')==1 and c.get('pause_scheduler')==1 else 'refused')"
+        if output("docker", "exec", SOURCE, "env/bin/python", "-c", check) != "confirmed":
+            raise RuntimeError("Isolated source must retain its explicit synthetic-only and disabled integration settings")
     new_volumes()
     names = {"database": stem + "-database.sql.gz", "public": stem + "-files.tar", "private": stem + "-private-files.tar", "config": stem + "-site_config_backup.json"}
     command = ["docker", "run", "-i", "--name", RECEIVER, "--network", "none", "--user", "0",
@@ -246,13 +255,14 @@ def main():
     parser.add_argument("action", choices=("check", "receive", "restore", "up", "stop", "status"))
     parser.add_argument("--image", required=True, help="Exact source security image ID, never an old image lacking either app")
     parser.add_argument("--backup-stem")
+    parser.add_argument("--source-project", choices=("crm-mvp-v15", "crm-m9-source-c1102"), default="crm-mvp-v15", help="receive only: exact original or isolated synthetic source project")
     parser.add_argument("--confirm-isolated-recovery-window", action="store_true")
     parser.add_argument("--confirm-synthetic-only-data", action="store_true", help="restore only: explicitly acknowledge this run contains reviewed synthetic data only; not a data authenticity check")
     args = parser.parse_args()
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.image):
         parser.error("--image must be an immutable SHA256 image ID")
-    if args.action != "receive" and args.backup_stem:
-        parser.error("--backup-stem applies only to receive")
+    if args.action != "receive" and (args.backup_stem or args.source_project != "crm-mvp-v15"):
+        parser.error("--backup-stem and --source-project apply only to receive")
     if args.confirm_synthetic_only_data and args.action != "restore":
         parser.error("--confirm-synthetic-only-data applies only to restore")
     if args.action == "restore" and not args.confirm_synthetic_only_data:
@@ -263,7 +273,7 @@ def main():
     if not args.confirm_isolated_recovery_window:
         parser.error("Runtime actions require explicit --confirm-isolated-recovery-window and tower coordination")
     if args.action == "receive":
-        receive(args.image, args.backup_stem)
+        receive(args.image, args.backup_stem, args.source_project)
     elif args.action == "restore":
         restore(command, environment)
     else:

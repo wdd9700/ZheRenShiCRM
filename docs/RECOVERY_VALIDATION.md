@@ -1,8 +1,32 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
-状态：**M7-only 登录资产修复已构建、备份、统一部署并真实登录/导入幂等验证通过；本轮只读健康窗口已完成并释放。M8 精确候选 0e5fed78841f8acad31278a3e06cb08b0e6e93d0 的完整独审仍未完成；未安装 team_access、未恢复、未通过安全版重启或权限验收。** 修复复审 clean/hold 不是完整审查、合并或安装授权。初始组合 509df32 仅用于早期离线探针，不可作为最终安全版。当前未经 tower 新授权不执行共享 Docker、HTTP、数据库、Redis 读取或写入。备份存在不代表恢复成功。仅第一个 Ubuntu-24.04、合成资料；不触碰第二发行版。
+状态（2026-11-02）：**本地新建同版本合成来源→原生四件备份→另一独立项目恢复、完整内容/关联核对、管理员 HTTP、新写入重启持久化及受控导出已实际通过；双 Sales User 登录通过，但合法 Note 读取因 M8 候选 API 不兼容返回500，权限验收未通过。** 不代表远端现站恢复、原 M7 业务持久化或完整团队 MVP 完成；M9 任务仍未完成。仅第一 Ubuntu-24.04、合成资料，第二发行版及远端均未操作。以下先列当前结果，后文保留各历史窗口及当时未验证状态。
 
-## 本轮精确来源归档与恢复确认适配（未构建、未运行恢复）
+## 2026-11-02 本地真实恢复与持久化结果（D-006）
+
+- **来源/目标**：新来源 `crm-m9-source-c1102` / `crm.localhost` / 8090，run `b4a562ef23334fc0bdc41f3b90996a2d`；新恢复 `crm-recovery-b010200` / `recovery.localhost` / 8089，run `eafceeb05b0a45e59fbc6825674e28fc`。两项目独立 DB/sites/Redis/logs/keys/bundle 卷及 internal 网络，无 worker/scheduler，禁发信/导入/Server Script。原站点、旧卷/镜像/失败容器/备份全部保留，不 down-v/prune/uninstall。
+- **精确候选**：`sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705`，Framework15.125.0/CRM1.90.0/resource_import0.1.0/team_access0.1.0；resource `faa5f0330ad54bd9f4d02bb498ea305651c95ed9`，access `0e5fed78841f8acad31278a3e06cb08b0e6e93d0`。context `integration-7d31d600dbcf49bbaf52b5c97dee6a42`，53源文件 manifest SHA `7d1506ba87354547e09a36c4884e4159c66b6d204909a3cc05751a5b0d15c031`。此前一次标准 build 与独立 network=none probe 已通过（两 manifest 各32键及真实目标/Node/四app/CLI），本轮没有重建或激活主 M7 镜像锁。
+- **原生来源初始化**：首次漏官方 CLI 的 `frappe.init(new_site=True)`，第二次因 WSL 短会话结束导致 restart:no 基础服务退出/DNS失败。两失败容器与日志保留；第三次先确认 `_m9_source_c1102` 库不存在，将仅初始配置的 partial 目录改名保留为 `sites/.m9-source-partial-r2`，再原生 `_new_site` 成功、两次 `bench migrate` 成功。没有 force/drop 或覆盖旧站点。两名新用户仅 Sales User，管理员正常 ORM 构建合成业务图，无 ignore_permissions/DocPerm 放宽；普通用户合法读取失败另列，不用代建冒充其创建能力。
+- **备份/恢复**：来源原生 `bench --site crm.localhost backup --with-files` 生成 `20261102_202855-crm_localhost` 四件；流送 network=none receiver，源/receiver逐件字节摘要私下全等，原件保留。目标全新原生 `_restore` exit0，0400 root 密钥初始化、转义固定单库 `%` 账号与 SHOW GRANTS 核验实际通过；公私文件 inventory 共2个内容/路径全等。没有从 Windows 落地或输出备份、密码、密钥及其摘要。
+- **完整一致性**：源/恢复12类对象完整字段、子表、原文、owner/visibility/collaborator、103条 Link/Dynamic Link 引用及摘要完全一致，缺引用0；不只是计数。依次计数为 Organization1、Contact1、Lead1、Deal1、Task1、Note3、Comment11、Communication1、File4（含目录）、Version3、DocShare6、Custom Field29。新 DB 名/password 不同、各自 DB/sites 挂载独立；合成/禁用配置保留，telemetry=0、error_traceback=0、Asia/Kolkata在来源初始化。来源当时没有 encryption_key/backup_encryption_key，恢复亦无：只验证键存在性一致，**未验证已有加密字段或加密备份解密**。
+- **真实 HTTP**：两项目管理员标准密码登录→身份/CRM/CSRF→Note/Task写读基线、中文/引号/换行/危险文本 Code 原文、Lead/Deal/企业/Contact关联与公私文件字节均通过。恢复副本另用标准管理员 HTTP 新建唯一合成 Note 并读回，来源没有该记录。两个普通 Sales User 在来源/恢复的标准密码登录、身份、CSRF均通过，存储角色核无 Sales/System Manager；原生 own User API 隐藏角色子表，因此不能用该响应空roles误判账号无角色。
+- **权限失败（未解除）**：首个 owner 合法 Note GET在两项目均500 TypeError；只读内部复现指向 `team_access.permissions.can_reference:35` 向固定 `frappe.has_permission` 传不支持的 `raise_exception=False`。已交 M8 修复/独审，未修改镜像内 app 或停用 hook。Private/Shared/撤权状态在合成图存在，撤权及基线写入由管理员 HTTP 完成；**普通用户合法读写、Shared/撤权及私附件下载权限矩阵未通过，不能以管理员结果替代**。本候选不可用于真实私域资料。
+- **真实重启/导出**：仅重启本轮两个新项目各6个服务，恢复前后基线完整内容/103引用均不变，管理员重新登录及文件读回通过。恢复副本新增 Note 后再重启其6服务，Note4/105引用/缺0及完整内容与新写入快照相等；管理员重新登录通过。来源基线未混入恢复新记录。源/恢复各私有 JSON+12 CSV 全字段/子表/公式转义读回通过，恢复前导出 records/relations完整全等；新增写入重启后的导出亦通过。目录分别为站点 `private/recovery-evidence`（新0600摘要）与 `private/recovery-exports`（新0700目录、0600文件），不导 User/__Auth/配置/凭据，不当普通用户导出权限证明。
+- **入口限制与临时措施**：Docker29.1.3仅 internal 桥网络实际忽略声明的 ports（HostConfig有绑定、NetworkSettings.Ports为null）；容器内及宿主直连 frontend bridge IP ping200，原生宿主回环端口不可达，与 [moby #53256](https://github.com/moby/moby/discussions/53256)一致。tower只批准本轮 Python 标准库临时 relay：仅127.0.0.1:8090/8089→各自核验 labels/image/internal 网络的固定 frontendIP:8080，16连接、60秒空闲、3小时运行上限、不记录流量或秘密。未改 daemon/firewall/internal、未加外网网络。**这不是原生 Compose 持久入口修复**；容器重启如IP改变须重新核验显式启动，正规入口仍待另验。
+- **生命周期/范围**：有界 WSL `sleep 10800` 只保障本轮实验，不是服务或正式托管；WSL启动时原 M7可能按unless-stopped自然重启，不声称原实例未重启/业务零写。本轮未手工操作原M7业务、未接触第二发行版/远端，也未证明原远端现站的备份恢复。所有运行证据脚本/日志在忽略的 `deploy/.runtime/night_*`，完整业务证据仅在上述 private 目录。
+
+本轮实际命令（第一 Ubuntu、wt9，**仅供追溯，不可在已有目标盲目重放 receive/restore**）：
+
+```bash
+export CRM_RECOVERY_RUN_ID=eafceeb05b0a45e59fbc6825674e28fc
+python3 -B deploy/recovery_manage.py receive --image sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705 --source-project crm-m9-source-c1102 --backup-stem 20261102_202855-crm_localhost --confirm-isolated-recovery-window
+python3 -B deploy/recovery_manage.py restore --image sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705 --confirm-isolated-recovery-window --confirm-synthetic-only-data
+# 后续只可用同一run/image的 status / stop / up；stop保留卷，up不替代入口与权限验收。
+```
+
+`receive --source-project` 只允许原项目或本轮明确合成来源，后者另验精确M9/run标记与site整数合成声明/禁用设置；其他action拒绝此参数，默认原项目行为不变。离线确认门15反例、receive选择5反例/2派发正例/非法来源零操作、全部署AST、Compose隔离检查及diff检查通过。**仍须修正版候选完整独审/授权后的真实双用户回归、持久受控入口、已有加密字段恢复和最终依赖整合；不勾完M9。**
+
+## 历史：精确来源归档与恢复确认适配（该时点未构建、未运行恢复）
 
 - 2026-10-31 只读健康窗口：第一 Ubuntu Running、第二发行版 Stopped；主运行锁和7个应用服务仍一致使用 M7-only `sha256:c47b7cc4bc53cf6388977eb03dab9a9a1658a1c1fdca0d9a8b5cc89c57bc9411`，原 sites/DB/Redis 卷保留。主 checkout 的标准 status/smoke 与 Windows smoke 均通过，覆盖 Guest 登录映射资产/类型、ping、既有 Administrator 会话及 CRM 资产；没有新增业务记录或改账号。这不是最终安全版重启、业务图或权限持久化证明。原8小时保活进程当时仍存在，未重启、续期或终止；不能将应用退出或旧任务 lost 当成 OS 进程已经结束，也不能将短核验命令当正式保活。
 - 仅本地归档并立即逐文件核验 context `deploy/.runtime/integration-837f2d1c345048559fdab4b05fe09c79`：部署来源 `781fba11f2588fa38503c9539b1db096366c9304`，resource_import 来源 `faa5f0330ad54bd9f4d02bb498ea305651c95ed9`，team_access 来源 `0e5fed78841f8acad31278a3e06cb08b0e6e93d0`；53文件（18+33+2），manifest SHA256 `7d1506ba87354547e09a36c4884e4159c66b6d204909a3cc05751a5b0d15c031`。无 candidate-image.env/build-result.json，未 build、未探针、未改主镜像锁。**本节恢复确认适配提交后，该 context 是过时来源证据：保留原件，禁止用于最终 build；新 tip 独审后仍须重新归档核验。** 精确 blob 导出不要求 M8 先 rebase，但不代替正式依赖整合和新 tip 审查。
@@ -126,9 +150,9 @@ python -B deploy/prepare_integration.py --resource-commit 746076bfd6ede014739668
 - 资源兼容性使用既有 `M7HTTP001` 首行经真实REST preview/apply再次执行，均“已导入”，3组织/4联系人/6Lead数量不变。原全矩阵driver要求全新前缀，故没有拿既有前缀盲跑或新增业务记录。
 - 已明确释放共享窗口给 tower/M6 的干净标签页标准登录/视觉验收；M9 此后不追加共享读取或运行操作，等待下一窗口。M7已接收精确shared缓存失效的复现要求；M9最终组合 Dockerfile同步manifest预置及保留断言，尚待最终M8候选重建。
 
-## 实际证据台账
+## 历史证据台账（本轮前；当前结果见开头）
 
-| 门槛 | 当前结果 |
+| 门槛 | 当时结果 |
 |---|---|
 | 初始候选构建/离线静态资产 | 746076b+509df32组合标准build及network=none探针PASS；非最终M8版本且有旧manifest问题 |
 | 精确context复核 | Windows/第一Ubuntu --context校验均exit0；M7-only c8b870b精确19文件真实build通过 |
