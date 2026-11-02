@@ -326,10 +326,23 @@ restore_previous_lock() {
     LOCK_RESULT=restore-failed
     return 1
 }
+metadata_recovery_allowed() {
+    ACTIVE=$1
+    BACKUP=$2
+    FAILED=$3
+    [ ! -e "$FAILED" ] && [ ! -L "$FAILED" ] && return 0
+    [ ! -e "$ACTIVE" ] && [ ! -L "$ACTIVE" ] && return 0
+    [ -f "$ACTIVE" ] && [ ! -L "$ACTIVE" ] && [ -f "$BACKUP" ] && [ ! -L "$BACKUP" ] && cmp -s "$ACTIVE" "$BACKUP"
+}
 quarantine_metadata() {
     META_RESULT=quarantined
     FAILED_RELEASE=${FAILED_RELEASE:-$RUNTIME/failed-release.env}
     FAILED_LAYERS=${FAILED_LAYERS:-$RUNTIME/failed-image-rootfs-layers.txt}
+    [ ! -L "$FAILED_RELEASE" ] && [ ! -L "$FAILED_LAYERS" ] || META_RESULT=quarantine-failed
+    [ "$META_RESULT" = quarantined ] || return 1
+    metadata_recovery_allowed "$RUNTIME/release.env" "$UPDATE_RELEASE_BACKUP" "$FAILED_RELEASE" || META_RESULT=quarantine-failed
+    metadata_recovery_allowed "$RUNTIME/image-rootfs-layers.txt" "$UPDATE_LAYERS_BACKUP" "$FAILED_LAYERS" || META_RESULT=quarantine-failed
+    [ "$META_RESULT" = quarantined ] || return 1
     if [ -e "$RUNTIME/release.env" ] && [ ! -e "$FAILED_RELEASE" ] && [ ! -L "$FAILED_RELEASE" ]; then
         mv "$RUNTIME/release.env" "$FAILED_RELEASE" || META_RESULT=quarantine-failed
     fi
@@ -339,6 +352,7 @@ quarantine_metadata() {
     [ "$META_RESULT" = quarantined ]
 }
 restore_previous_metadata() {
+    [ "$META_RESULT" != quarantine-failed ] || return 1
     RESTORED_ANY=0
     if [ -e "$UPDATE_RELEASE_BACKUP" ]; then
         (umask 077 && set -C && cat "$UPDATE_RELEASE_BACKUP" > "$RUNTIME/.release.restore-$NEW_CONFIG.tmp") && mv "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/release.env" || META_RESULT=restore-failed
@@ -362,7 +376,9 @@ fail_update() {
     stop_maintenance || true
     restore_previous_lock || true
     quarantine_metadata || true
-    restore_previous_metadata || true
+    if [ "$META_RESULT" != quarantine-failed ]; then
+        restore_previous_metadata || true
+    fi
     write_state "maintenance reason=$REASON image=$NEW_CONFIG stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
     printf 'ERROR: site update failed (%s); stop=%s lock=%s metadata=%s; do not resume the known-broken permission version\n' "$REASON" "$STOP_RESULT" "$LOCK_RESULT" "$META_RESULT" >&2
     exit 1
@@ -536,7 +552,9 @@ restore_old_lock() {
     stop_maintenance || true
     restore_previous_lock || true
     quarantine_metadata || true
-    restore_previous_metadata || true
+    if [ "$META_RESULT" != quarantine-failed ]; then
+        restore_previous_metadata || true
+    fi
     write_state "maintenance reason=manual-old-lock-recovery image=${NEW_CONFIG:-legacy} stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
     [ "$STOP_RESULT" = stopped ] && [ "$LOCK_RESULT" = restored ] && [ "$META_RESULT" != restore-failed ] && [ "$META_RESULT" != quarantine-failed ] || fail 'maintenance recovery incomplete; inspect maintenance-status and preserve resources'
     printf 'PASS: previous lock and current-generation metadata restored with project stopped; no old service was started\n'
