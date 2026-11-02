@@ -205,6 +205,12 @@ sh deploy/remote/trial.sh check
 
 锁迁移只接受精确旧 index 锁，先验证 config 的 ID、平台、labels 和完整 RootFS，再要求旧锁为非 symlink 的 0600 文件；它排他保留旧锁到 `image.env.pre-c010400-config`，在同目录原子更换新锁，不改 `.env`、站点、容器或卷。已有备份/临时路径、错误旧值、错误 config/平台/labels/diff_ids 均拒绝且不换锁。两个动作都只服务本次 M15 停点，不是通用升级器或任意 ID 回退。
 
+### 按代次续升的本地决策
+
+单次更新后仅当 `site-update.state=ready` 才允许下一次续升；`updating`、停止/恢复失败或其他维护态必须停止审查，不能手工删改 ready 绕过。每轮以新 config 为代次标识，独立保存锁备份、release/layers、临时文件和状态历史，已有同名路径即拒绝而非覆盖。新 config 必须不同，且锁/runtime manifest/全部应用服务须先与本轮起点一致。新四件备份完成可读后才 load；失败停写并恢复本轮起点，而不是首次镜像。新独立 staging 和 Tower 单独执行窗口仍是每次升级前置条件。
+
+代次文件名分别为 `image.env.pre-site-update-<新config>`、`site-update.state.pre-<新config>`、`release.pre-<新config>.env`、`image-rootfs-layers.pre-<新config>.txt`；失败的新元数据隔离到 `failed-release-<新config>.env` 和 `failed-image-rootfs-layers-<新config>.txt`，随后恢复本轮备份并记 `metadata=restored`。`restore-old-lock` 依据 `site-update.state` 中的 `image=<失败代次config>` 选择该代锁/manifest 备份；首轮旧文件名保持不变，禁止用首次备份替代本轮恢复点。
+
 ### 运行站点的已审补丁镜像更新（待 M9 元数据）
 
 现有工具支持上述工具更新和旧锁迁移，但运行站点补丁还必须有 M9 提供的独立 `release.env`、完整 `image-rootfs-layers.txt` 和镜像 tar。元数据须包含精确 `CRM_IMAGE_CONFIG`、OCI index、平台 manifest、tar SHA 及三个源码 revision；本包不猜补丁 digest、不重 build。当前锁须为旧 config `129b0357…`，且站点已完成双迁移。

@@ -289,8 +289,17 @@ require_compose_materials() {
     [ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || fail 'compose credentials file must be ordinary and non-symlink'
     [ -f "$IMAGE_FILE" ] && [ ! -L "$IMAGE_FILE" ] || fail 'compose image lock must be ordinary and non-symlink'
 }
+set_update_paths() {
+    UPDATE_BACKUP="$RUNTIME/image.env.pre-site-update-$NEW_CONFIG"
+    UPDATE_STATE_BACKUP="$RUNTIME/site-update.state.pre-$NEW_CONFIG"
+    UPDATE_RELEASE_BACKUP="$RUNTIME/release.pre-$NEW_CONFIG.env"
+    UPDATE_LAYERS_BACKUP="$RUNTIME/image-rootfs-layers.pre-$NEW_CONFIG.txt"
+    FAILED_RELEASE="$RUNTIME/failed-release-$NEW_CONFIG.env"
+    FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers-$NEW_CONFIG.txt"
+    ROLLBACK_TEMP="$RUNTIME/.image.env.rollback-$NEW_CONFIG.tmp"
+}
 write_state() {
-    STATE_TEMP="$RUNTIME/.site-update.state.tmp"
+    STATE_TEMP="$RUNTIME/.site-update.state.${NEW_CONFIG:-manual}.tmp"
     if (umask 077 && set -C && printf '%s\n' "$1" > "$STATE_TEMP") && mv "$STATE_TEMP" "$RUNTIME/site-update.state"; then
         return 0
     fi
@@ -306,7 +315,6 @@ stop_maintenance() {
     return 1
 }
 restore_previous_lock() {
-    ROLLBACK_TEMP="$RUNTIME/.image.env.rollback.tmp"
     if [ ! -f "$UPDATE_BACKUP" ] || [ -L "$UPDATE_BACKUP" ] || [ -e "$ROLLBACK_TEMP" ]; then
         LOCK_RESULT=restore-failed
         return 1
@@ -321,12 +329,27 @@ restore_previous_lock() {
 quarantine_metadata() {
     META_RESULT=quarantined
     if [ -e "$RUNTIME/release.env" ]; then
-        mv "$RUNTIME/release.env" "$RUNTIME/failed-release.env" || META_RESULT=quarantine-failed
+        mv "$RUNTIME/release.env" "${FAILED_RELEASE:-$RUNTIME/failed-release.env}" || META_RESULT=quarantine-failed
     fi
     if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
-        mv "$RUNTIME/image-rootfs-layers.txt" "$RUNTIME/failed-image-rootfs-layers.txt" || META_RESULT=quarantine-failed
+        mv "$RUNTIME/image-rootfs-layers.txt" "${FAILED_LAYERS:-$RUNTIME/failed-image-rootfs-layers.txt}" || META_RESULT=quarantine-failed
     fi
     [ "$META_RESULT" = quarantined ]
+}
+restore_previous_metadata() {
+    RESTORED_ANY=0
+    if [ -e "$UPDATE_RELEASE_BACKUP" ]; then
+        (umask 077 && set -C && cat "$UPDATE_RELEASE_BACKUP" > "$RUNTIME/.release.restore-$NEW_CONFIG.tmp") && mv "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/release.env" || META_RESULT=restore-failed
+        RESTORED_ANY=1
+    fi
+    if [ -e "$UPDATE_LAYERS_BACKUP" ]; then
+        (umask 077 && set -C && cat "$UPDATE_LAYERS_BACKUP" > "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp") && mv "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp" "$RUNTIME/image-rootfs-layers.txt" || META_RESULT=restore-failed
+        RESTORED_ANY=1
+    fi
+    if [ "$RESTORED_ANY" = 1 ] && [ "$META_RESULT" = quarantined ]; then
+        META_RESULT=restored
+    fi
+    [ "$META_RESULT" != restore-failed ]
 }
 fail_update() {
     REASON=$1
@@ -337,7 +360,8 @@ fail_update() {
     stop_maintenance || true
     restore_previous_lock || true
     quarantine_metadata || true
-    write_state "maintenance reason=$REASON stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
+    restore_previous_metadata || true
+    write_state "maintenance reason=$REASON image=$NEW_CONFIG stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
     printf 'ERROR: site update failed (%s); stop=%s lock=%s metadata=%s; do not resume the known-broken permission version\n' "$REASON" "$STOP_RESULT" "$LOCK_RESULT" "$META_RESULT" >&2
     exit 1
 }
@@ -385,20 +409,34 @@ update_site_image() {
     [ "$ARCHIVE_HASH" = "$NEW_ARCHIVE_SHA" ] || fail 'reviewed image archive SHA mismatch'
     command -v python3 >/dev/null 2>&1 || fail 'Python 3 standard library is required for offline archive chain verification'
     python3 "$REMOTE/verify_image_archive.py" "$IMAGE_ARCHIVE" "$NEW_RELEASE" "$NEW_LAYERS" || fail 'reviewed archive digest chain verification failed'
-    UPDATE_BACKUP="$RUNTIME/image.env.pre-site-update"
-    for CONFLICT in "$UPDATE_BACKUP" "$RUNTIME/.image.env.site-update.tmp" "$RUNTIME/.image.env.rollback.tmp" \
-      "$RUNTIME/release.env" "$RUNTIME/image-rootfs-layers.txt" \
-      "$RUNTIME/.release.env.site-update.tmp" "$RUNTIME/.image-rootfs-layers.site-update.tmp" \
-      "$RUNTIME/failed-release.env" "$RUNTIME/failed-image-rootfs-layers.txt" \
-      "$RUNTIME/site-update.state" "$RUNTIME/.site-update.state.tmp"; do
-        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "site update target/temporary/backup conflict must be resolved before any runtime change: $CONFLICT"
+    set_update_paths
+    if [ -e "$RUNTIME/site-update.state" ]; then
+        CURRENT_LOCK=$(cat "$IMAGE_FILE")
+        [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=${CURRENT_LOCK#CRM_IMAGE=}" ] || fail 'repeat update requires a clean ready state matching the current lock; do not edit or delete maintenance state to bypass it'
+    fi
+    for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
+      "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
+      "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" \
+      "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" \
+      "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp" \
+      "$RUNTIME/.site-update.state.$NEW_CONFIG.tmp"; do
+        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "site update generation target/temporary/backup conflict must be resolved before any runtime change: $CONFLICT"
     done
-    (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update.tmp")
-    (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update.tmp")
+    (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
+    (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
     require_runtime
     [ "$CRM_IMAGE" = "$CRM_IMAGE_CONFIG" ] || fail 'running-site update only accepts the existing classic config lock'
     [ "$NEW_CONFIG" != "$CRM_IMAGE_CONFIG" ] || fail 'reviewed update must select a different config; no-op update refused'
     require_marker migrated-twice
+    if [ -e "$RUNTIME/release.env" ]; then
+        (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
+    fi
+    if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
+        (umask 077 && set -C && cat "$RUNTIME/image-rootfs-layers.txt" > "$UPDATE_LAYERS_BACKUP")
+    fi
+    if [ -e "$RUNTIME/site-update.state" ]; then
+        (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
+    fi
     require_docker
     ENV_BEFORE=$(sha256sum "$ENV_FILE")
     DB_BEFORE=$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')
@@ -407,8 +445,8 @@ update_site_image() {
     SITE_CONFIG_BEFORE=$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)
     backup
     (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
-    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update.tmp")
-    write_state updating || fail 'unable to record update start; no runtime action was taken'
+    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+    write_state "updating image=$NEW_CONFIG" || fail 'unable to record update start; no runtime action was taken'
     UPDATE_ACTIVE=1
     trap update_exit EXIT
     trap 'fail_update signal-hup' HUP
@@ -416,7 +454,7 @@ update_site_image() {
     trap 'fail_update signal-term' TERM
     docker_cli load -i "$IMAGE_ARCHIVE"
     verify_image_identity "$NEW_CONFIG" "$NEW_CONFIG" "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM" "$NEW_LAYERS"
-    mv "$RUNTIME/.image.env.site-update.tmp" "$IMAGE_FILE" || fail_update lock-rename-failed
+    mv "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" "$IMAGE_FILE" || fail_update lock-rename-failed
     compose up -d --wait || fail_update recreate-failed
     verify_running_app_images "$NEW_CONFIG" || fail_update application-image-mismatch
     [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail_update db-container-changed
@@ -424,9 +462,9 @@ update_site_image() {
     [ "$QUEUE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')" ] || fail_update redis-queue-container-changed
     [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail_update env-changed
     [ "$SITE_CONFIG_BEFORE" = "$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)" ] || fail_update site-config-changed
-    mv "$RUNTIME/.release.env.site-update.tmp" "$RUNTIME/release.env" || fail_update release-rename-failed
-    mv "$RUNTIME/.image-rootfs-layers.site-update.tmp" "$RUNTIME/image-rootfs-layers.txt" || fail_update layers-rename-failed
-    write_state ready || fail_update ready-state-write-failed
+    mv "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/release.env" || fail_update release-rename-failed
+    mv "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" "$RUNTIME/image-rootfs-layers.txt" || fail_update layers-rename-failed
+    write_state "ready image=$NEW_CONFIG" || fail_update ready-state-write-failed
     UPDATE_ACTIVE=0
     trap - EXIT HUP INT TERM
     printf 'PASS: reviewed image loaded, all application services recreated consistently, backup/old image/old lock retained; run check and business regression\n'
@@ -450,7 +488,8 @@ maintenance_stop() {
     else
         STOP_RESULT=stop-failed
     fi
-    write_state "maintenance reason=manual-stop stop=$STOP_RESULT lock=unchanged metadata=unchanged" || fail "maintenance stop=$STOP_RESULT but state write failed; no persistence is claimed"
+    MANUAL_IMAGE=$(cat "$IMAGE_FILE")
+    write_state "maintenance reason=manual-stop image=${MANUAL_IMAGE#CRM_IMAGE=} stop=$STOP_RESULT lock=unchanged metadata=unchanged" || fail "maintenance stop=$STOP_RESULT but state write failed; no persistence is claimed"
     [ "$STOP_RESULT" = stopped ] || fail 'maintenance stop failed; failure state was recorded, preserve resources'
     printf 'PASS: project stopped without requiring release metadata validation\n'
 }
@@ -458,16 +497,30 @@ restore_old_lock() {
     [ "$CONFIRM_SITE_UPDATE" -eq 1 ] || fail 'maintenance lock recovery requires --confirm-site-image-update'
     require_compose_materials
     require_docker
-    UPDATE_BACKUP="$RUNTIME/image.env.pre-site-update"
+    NEW_CONFIG=
+    if [ -f "$RUNTIME/site-update.state" ]; then
+        NEW_CONFIG=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$RUNTIME/site-update.state")
+    fi
+    if [ -n "$NEW_CONFIG" ]; then
+        set_update_paths
+    else
+        UPDATE_BACKUP="$RUNTIME/image.env.pre-site-update"
+        UPDATE_RELEASE_BACKUP="$RUNTIME/.no-previous-release"
+        UPDATE_LAYERS_BACKUP="$RUNTIME/.no-previous-layers"
+        FAILED_RELEASE="$RUNTIME/failed-release.env"
+        FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers.txt"
+        ROLLBACK_TEMP="$RUNTIME/.image.env.rollback.tmp"
+    fi
     STOP_RESULT=not-attempted
     LOCK_RESULT=not-attempted
     META_RESULT=not-attempted
     stop_maintenance || true
     restore_previous_lock || true
     quarantine_metadata || true
-    write_state "maintenance reason=manual-old-lock-recovery stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
-    [ "$STOP_RESULT" = stopped ] && [ "$LOCK_RESULT" = restored ] && [ "$META_RESULT" = quarantined ] || fail 'maintenance recovery incomplete; inspect maintenance-status and preserve resources'
-    printf 'PASS: previous lock restored with project stopped; no old service was started\n'
+    restore_previous_metadata || true
+    write_state "maintenance reason=manual-old-lock-recovery image=${NEW_CONFIG:-legacy} stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
+    [ "$STOP_RESULT" = stopped ] && [ "$LOCK_RESULT" = restored ] && [ "$META_RESULT" != restore-failed ] && [ "$META_RESULT" != quarantine-failed ] || fail 'maintenance recovery incomplete; inspect maintenance-status and preserve resources'
+    printf 'PASS: previous lock and current-generation metadata restored with project stopped; no old service was started\n'
 }
 inspect_volumes() {
     require_docker
