@@ -2,6 +2,15 @@
 
 状态（2026-11-02，兼容补丁复验）：**原生隔离恢复已通过；新候选在本轮两个合成项目先备份再定点切换，普通 Sales User 原生创建 Lead/本人 Note、Private/Shared/协作撤权/私附件及重启后同一基础 HTTP 矩阵已实测通过。** M8 仅三处 API 兼容增量获得 clean/hold，不是完整权限独审或整体合并许可；M9 任务仍未完成。远端、原 M7、第二发行版未操作。持久入口、已有加密字段恢复及最终依赖整合仍未验，不能标完整团队 MVP。
 
+## 2026-11-03：M19精确构建接入准备（尚未build/部署）
+
+- 本轮仅deploy代码/离线验证，未调用Docker/WSL、未改容器、远端、共享上游或活动锁。M8输入锁 `6b70971f0ac12b2e96b959a61a4c8346eb0868e1`（两段兼容有限clean/hold，不是M8整体通过）。M19旧冻结 `1c66c7fe7274655388ffb0a709ed4ef18f85cfad` 首审发现auto资源promise消费者回归，随后收到返工新冻结 `1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1`（仍待新独审）；两者均只作本轮离线接口测试，**绝不当可构建/已审交付**。接入使用显式最终commit参数，不内置旧tip。
+- 专用 `deploy/Dockerfile.frontend` 保留原c3873基底和完整 `bench get-app` 依赖流程，不继承/复制fb00镜像；resource_import和team_access的pip安装全部先完成，随后M19严格 `apply --check`→apply→after SHA复核→既有Framework preseed及CRM标准assets build/强断言→team_access build→再次after复核。补丁后没有任何pip/yarn安装，旧基座入口保持兼容但不含安全补丁，不能用作新候选替代。具体命令见deploy/README.md新入口。
+- `prepare_integration.py` 新增 `--frontend-commit` / `--deployment-commit` 成对精确40位参数，与既有resource/access组成四源。全部从Git普通blob白名单导出（非浮动工作树），前端12件或完整15件（新增router/users/views消费者fixture必须齐全），部署仅3件，manifest记四源与每件SHA。跨Windows→WSL重读新context必须传准备时原 `--context-sha256`，不允许自行重算漂移后的摘要；缺件/多件/漂移/链接/硬链接/旧build结果拒绝。build前重校验，成功后核四个revision label并记原manifest SHA，仅写候选锁。
+- **依赖复现限制**：原fb00日志显示CRM依赖层命中缓存。静态已核M17公开证据11件现存before内容与两代M19 manifest全等、新accountBoundary应不存在；新tip仅resources.js after SHA变化，apply接口/before集合未变。这只证实所取实物，不是干净 `bench get-app` 再安装自然产生相同源码的证明。当前中低置信，Linux真实check尚未执行。任何不符即停，不修改baseline、不靠版本号或重新安装凑绿；若需固定fb00完整树输入，先留新取舍/可重复条件并审查，不能当本轮已执行方案。
+- **已执行离线检查**：Windows现有Python/Node，`python -B deploy/.runtime/check_frontend_integration.py 1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1` 15组PASS（旧tip同组亦PASS）：三Python AST；原基底/安装与check/apply/build次序/preseed强断言/最终after/四label静态核验；真实resource/M8/M19 Git blob导出与全部SHA；缺/错receipt、manifest commit漂移、源缺/多/漂移、浮动commit/部分四源拒绝；12/15白名单与半套/未知项拒绝；仅mock Docker的命令/label/结果receipt与错误label无候选锁；旧resource/access及resource-only context兼容；真实M17 before哈希全等；M19既有check_apply干跑零写/重放/漂移/缺件/HEAD/重复应用拒绝；新after校验器7patch+5guard及漂移负例；精确导出受控Node18项全PASS（含真实固定router/users/views消费者5项，旧tip为13项）。临时fixture自动清理，测试deployment输入为本轮未提交三文件的显式mock，CRM HEAD仅在重放fixture中mock；未伪造任何before文件hash。此mock不证明实际提交源；正式独审交接另报实际commit纯prepare/receipt核验，不能把mock命令当真实build。
+- **未做/下一门槛**：没有运行标准Vitest/Vite、镜像build/probe、迁移、HTTP/浏览器或新恢复。本轮不解除M8/M9/M19阻断。等M19最终tip重新独审、本接入限定独审和tower新窗口后，才能锁四源、真实Linux `--check`/标准测试与build；之后固定新资产交M18真实UI，不能以200壳或受控替身代替。所有旧context/镜像/备份/业务与失败证据保留。
+
 ## 兼容补丁新候选与本地正常功能复验
 
 ### 精确来源与受控切换

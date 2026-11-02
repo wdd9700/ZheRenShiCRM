@@ -113,6 +113,8 @@
 - **离线交付/剩余边界**：按M13七字段/有序24层契约和tower独立导出授权生成新tar/release，真实tarSHA e00a4c2c6573588abec8d28ff8b33dab0f9d7ef5dcffe1250ee1c18b1601ebba，完整blob/index→manifest→config/逐解压层全等PASS；尚未传远端，不执行有维护缺陷的38cbcd0更新器，等修复独审及新窗口。仍缺M8历史/列表/搜索/用户导出/socket/UI等全矩阵、已有加密字段恢复和持久入口；本次不重做旧恢复，不把基础正常功能复验冒称完整安全通过。
 - **可逆/复评**：新命名资源独立、失败保留，不删旧卷/记录/备份，不 down-v/prune/uninstall。恢复差异、缺引用、连接指向原源或资源不足立即停该步骤并报告，继续可独立验证事项。实际结果归档于 `RECOVERY_VALIDATION.md`，只证明本轮新建合成来源恢复，不证明远端现站或真实客户资料恢复。
 - **用户决策**：当前无需另设决策卡点；用户已授权夜间本地隔离演练及不删数据边界，tower已确认源方案。扩大远端操作或真实资料范围仍另行协调。
+- **2026-11-03，M19构建接入暂定（实施前）**：本轮只改deploy接入/离线验证，不build或改运行实例。M8精确6b70971f0ac12b2e96b959a61a4c8346eb0868e1两段兼容有限clean/hold；M19冻结1c66c7fe7274655388ffb0a709ed4ef18f85cfad仍待独审，不是最终构建授权。暂选专用Dockerfile.frontend保留c3873固定Framework基底、既有bench get-app完整依赖准备，全部pip安装先于补丁，随后严格check→apply→原preseed/标准资产构建→after SHA复核；旧入口保持不变。备选继承或复制fb00完整镜像树能固定实物依赖，但新增镜像供应链/Framework资产与可重复输入契约，未经审查不执行；M17仅39件证据不能当完整依赖。既有fb00日志的依赖层是cache命中，不能证明干净重建必然再现manifest before SHA，当前为中低置信假设；不匹配即停，不刷新baseline、不再安装包凑绿。精确Git commit导出白名单和逐文件SHA可离线核验；后续需M19最终审定tip、接入独审与tower新build窗口，才验证真实Linux依赖check/标准Vitest/build/probe/UI。无新增必须由用户决定的卡点；若实际不匹配，再记录镜像输入替代方案与复现条件并先审，不静默换设计。
+- **M19接入离线结果追加**：旧1c66首审auto promise消费者回归后，收到新冻结1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1（仍待重审，不build）。新集合15件，apply接口与before SHA未改，仅resources.js after变化。对精确Git blob做15组离线检查全PASS，既有Node受控测试18项、既有Python重放/拒绝及新after核验PASS；旧入口context兼容、manifest receipt/源码漂移与部分/额外文件拒绝、仅mock Docker命令/label负例均PASS。只是源码/受控验证，实际Linux依赖重建、标准Vitest/build/probe及真实UI尚未执行；不把受控回归等同M19独审通过。
 
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 

@@ -27,6 +27,8 @@ for filename in ("access.js", "page.js"):
     site_path = Path("sites/assets/team_access") / filename
     assert path.is_file() and path.stat().st_size > 0 and site_path.read_bytes() == path.read_bytes(), "Team Access image/sites static asset missing or changed"
     subprocess.run(["node", "--check", str(path)], check=True)
+if Path("/home/frappe/c011000").exists():
+    subprocess.run(["env/bin/python", "/home/frappe/verify_frontend_patch.py", "apps/crm", "/home/frappe/c011000"], check=True)
 subprocess.run(["bench", "version"], check=True)
 subprocess.run(["bench", "--site", "recovery.localhost", "restore", "--help"], check=True)
 print("PASS: exact app versions/registry, image static assets, JavaScript syntax and offline restore CLI")
