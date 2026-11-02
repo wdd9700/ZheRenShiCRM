@@ -45,8 +45,11 @@ def module(name, **values):
     return result
 
 
-def native(doctype, ptype="read", doc=None, user=None, **kwargs):
-    return (doctype, str(doc.name if isinstance(doc, dict) else doc), user or frappe.session.user, ptype) not in native_denied
+def native(doctype=None, ptype="read", doc=None, user=None, throw=False, *, parent_doctype=None, debug=False, ignore_share_permissions=False):
+    allowed = (doctype, str(doc.name if isinstance(doc, dict) else doc), user or frappe.session.user, ptype) not in native_denied
+    if throw and not allowed:
+        raise PermissionError()
+    return allowed
 
 
 def get_all(doctype, filters=None, fields=None, limit_page_length=0, **kwargs):
@@ -177,8 +180,64 @@ def build_environment(upstream):
             setattr(sys.modules[f"crm.fcrm.doctype.{doctype}.{doctype}"], name, namespace[name])
 
 
+def verify_permission_signature(upstream):
+    import inspect
+    from team_access import deleted, events, permissions as policy
+
+    if upstream:
+        namespace = {"frappe": frappe}
+        load_native(upstream / "apps/frappe/frappe/__init__.py", {"has_permission"}, namespace)
+        assert inspect.signature(namespace["has_permission"]).parameters == inspect.signature(native).parameters
+    try:
+        frappe.has_permission("CRM Lead", raise_exception=False)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("permission replacement accepted unsupported keyword")
+    parent = put("CRM Lead", "signature-parent")
+    note = put("FCRM Note", "signature-note", reference_doctype=parent.doctype, reference_docname=parent.name, custom_team_visibility="Private", custom_team_collaborator="")
+    snapshot = put("Deleted Document", "signature-snapshot", deleted_doctype="CRM Lead", deleted_name="signature-old", data=json.dumps({"doctype": "CRM Lead", "name": "signature-old"}))
+    try:
+        assert policy.can_reference(parent.doctype, parent.name, "a")
+        assert policy.can_reference(note.doctype, note.name, "a")
+        assert not policy.can_reference(note.doctype, note.name, "b")
+        assert policy.can_contribute(note.doctype, note.name, "a")
+        assert not policy.can_contribute(note.doctype, note.name, "b")
+        assert deleted.check_snapshot(snapshot.name).name == snapshot.name
+        for dt, name, ptype, check in ((parent.doctype, parent.name, "read", lambda: policy.can_reference(parent.doctype, parent.name, "a")), (parent.doctype, parent.name, "read", lambda: policy.can_reference(note.doctype, note.name, "a")), (note.doctype, note.name, "write", lambda: policy.can_contribute(note.doctype, note.name, "a"))):
+            native_denied.add((dt, name, "a", ptype))
+            assert not check()
+            native_denied.clear()
+        native_denied.add(("Deleted Document", snapshot.name, "a", "read"))
+        forbidden(lambda: deleted.check_snapshot(snapshot.name))
+        native_denied.clear()
+        comments = []
+        def add_comment(comment_type, text):
+            comment = Doc(doctype="Comment", owner="a", comment_type=comment_type, reference_doctype=parent.doctype, reference_name=parent.name, content=text)
+            events.validate(comment)
+            comments.append(comment)
+        parent.add_comment = add_comment
+        if upstream:
+            namespace = {"frappe": frappe}
+            load_native(upstream / "apps/frappe/frappe/desk/doctype/todo/todo.py", {"add_assign_comment"}, namespace, "ToDo")
+            assign_comment = lambda: namespace["add_assign_comment"](Doc(reference_type=parent.doctype, reference_name=parent.name), "Synthetic assignment", "Assigned")
+        else:
+            assign_comment = lambda: add_comment("Assigned", "Synthetic assignment")
+        assign_comment()
+        assert len(comments) == 1 and comments[0].comment_type == "Assigned"
+        native_denied.add((parent.doctype, parent.name, "a", "read"))
+        forbidden(assign_comment)
+        assert len(comments) == 1
+    finally:
+        native_denied.clear()
+        for doc in (parent, note, snapshot):
+            records.pop((doc.doctype, doc.name))
+    print("PASS exact Frappe has_permission public signature: unsupported keywords rejected; parent read/private write/snapshot native denials retained; ordinary ToDo assignment Comment validation succeeds without bypass")
+
+
 def run(upstream):
     build_environment(upstream)
+    verify_permission_signature(upstream)
     from team_access import docinfo, events, files, install, permissions as policy, realtime, references, request, responses
 
     put("CRM Lead", "parent")

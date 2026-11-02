@@ -32,7 +32,7 @@ def can_reference(doctype, name, user, seen=()):
             return False
         if doctype in PROTECTED and not permitted(doc, user, "read", seen):
             return False
-        return bool(frappe.has_permission(doctype, "read", doc=doc, user=user, raise_exception=False))
+        return bool(frappe.has_permission(doctype, "read", doc=doc, user=user, throw=False))
     except (frappe.PermissionError, frappe.DoesNotExistError, ImportError):
         return False
 
@@ -40,7 +40,7 @@ def can_reference(doctype, name, user, seen=()):
 def can_contribute(doctype, name, user, seen=()):
     if doctype in PRIVATE_TYPES:
         target = get_record(doctype, name)
-        return bool(target and permitted(target, user, "write", seen) and frappe.has_permission(doctype, "write", doc=target, user=user, raise_exception=False))
+        return bool(target and permitted(target, user, "write", seen) and frappe.has_permission(doctype, "write", doc=target, user=user, throw=False))
     return can_reference(doctype, name, user, seen)
 
 

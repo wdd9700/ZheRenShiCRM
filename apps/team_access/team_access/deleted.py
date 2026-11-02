@@ -40,7 +40,7 @@ def permitted_snapshot(doc, user):
 
 def check_snapshot(name):
     doc = get_record("Deleted Document", name)
-    if not doc or not permitted_snapshot(doc, frappe.session.user) or not frappe.has_permission("Deleted Document", "read", doc=doc, user=frappe.session.user, raise_exception=False):
+    if not doc or not permitted_snapshot(doc, frappe.session.user) or not frappe.has_permission("Deleted Document", "read", doc=doc, user=frappe.session.user, throw=False):
         deny()
     return doc
 
