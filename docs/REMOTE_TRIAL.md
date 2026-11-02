@@ -219,13 +219,19 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
 
 该动作先离线核验 tar SHA、index→amd64 manifest→config 及逐层 diff_ids，再完成四件备份可读检查后加载并验证新镜像，保留 `.env`、站点配置、数据库/卷、原镜像和 `image.env.pre-site-update`，以 Compose 原生重建。六个长驻应用服务须全部运行新 config，configurator 须同 config 且 exit 0；DB/Redis 容器 ID、`.env` 和站点配置哈希不得改变。全部目标、备份和临时路径冲突在运行态变化前预检，完整元数据先写入临时文件。切换后任何退出、写入/rename失败或可捕获信号都会先独立尽力 `compose stop`，再分别尝试锁恢复和元数据隔离，并把 stop/lock/metadata 结果写入 `site-update.state`；任何失败均不自动重启已知权限缺陷版本。成功后才提交新 manifest/层清单供后续 `check`。后续权限复验失败同样立即停写/维护，不以旧版回退冒充健康。不 `down -v`/prune、不 init、不重复旧 load 迁移、不改公开范围/SSH/firewall，也不解除 M8/M9 门禁。
 
-维护/恢复入口不依赖新元数据有效：
+维护/恢复入口不依赖新元数据有效。每条命令都独立使用**同一已审 staging 脚本和原 runtime 绝对路径**，不覆盖旧工具，也不继承前一条命令的局部变量：
 
 ```sh
-sh deploy/remote/trial.sh maintenance-status
-sh deploy/remote/trial.sh maintenance-stop
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" maintenance-status
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" maintenance-stop
 # 仅在已审查决定恢复旧锁时：
-sh deploy/remote/trial.sh restore-old-lock --confirm-site-image-update
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" restore-old-lock --confirm-site-image-update
+# 状态一致后才复核，不直接调用旧树脚本：
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" check
 ```
 
 `stop` 同样不先验证 release/layers。SIGKILL 无法捕获，本包不声称可 trap；遗留 `updating` 状态即表示中断，先按维护入口检查，不得把进程消失当成已停稳。

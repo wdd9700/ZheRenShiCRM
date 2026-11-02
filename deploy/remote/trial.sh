@@ -445,9 +445,13 @@ maintenance_stop() {
     require_compose_materials
     require_docker
     STOP_RESULT=not-attempted
-    stop_maintenance
-    write_state "maintenance reason=manual-stop stop=$STOP_RESULT lock=unchanged metadata=unchanged"
-    [ "$STOP_RESULT" = stopped ] || fail 'maintenance stop failed; state was recorded, preserve resources'
+    if stop_maintenance; then
+        STOP_RESULT=stopped
+    else
+        STOP_RESULT=stop-failed
+    fi
+    write_state "maintenance reason=manual-stop stop=$STOP_RESULT lock=unchanged metadata=unchanged" || fail "maintenance stop=$STOP_RESULT but state write failed; no persistence is claimed"
+    [ "$STOP_RESULT" = stopped ] || fail 'maintenance stop failed; failure state was recorded, preserve resources'
     printf 'PASS: project stopped without requiring release metadata validation\n'
 }
 restore_old_lock() {
