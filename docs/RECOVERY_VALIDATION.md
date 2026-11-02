@@ -1,8 +1,19 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
-状态（2026-11-02，兼容补丁复验）：**原生隔离恢复已通过；新候选在本轮两个合成项目先备份再定点切换，普通 Sales User 原生创建 Lead/本人 Note、Private/Shared/协作撤权/私附件及重启后同一基础 HTTP 矩阵已实测通过。** M8 仅三处 API 兼容增量获得 clean/hold，不是完整权限独审或整体合并许可；M9 任务仍未完成。远端、原 M7、第二发行版未操作。持久入口、已有加密字段恢复及最终依赖整合仍未验，不能标完整团队 MVP。
+当前状态（2026-11-03）：**新前端候选仅source已备份并受控更新；更新内容完整性通过，普通HTTP核心列表/重启续验仍待独立脚本复核。source三app停写，recovery尚未更新，双站本轮未通过。** 原生隔离恢复及上一代34fc双站基础HTTP/重启证据继续有效，但不等于本候选已通过。M8整体/M9仍未完成；远端、原M7、第二发行版未人工操作，不标完整团队MVP。
 
-## 2026-11-03：已审四源标准构建、独立probe与标准Vitest（未部署）
+## 2026-11-03：source受控更新与普通列表续验停点（部分完成）
+
+- **授权与范围**：tower在构建证据文档a00562d后另开本地两合成站窗口，逐站先备份再更新，source全绿前不动recovery；不重做restore、不新release/远传。四源、原receipt及构建deployment58a0fd68不因文档提交改变。首次preflight误把“拟替换app全命名卷”断言套到Redis cache既有匿名/data卷，任何变更前拒绝；经tower确认仅三app适用，DB/Redis严格ID/image/mount保持，未删/迁移cache卷或改Compose。
+- **source更新已通过**：仅原source三app（backend/websocket/frontend）先核写层仅Python缓存/nginx配置/pid、各仅sites/logs两命名卷，再封frontend/websocket。`M9FrontendBeforeUpdate`完整12类/子表/原文/141引用缺0私快照，新`bench backup --with-files`四件stem`20261102_235948-crm_localhost`均非空，gzip全读、公/私tar逐文件全读、备份config与现config语义等后才定点`up -d --wait --no-deps --force-recreate backend websocket frontend`。三app均运行index f43a277d及已核原始config50836b19链/四label/RootFS；site/common配置字节、DB/RedisID/image/mount、主M7锁与所有其他容器所选状态完全不变。仅明确shared `assets_json`及本站网页cache失效；`M9FrontendAfterUpdate`完整状态与之前全等。没有install/migrate/权限改变。新backup和旧所有资料保留。
+- **更新后HTTP已通过的部分**：A/B均标准密码会话/身份/CSRF，旧Admin-owned Private拒绝、本人Note/Task同值PUT/读回、对方Private读写403、Shared读200写403、撤回对象403、私文件本人bytes200/对方403、B导入入口拒绝，沿既有fixture `verify`非`prepare`。A固定UI Lead空字符串/None/[]/JSON[]、controller原投影typed/JSON、本人standard保存后显式成对投影与blank的data/rows/columns/fields/is_default/count全等、设置不改、安全custom、Deal无standard/controller等价均已到达PASS。rawalias/filter/order及Error Log原生读403亦A通过；不能据此称完整A/B核心矩阵已通过。
+- **三次验收失败保留**：首次在额外`get_views(Comment)`403停止，尚未走Comment get_data；固定`request.py:110-128`只白名单get_data、不白名单该视图端点，是既有未审端点guard，不是上游权限结论。第二次续验A上述核心通过、Comment get_data也403，随后B默认Lead列表200但未含共享A，触发脚本附加前提。第三次把B“仅本人”对称套到A，又在A额外旧Lead断言停止。每次helper均停source三app、退役对应relay、保留独立报告/log，recovery未动；未静默删失败、放宽权限或回滚旧不安全镜像。三次皆未执行本候选六服务restart。第三次前提错误由M9验收脚本引入，不能把原生/兼容出现相同对象直接当授权正确。
+- **双账号READ ONLY查因**：经逐次明确授权，仅start现存backend，frontend/websocket停、无relay，维护进程set_user A/B，数据库`START TRANSACTION READ ONLY`，finally rollback/destroy并stop。同一完整固定UI请求filters{}、default_filters converted0、modified desc、page20/count20、list/owner、空投影，native CRM get_data/compat/get_list集合全等：A=`[00002,00001]` count2/is_default false；B=`[00003]` count1/is_default true（前缀均`CRM-LEAD-2026-`）。逐ID授权独立核：旧00001 owner=Administrator但lead_owner=A、active ToDo=A、DocShare A读写三源明确，A可见正确；00002 owner/lead_owner/ToDo=A，B仅read DocShare；00003 owner/lead_owner/ToDo=B且无share，A直接读权限false且不见。两账号无Sales/System Manager，未改分配/共享。维护内部对照不是Sales HTTP替代。只读SQL辅助曾因未引用rows/columns标识1064，仅SELECT失败、部分安全分类保留，修正后完整读取；没有去掉READ ONLY保护。
+- **独立产品缺陷**：B对共享A Lead直接HTTP GET200，但默认列表不可发现。固定CRM org_hierarchy.py:53-60只lead_owner/ToDo，Framework db_query.py:1364-1399在Sales read1/if_owner0时不因额外hook owner约束加载DocShare OR；实际原生SQL仅converted和owner/ToDo。不是分页/分享已撤或新投影回归；已TowerFinding上报，不在M9热修、不称共享列表合格。若产品要求共享可发现，应由所属权限任务设计/独审修复并保留撤权，不能改owner/ToDo凑显示。
+- **待审续验与当前运行边界**：统一`frontend_http_c011000_reviewed.py`只接受source，基于已记录双账号原生集合且每listedID有明确授权做HTTP严格等价；完整剩余前提矩阵已发tower独立复核。AST通过但未执行，旧三次失败原件不覆盖，新报告名http-reviewed。source三app最后明确停止；recovery未更新仍旧34fc，旧relay已到期，当前无活跃后台任务。不能用旧image调用recovery_manage up回切或放宽混合历史保护。后续start、双站更新、真实M18UI入口须tower协调，不盲目续试。无新release/tar/远传、无真实资料。
+- **证据**：ignored目录内`frontend-c011000-source-{preflight,update,http,http-resume,http-final}.json`；`frontend-c011000-source-{b-list-readonly,b-native-comparison,ab-native-comparison}.json`及只读失败分类；`frontend-c011000-source-backup.log`。私业务快照仍仅站点private目录。执行器switch_frontend_c011000.py、frontend_http_c011000{,_resume,_final,_reviewed}.py、diagnose_frontend_b_list.py、compare_frontend_{b,ab}_native.py、frontend_loopback_relay_c011000.py。没有把未执行脚本当验证结果。
+
+## 2026-11-03：已审四源标准构建、独立probe与标准Vitest（构建时点未部署，后续见上）
 
 本节追加并替代下方准备阶段的当前停点，不抹除早期未验证记录。M19精确1f48ddae已经独审clean/merge并由tower合并至主7962e5d；接入58a0fd68限定clean/hold。tower另授权仅第一实验Ubuntu标准构建/独立none probe，不授权更新任何本地站点或远端；本工作树未rebase，构建输入保持原精确四源。
 

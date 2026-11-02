@@ -23,7 +23,9 @@ Frappe CRM为AGPL-3.0，Framework为MIT；网络提供修改版服务时评估�
 - 不提交`.env`、token、客户数据、渲染后的含秘密Compose、OCI缓存、日志、卷或备份。基座构建入口的`deploy/Dockerfile.dockerignore`只放行Dockerfile与两个app源；新前端入口使用独立的`Dockerfile.frontend.dockerignore`，只再放行after校验器及apply/manifest/payload，均排除pycache/egg-info。精确集成context先由Git白名单导出再逐件核SHA，不直接使用整个运行目录；`deploy/.dockerignore`继续拒绝旧式deploy上下文的其他文件。
 - 不`down -v`、prune，不清理旧容器/镜像/卷。初始化/探针容器故意保留。仅configurator无状态一次性容器经tower批准可必要重建，保留sites/logs卷；其可写层已核验仅pycache。官方入口重建`sites/assets`镜像资产链接，不删除站点public/private资料。
 
-## C011000 前端补丁候选入口（标准构建/离线测试通过，未部署）
+## C011000 前端补丁候选入口（source已受控更新，HTTP续验待审）
+
+2026-11-03后续窗口：tower已另授权仅两个本地独立合成站逐站备份更新，不能把下段构建阶段的“未部署”当最新状态。source新四件备份`20261102_235948-crm_localhost`全读验证后，仅三app定点更新至f43a277d；DB/Redis、卷/config、主M7锁及其他容器不变，更新前后12类原文与141引用完全一致。普通Sales原基础矩阵通过；列表验收三次停止涉及脚本不适用前提（Comment未审视图入口403、B共享Lead未必进入原生列表、A额外旧Lead已有明确授权），未修改权限凑绿。**source三app现按失败停写，recovery尚未更新，未执行本候选六服务重启；完整双站结果未通过。** 双账号维护READ ONLY原生/兼容/底层列表集合已全等且逐ID明确授权；共享A Lead对B可直读但默认列表不可发现为独立产品缺陷，不能称共享列表可用。统一续验helper待tower独立复核，不盲目重启。详情及全部失败证据见`docs/RECOVERY_VALIDATION.md`；未新导出release、未远端传输/更新。
 
 `Dockerfile.frontend` 是 M19 缓存隔离的独立候选配方；旧 `Dockerfile` / `manage.py build` 仅保留基座兼容路径，**不包含 C011000 补丁，不可替代新安全候选交付**。2026-11-03，M19精确`1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1`独审clean/merge（旧1c66首审返工记录保留），接入`58a0fd68e630ad06ea07dd6b332c1cbb8956f071`限定clean/hold；tower另授权第一Ubuntu构建/独立none probe，未授权更新任何站点或远端。原四源/69件context receipt不变，标准构建与before/check/apply/after/guard、资产强断言通过；新index `sha256:f43a277d62eab434ba90922f36b8a75e86a99a7d0dbdede1cbb70bbe57783a6d`，config `sha256:50836b19cb4ac574f53840c100123f87f19032c22788cbd63b12f2146537a69d`。完整Linux依赖原生Vitest 34文件/326项通过，另实际bridge 1项通过（只是受控Node18包装），独立probe exited0并保留新两命名卷。标准save只读流核镜像原始摘要链和四label通过，不落tar、不load；所有48个旧容器所选状态/挂载及主活动锁最终不变。命令、完整身份与警告见 `docs/RECOVERY_VALIDATION.md`。**仍需另开本地站点更新窗口与M18固定资产真实UI验收，不能自行部署或传远端。**
 
