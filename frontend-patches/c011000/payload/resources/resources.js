@@ -48,97 +48,93 @@ export function createResource(options, vm) {
     fetch: fetchFunction,
     reload: fetchFunction,
     submit: fetchFunction,
-    abort: () => controller.abort(),
+    abort: () => {
+      generation++
+      controller.abort()
+      out.loading = false
+    },
     reset,
     update,
     setData,
   })
 
-  async function fetch(params, tempOptions = {}) {
-    await accountBoundary.ready
-    let resourceFetcher =
-      options.resourceFetcher || getConfig('resourceFetcher') || request
+  let generation = 0
 
-    if (params instanceof Event) {
-      params = null
+  function assertCurrent(id) {
+    if (id !== generation) {
+      throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
     }
-    params = params || out.params
-    if (options.makeParams) {
-      params = options.makeParams.call(vm, params)
-    }
-    out.params = params
-    out.previousData = null
-    try {
-      if (!['login', 'logout'].includes(options.url)) accountBoundary.assertActive()
-    } catch (error) {
-      handleError(error, [options.onError, tempOptions.onError])
-    }
-    out.loading = true
-    out.error = null
+    if (!['login', 'logout'].includes(options.url)) accountBoundary.assertActive()
+  }
 
-    if (options.onFetch) {
-      options.onFetch.call(vm, out.params)
+  function fetch(params, tempOptions = {}) {
+    let id = ++generation
+    let promise = runFetch(params, tempOptions, id)
+    promise.catch(() => {})
+    out.promise = promise
+    if (id === generation) {
+      out.loading = true
+      out.error = null
     }
+    return promise
+  }
 
-    let beforeSubmitFunctions = [options.beforeSubmit, tempOptions.beforeSubmit]
-    for (let fn of beforeSubmitFunctions) {
-      if (fn) {
-        fn.call(vm, out.params)
-      }
-    }
-
-    let validateFunction = tempOptions.validate || options.validate
+  async function runFetch(params, tempOptions, id) {
     let errorFunctions = [options.onError, tempOptions.onError]
-    let successFunctions = [options.onSuccess, tempOptions.onSuccess]
-    let dataFunctions = [options.onData, tempOptions.onData]
+    try {
+      await accountBoundary.ready
+      assertCurrent(id)
+      let resourceFetcher =
+        options.resourceFetcher || getConfig('resourceFetcher') || request
 
-    if (validateFunction) {
-      let invalidMessage
-      try {
-        invalidMessage = await validateFunction.call(vm, out.params)
-        if (invalidMessage && typeof invalidMessage == 'string') {
+      if (params instanceof Event) params = null
+      params = params || out.params
+      if (options.makeParams) params = options.makeParams.call(vm, params)
+      out.params = params
+      out.previousData = null
+      options.onFetch?.call(vm, out.params)
+
+      for (let fn of [options.beforeSubmit, tempOptions.beforeSubmit]) {
+        assertCurrent(id)
+        fn?.call(vm, out.params)
+      }
+
+      let validateFunction = tempOptions.validate || options.validate
+      if (validateFunction) {
+        let invalidMessage = await validateFunction.call(vm, out.params)
+        if (invalidMessage && typeof invalidMessage === 'string') {
           throw new Error(invalidMessage)
         }
-      } catch (error) {
-        handleError(error, errorFunctions)
-        return
       }
-    }
 
-    // fresh controller per fetch; a signal stays aborted forever once used
-    controller = new AbortController()
-    options.signal = controller.signal
-
-    try {
-      if (!['login', 'logout'].includes(options.url)) accountBoundary.assertActive()
-      out.promise = resourceFetcher({
+      assertCurrent(id)
+      controller = new AbortController()
+      let data = await resourceFetcher({
         ...options,
+        signal: controller.signal,
         onError: undefined,
         params: params || options.params,
       })
-      let data = await out.promise
-      if (!['login', 'logout'].includes(options.url)) accountBoundary.assertActive()
+      assertCurrent(id)
+      let transformed = transform(data)
+      assertCurrent(id)
       saveLocal(cacheKey, data)
-      out.data = transform(data)
+      out.data = transformed
       out.fetched = true
-      for (let fn of successFunctions) {
-        if (fn) {
-          fn.call(vm, data)
-        }
+      for (let fn of [options.onSuccess, tempOptions.onSuccess, options.onData, tempOptions.onData]) {
+        assertCurrent(id)
+        fn?.call(vm, data)
       }
-      for (let fn of dataFunctions) {
-        if (fn) {
-          fn.call(vm, data)
-        }
-      }
+      return out.data
     } catch (error) {
-      // a deliberate abort() isn't a resource error; just stop quietly
-      if (error?.name !== 'AbortError') {
-        handleError(error, errorFunctions)
+      if (id !== generation) {
+        throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
       }
+      if (error?.name === 'AbortError') throw error
+      handleError(error, errorFunctions)
+    } finally {
+      if (id === generation) out.loading = false
     }
-    out.loading = false
-    return out.data
   }
 
   function update({ method, url, params, auto }) {

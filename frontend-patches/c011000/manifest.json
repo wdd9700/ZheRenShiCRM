@@ -27,7 +27,7 @@
     "target": "frontend/node_modules/frappe-ui/src/resources/resources.js",
     "payload": "resources/resources.js",
     "before": "96b9c846f1c71571debe553e0e8bc8eaa553f26eba1f584559670e6d41ba99f6",
-    "after": "9798e1e97ea6097f2633c4db35caa7c09aed7d30f9d3085ae2b9c07be2f67de8"
+    "after": "17b8bef0cc7f5bc4232c8edf7bd93d404a52d94dfa428230052eca15efa5e6d4"
   },
   {
     "target": "frontend/src/main.js",

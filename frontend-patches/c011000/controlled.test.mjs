@@ -6,7 +6,7 @@ import { webcrypto } from 'node:crypto'
 
 const base = new URL('./payload/resources/', import.meta.url)
 
-async function fixture(identity = 'Sales A', identify) {
+async function fixture(identity = 'Sales A', identify, waitForIdentity = true) {
   let cookie = 'user_id=misleading-cookie'
   let hidden = false
   const listeners = {}
@@ -50,7 +50,7 @@ async function fixture(identity = 'Sales A', identify) {
   await root.link((specifier) => module(specifier === 'vue' ? 'vue' : 'entry/' + specifier.replace(/^.*\//, '')))
   await root.evaluate()
   const boundary = cache.get('entry/accountBoundary').namespace.accountBoundary
-  await boundary.ready
+  if (waitForIdentity) await boundary.ready
   return {
     resources: root.namespace, boundary, config, env, covers, listeners,
     get uncovered() { return uncovered }, get broadcasts() { return broadcasts },
@@ -280,4 +280,260 @@ test('actual CRM session callbacks use confirmed identity and full navigation fo
   await b.store.login.submit()
   assert.equal(b.location.href, '/crm')
   assert.throws(() => sales.boundary.assertActive(), /locked/)
+})
+
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+
+const tick = () => new Promise(resolve => setImmediate(resolve))
+const salesUser = { name: 'Sales A', email: 'sales-a@example.invalid', role: 'Sales User' }
+
+async function routerConsumers(f) {
+  const { createHash } = await import('node:crypto')
+  const hashes = {
+    router: '5978786c44b5a79a506e8316aa8f2c3db844d558d575b02bfbc6da76f4db9f6b',
+    users: '9e2b275acbb20a495168b3c1b22f4dbf1f48b7acb9c86f6f8b6770a96d46009d',
+    views: 'cd7967d37f0e5dccab8a89019c258a5554248b33860be60708c038fb178e553a',
+  }
+  let guard
+  const context = createContext({
+    console: { error() {} }, window: { innerWidth: 1440, location: {} },
+    localStorage: { getItem: () => null }, requestIdleCallback() {}, queueMicrotask,
+  })
+  const modules = new Map()
+  function synthetic(id, values) {
+    if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(values), function () {
+      for (const [key, value] of Object.entries(values)) this.setExport(key, value)
+    }, { context, identifier: id }))
+    return modules.get(id)
+  }
+  async function load(id) {
+    if (modules.has(id)) return modules.get(id)
+    if (id === 'vue') return synthetic(id, {
+      reactive: x => x, ref: value => ({ value }), computed: fn => ({ get value() { return fn() } }),
+    })
+    if (id === 'pinia') return synthetic(id, { defineStore: (_name, setup) => {
+      let store
+      return () => store ||= setup()
+    } })
+    if (id === 'vue-router') return synthetic(id, {
+      createWebHistory: () => ({}), createRouter: () => ({ beforeEach(fn) { guard = fn } }),
+    })
+    if (id === 'frappe-ui') return synthetic(id, {
+      createResource: f.resources.createResource, call: () => { throw Error('Unexpected direct call') },
+    })
+    if (id.endsWith('/session')) return synthetic('session', { sessionStore: () => ({ get user() { return f.boundary.user }, isLoggedIn: true }) })
+    const name = id.split('/').at(-1)
+    const code = await readFile(new URL('./consumer-fixtures/' + name + '.js', import.meta.url), 'utf8')
+    assert.equal(createHash('sha256').update(code).digest('hex'), hashes[name], 'Fixed consumer fixture drift')
+    const mod = new SourceTextModule(code, { context, identifier: name })
+    modules.set(name, mod)
+    return mod
+  }
+  const router = await load('router')
+  await router.link(load)
+  await router.evaluate()
+  return {
+    guard: (...args) => guard(...args),
+    users: () => modules.get('users').namespace.usersStore(),
+    views: () => modules.get('views').namespace.viewsStore(),
+  }
+}
+
+const deepLink = () => ({ name: 'Lead', params: { leadId: 'SYNTH-A' }, hash: '#activity', matched: [{}], query: {} })
+
+test('fixed router preserves Sales deep link while delayed get_users is pending', async () => {
+  const f = await fixture()
+  const response = deferred()
+  f.config.resourceFetcher = () => response.promise
+  const app = await routerConsumers(f)
+  const next = []
+  const target = deepLink()
+  const navigating = app.guard(target, {}, value => next.push(value))
+  const users = app.users().users
+  const published = users.promise
+  assert.equal(typeof published?.then, 'function')
+  await tick()
+  assert.equal(users.promise, published)
+  assert.equal(users.fetched, false)
+  assert.equal(next.length, 0)
+  response.resolve([[salesUser], [salesUser]])
+  await published
+  assert.equal(users.data.crmUsers[0].name, 'Sales A')
+  assert.equal(users.fetched, true)
+  await navigating
+  assert.equal(next.length, 1)
+  assert.equal(next[0], undefined)
+  assert.equal(target.params.leadId, 'SYNTH-A')
+  assert.equal(target.hash, '#activity')
+})
+
+test('fixed router waits delayed get_views for Home and per-route default custom view', async () => {
+  for (const name of ['Home', 'Deals']) {
+    const f = await fixture()
+    const response = deferred()
+    f.config.resourceFetcher = options => options.url === 'crm.api.session.get_users'
+      ? Promise.resolve([[salesUser], [salesUser]]) : response.promise
+    const app = await routerConsumers(f)
+    const next = []
+    const navigating = app.guard({ name, matched: [{}], params: {}, query: {} }, {}, value => next.push(value))
+    await tick()
+    const views = app.views().views
+    const published = views.promise
+    assert.equal(typeof published?.then, 'function')
+    assert.equal(views.fetched, false)
+    assert.equal(next.length, 0)
+    response.resolve([{ name: 'SYNTH-Deal-Board', route_name: 'Deals', dt: 'CRM Deal', type: 'kanban', is_default: 1 }])
+    await published
+    assert.equal(views.promise, published)
+    await navigating
+    assert.equal(next.length, 1)
+    assert.equal(next[0].name, 'Deals')
+    assert.equal(next[0].params.viewType, 'kanban')
+    assert.equal(next[0].query.view, 'SYNTH-Deal-Board')
+  }
+})
+
+test('fixed router awaits identity gate and rejects Guest/offline without requests or private data', async () => {
+  for (const failure of ['Guest', 'offline']) {
+    const identity = deferred()
+    const f = await fixture('Sales A', () => identity.promise, false)
+    let calls = 0
+    f.config.resourceFetcher = async () => { calls++; return [[salesUser], [salesUser]] }
+    const app = await routerConsumers(f)
+    const next = []
+    const navigating = app.guard(deepLink(), {}, value => next.push(value))
+    const users = app.users().users
+    assert.equal(typeof users.promise?.then, 'function')
+    await tick()
+    assert.equal(calls, 0)
+    assert.equal(next.length, 0)
+    if (failure === 'Guest') identity.resolve('Guest')
+    else identity.reject(Error('offline identity'))
+    await assert.rejects(users.promise, /locked/)
+    await navigating
+    assert.equal(next.length, 1)
+    assert.equal(next[0], false)
+    assert.equal(calls, 0)
+    assert.equal(users.data, null)
+    assert.equal(f.uncovered, 0)
+  }
+  const f = await fixture()
+  f.config.resourceFetcher = async () => { throw Error('offline get_users') }
+  const app = await routerConsumers(f)
+  const next = []
+  await app.guard(deepLink(), {}, value => next.push(value))
+  assert.equal(next[0], false)
+  assert.equal(app.users().users.data, null)
+
+  const viewsFixture = await fixture()
+  viewsFixture.config.resourceFetcher = async options => {
+    if (options.url === 'crm.api.session.get_users') return [[salesUser], [salesUser]]
+    throw Error('offline get_views')
+  }
+  const viewsApp = await routerConsumers(viewsFixture)
+  const viewsNext = []
+  await assert.rejects(viewsApp.guard({ name: 'Home', matched: [{}] }, {}, value => viewsNext.push(value)), /offline get_views/)
+  assert.equal(viewsNext.length, 0)
+  assert.equal(viewsApp.views().views.data, null)
+
+  const identity = deferred()
+  const confirmed = await fixture('Sales A', () => identity.promise, false)
+  let calls = 0
+  confirmed.config.resourceFetcher = async () => { calls++; return [[salesUser], [salesUser]] }
+  const confirmedApp = await routerConsumers(confirmed)
+  const confirmedNext = []
+  const navigation = confirmedApp.guard(deepLink(), {}, value => confirmedNext.push(value))
+  await tick()
+  assert.equal(calls, 0)
+  assert.equal(confirmedNext.length, 0)
+  identity.resolve('Sales A')
+  await navigation
+  assert.equal(calls, 1)
+  assert.equal(confirmedNext.length, 1)
+  assert.equal(confirmedNext[0], undefined)
+})
+
+test('published promise includes processing; concurrent and callback reentry cannot restore old results', async () => {
+  const f = await fixture()
+  const pending = []
+  f.config.resourceFetcher = () => {
+    const request = deferred()
+    pending.push(request)
+    return request.promise
+  }
+  const r = f.resources.createResource({ url: 'custom.read', auto: true, transform: data => ({ processed: data }) })
+  const first = r.promise
+  assert.equal(typeof first?.then, 'function')
+  await tick()
+  const second = r.fetch()
+  assert.equal(r.promise, second)
+  await tick()
+  pending[1].resolve('current')
+  await second
+  assert.equal(r.data.processed, 'current')
+  pending[0].resolve('obsolete')
+  await assert.rejects(first, { name: 'AbortError' })
+  assert.equal(r.data.processed, 'current')
+  assert.equal(r.promise, second)
+  assert.equal(r.loading, false)
+
+  let reentered
+  const callbacks = []
+  const reentrant = f.resources.createResource({ url: 'custom.read', onSuccess(data) {
+    callbacks.push(data)
+    if (data === 'one') reentered = reentrant.fetch()
+  }, onData(data) { callbacks.push('onData:' + data) } })
+  const previous = reentrant.fetch()
+  await tick()
+  pending[2].resolve('one')
+  await assert.rejects(previous, { name: 'AbortError' })
+  await tick()
+  assert.equal(reentrant.promise, reentered)
+  assert.equal(reentrant.loading, true)
+  pending[3].resolve('two')
+  await reentered
+  assert.equal(reentrant.data, 'two')
+  assert.deepEqual(callbacks, ['one', 'two', 'onData:two'])
+
+  const obsolete = r.fetch()
+  await tick()
+  const current = r.fetch()
+  await tick()
+  pending[5].resolve('fresh')
+  await current
+  pending[4].reject(Object.assign(Error('obsolete denied'), { status: 403 }))
+  await assert.rejects(obsolete, { name: 'AbortError' })
+  assert.equal(r.data.processed, 'fresh')
+  assert.equal(r.error, null)
+  f.boundary.assertActive()
+
+  const cancelled = r.fetch()
+  await tick()
+  r.abort()
+  pending[6].resolve('cancelled result')
+  await assert.rejects(cancelled, { name: 'AbortError' })
+  assert.equal(r.data.processed, 'fresh')
+  assert.equal(r.loading, false)
+})
+
+test('ignored auto rejection is handled but published promise still rejects for consumers', async () => {
+  for (const failure of ['network', 'transform', 'onSuccess']) {
+    const f = await fixture()
+    const fail = () => { throw Error('controlled auto failure: ' + failure) }
+    f.config.resourceFetcher = failure === 'network' ? fail : async () => 'response'
+    const r = f.resources.createResource({
+      url: 'custom.read', auto: true, ...(failure === 'network' ? {} : { [failure]: fail }),
+    })
+    const published = r.promise
+    await tick()
+    await tick()
+    assert.equal(r.promise, published)
+    await assert.rejects(published, /controlled auto failure/)
+    assert.equal(r.error.message, 'controlled auto failure: ' + failure)
+    assert.equal(r.data, null)
+  }
 })

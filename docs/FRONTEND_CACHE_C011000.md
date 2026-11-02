@@ -67,7 +67,7 @@ node --check frontend-patches/c011000/payload/session.js
 node --check frontend-patches/c011000/payload/resources/accountBoundary.js
 ```
 
-Node 13项全部通过：
+首轮13项通过（R1修复后全部重跑仍通过；当前合计18项，新增消费者回归见下）：
 
 1. 服务端身份而非cookie身份；Guest/离线启动继续遮蔽。
 2. 正常generic列表、同页cache、document详情；正常删除后的DoesNotExist清空不锁整页。
@@ -86,3 +86,33 @@ Node 13项全部通过：
 Python重放测试：真实固定导出内容复制到工作树ignored临时目录；只mock `git rev-parse`来分别供给匹配/错误HEAD，不伪造文件hash。确认dry-run零写、7件输出精确等于after hash；漂移/缺失/错误HEAD/重复应用均拒绝且拒绝不写。临时fixture自动清理。
 
 替身边界：Node VM执行真实补丁resources/list/document/session/boundary源；Vue reactive/watch/effectScope、Pinia defineStore、fetch配置、DOM、BroadcastChannel/realtime/socket采用受控替身，local.ts仅剥类型签名，不是TypeScript编译检查。多数场景注入boundary环境，第12项才执行实际browser adapter但仍是DOM/fetch替身。没有真实IndexedDB、CSS渲染/可访问性、网络服务端认证、真实权限修改、真实导航、真实后台事件时序或完整业务UI操作。未运行Vite、原生Vitest、浏览器或生产验收；这些保持M9/M18后继门槛。
+
+## R1审查返工（2026-11-03，补丁待重审）
+
+保留原R1记录与提交`1c66c7fe7274655388ffb0a709ed4ef18f85cfad`，不覆盖旧审查。R1的`p2-1items`成立：新增`await accountBoundary.ready`后，auto资源同步返回时`resource.promise`仍为null。固定router会立即await users.promise/views.promise，因而跳过真正的get_users/get_views等待，正常Sales深链接可能误跳Not Permitted，Home或列表可能漏选默认视图。原13项只await fetch返回值，不足以验证真实消费者契约。
+
+修复：公开fetch不再为async；每次调用同步创建并发布完整runFetch Promise，再原样返回该Promise。Promise仍先等待可信身份门禁，继而请求、transform、同步success/data回调及错误处理；不再把out.promise替换为裸网络Promise。fetcher仍在门禁之后取配置，不绕过账号校验。每个Promise内部附一个拒绝观察器，避免auto调用者忽略返回值时出现unhandledRejection；原Promise本身仍拒绝，router或调用者await时能收到真实错误，不通过吞错假装成功。回调返回的任意异步副作用保持上游语义，不声称被资源Promise追踪。
+
+并发策略：每次实际fetch增加generation，旧generation在门禁后、发送前、transform前后及每个回调前失效；旧成功/旧失败均不能覆盖新结果或清除新loading/error。回调同步重入fetch时新Promise保持为out.promise，旧请求停止后续回调，finally不复位新请求loading；被替换/显式abort的旧Promise以AbortError拒绝且已有内部观察器。显式abort同时使generation失效，避免不遵循AbortSignal的替身/传输回传旧值。已有debounce调度语义未扩展：本次修复的是固定users/views等非debounce auto资源同步发布契约，不承诺debounced函数在计时器触发前已经创建网络Promise。
+
+### 新增固定消费者回归
+
+`consumer-fixtures/{router.js,users.js,views.js}`逐字复制自同一M17固定公开源码，**仅测试输入，不应用到CRM业务树**；脚本读入时校验SHA256：
+
+| 文件 | SHA256 |
+|---|---|
+| router.js | `5978786c44b5a79a506e8316aa8f2c3db844d558d575b02bfbc6da76f4db9f6b` |
+| users.js | `9e2b275acbb20a495168b3c1b22f4dbf1f48b7acb9c86f6f8b6770a96d46009d` |
+| views.js | `cd7967d37f0e5dccab8a89019c258a5554248b33860be60708c038fb178e553a` |
+
+在原13项上追加5项，当前18项全通过：
+
+14. 执行真实固定router/users源：延迟get_users时立即可见稳定promise，守卫不提前next；授权Sales返回后保持原Lead ID和`#activity`深链接，不转Not Permitted。
+15. 执行真实固定router/views源：分别验证Home、Deals列表在延迟get_views时不提前next；返回自定义kanban默认视图后精确选择其路由/参数/query，而非默认Lead或list。
+16. 身份门禁未完成时资源Promise已发布但零业务请求、守卫等待；Guest或身份探针离线后Promise拒绝、next(false)、无业务请求/数据、不解罩；延迟确认Sales身份后才发请求并保留深链接。已确认账号的get_users网络离线next(false)，get_views离线使守卫Promise拒绝且不next，均无旧数据或误选默认视图。
+17. 并发旧成功不写回；旧403失败不清新数据、不锁新状态；success回调重入后旧onData不运行、新Promise及loading保持；显式abort后即使传输仍返回也不写旧结果。
+18. auto请求的网络、transform、同步onSuccess三类拒绝在故意延迟消费时无未处理拒绝，但原已发布Promise仍拒绝并清旧data。
+
+执行器仍为同一Node VM harness，router.beforeEach/get_users transform/get_views transform/getDefaultView均来自固定实物，**不是手写等价守卫**。Vue/Pinia/vue-router运行时、后台idle调度及网络依然受控替身；这是修复消费者竞态的源级回归，不升级为浏览器验收。
+
+重放接口、7目标+5guard集合、固定before SHA保持不变；只有resources.js的after SHA更新为`17b8bef0cc7f5bc4232c8edf7bd93d404a52d94dfa428230052eca15efa5e6d4`。测试交接文件集合新增三fixture，M9导出测试上下文须带齐，但实际Docker应用仍只需apply/manifest/payload。重跑原13项、新增5项、Python重放拒绝、语法及LF payload hash检查后提交新tip，须新一轮独审；标准Vite/Vitest/真实UI门槛与所有实验限制不变。
