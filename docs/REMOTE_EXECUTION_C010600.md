@@ -1,6 +1,6 @@
 # 远端合成部署真实执行记录（C010600）
 
-**最新状态（C010800，2026-11-02）：既有远端站点健康；正常 API 保存 System Settings 安全基线、上海时区、管理员合成导入与关联查询已通过。普通 Sales User 正常创建 Lead 暴露兼容性 500，权限深验暂停待修复，不能称团队生产可用。详见 §14。**
+**最新状态（C010800，2026-11-03）：远端已按已审工具完成先备份后兼容镜像更新，健康、安全配置与五件既有业务记录保留；正常设置、上海时区、管理员导入、普通 Sales User 实际创建与有限多会话权限深验通过。此前创建 500 已复验解除；不等于完整 M8 安全矩阵、生产放行或带附件共享功能完成。详见 §14。**
 
 §1–13 是 C010600 部署时点的历史记录，包含当时“未执行”状态，不代表后续任务没有完成。Windows 原生浏览器与安装入口由 M12 独立验收；恢复门禁由 M9 单独记录。站点始终只监听 `127.0.0.1:8088`，仅经 SSH 回环隧道接入。
 
@@ -324,7 +324,7 @@ EOS
 
 记录全部保留。管理员成功只证明该受控入口可用，不证明普通销售私域安全。Windows 经既有 SSH 隧道：`http://127.0.0.1:18088/login` 正常登录，CRM `/crm`，导入 `/resource-import`（只限管理员/System Manager）；不开放服务器公网端口。Windows 原生 Edge 登录/安装应用/独立入口重启为 M12 独立结果，本节 API 验收不替代其浏览器证据。
 
-### 14.3 普通用户与当前阻断
+### 14.3 普通用户初测失败（保留历史，已由 §14.4 实测解除）
 
 两轮各创建两名 `C010800-TEAM-<唯一时间>-a/b@example.invalid` 合成账号，只授予 Sales User、关闭欢迎邮件，随机强口令仅进程内存，分别真实登录并核验身份成功；会话结束后注销。未提升角色、未管理员代建替代普通用户、未关闭权限扩展。
 
@@ -334,9 +334,38 @@ EOS
 
 实际 Frappe 15.125.0 外层签名是 `has_permission(..., throw=False, ...)`，不接受 `raise_exception`；该关键字仅属于内部 `frappe.permissions.has_permission`。运行 `frappe/__init__.py` SHA256 `4538c6ac2da144ef1c0460443b05ef1028a04236fa27307e34b8d5e936a614af`。已提交 high finding 给 tower，由所属 worker 修复和独审，M17 不在 scope 外热改代码。
 
-**尚未通过：** 普通用户私有→明确共享→撤销共享、读写授权区分、新旧会话、列表/搜索/关联选择/时间线/附件/标准导出与商机关系深验。脚本已准备部分标准流程，但因正常创建失败未执行到后续断言，不能把代码存在当通过。未触发已知泄露；这也不是“证明无泄露”。M8 完整安全矩阵与生产门禁仍保留。
+**该停点未执行的后续权限流程，在兼容修复部署后由下节重新使用普通用户真实会话验收；未将管理员成功补算为普通用户成功。** M8 完整安全矩阵与生产门禁仍保留。
 
-### 14.4 可复用脚本
+### 14.4 兼容补丁受控更新窗口
+
+工具精确来源为 M13 已审 `eaffe942b48dd88b5978a2954e64b56d2847c493`，M8 仅三处 API 兼容修复 `9c0c8f50e159fd58dc1a647b1884656377ef8a04` 获有限 clean/hold，不等于整体权限放行。工具由该 Git commit `git archive` 生成（干净 wt13），不复制未提交工作树；工具 tar SHA256 `3b8d5cf40d5d3b6651b5401e9cc65cd37fa5bf5ce5aff54f75f2771bfae80e56`。独立 staging：`/home/dev/c1102-reviewed-update-eaffe942`，旧 `~/crm-trial` 工具/runtime/旧包保留。
+
+M9 交付 tar `crm-m9-compat-c1102-image.tar` 1,539,446,272 字节，SHA256 `e00a4c2c6573588abec8d28ff8b33dab0f9d7ef5dcffe1250ee1c18b1601ebba`；release.env SHA256 `1770decfda6d3d3619fdaacae21423386a8617779ca02714adeb7784b3ff2fa9`，24 层清单 SHA256 `defbc996a7829b70c0f00e0e335ddc3db7b5704dd399fc064fe542826614ec05`。三件及工具 tar 本地与严格 SCP 后远端摘要逐项相同；两端流式完整链校验通过：index `34fc2237…` → amd64 manifest `22c02958…` → config `fb00dd79…` 与每个解压 diff_id。
+
+执行前磁盘余 26 GiB、available 907 MiB、无 swap；五件业务文档 `preserve` 摘要与 §14.2 后记录完全一致。显式 `CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime`、`CRM_TRIAL_DOCKER_SUDO=1`，调用独立 staging 的 `update-site-image <release绝对路径> <tar绝对路径> --confirm-site-image-update`，真实 exit 0（184 秒）。本次备份 `20261103_000232-crm_localhost` 四件完整可读后才 load；六长驻应用全为新 config `sha256:fb00dd79167160c4e00d9678ff7df3f59c8e86a932e029384112145fc8a134ae`，configurator 同 config、Exited(0)，原 create-site 历史容器保留旧镜像。脚本核 DB/双 Redis IDs、`.env`、site_config 不变，保留旧锁/镜像/工具/包/备份，未重 init、migrate、改网或删资源。
+
+更新后同 staging + 原 runtime 的 `maintenance-status=ready`、`check` 身份/labels/24层 PASS；独立再次核 DB/双 Redis IDs 不变、四命名卷创建时间仍为 11-01、六 app 仅挂原 sites/logs 卷且 restart=0/OOM=false。`preserve` 五件完整文档 SHA 与更新前逐项全等；深验与重复导入后再次比对仍全等。最终 available 886 MiB、磁盘余 25 GiB、无 swap，仅 SSH/回环8088。此短期健康不是长期容量保证。
+
+**远端真实普通用户验收：** 最终唯一组 `TEST-C010800-TEAM-20261102161118`，A/B 仅 Sales User，标准密码登录、CRM/Desk CSRF与身份；所有业务由普通账号自己创建，管理员仅建用户及核验。最终 `team` exit 0；结果如下（HTTP/API 会话，不冒充双用户浏览器 UI）：
+
+| 场景 | 实测 |
+|---|---|
+| A/B 正常能力 | A 自建 Lead/本人 Note/Task；B 自建 Lead/本人 Note，owner 实际为本人，读回200；对方私文403 |
+| 私父及共享/撤回 | A 私父对B详情/列表/正常文本筛选/link选择/CRM列表/CSV不可见；显式父read-only共享后详情200，撤回后旧/新B同入口再次不可见 |
+| 文本 Note/Task | Private对B拒绝；Shared对父读者B可读但写403；显式collaborator后B合法写200、A读回一致；撤回后原/新B拒绝；未授权写后完整doc与请求前全等 |
+| 入口一致性 | Note/Task本人正向与B私有/共享/撤回的标准详情、列表、文本筛选、关联选择、父活动时间线、标准CSV导出一致；普通/匿名导入API403且无堆栈 |
+| 私附件 | A正常创建私File并读取字节200；B/匿名403；明确collaborator后B字节200；撤回后原/新B/匿名403，A仍200且字节相等 |
+| 商机关联 | A正常Lead转换生成企业/Contact/Deal，三类关联详情200；Deal私有B403、显式read-only共享B200/写403、撤回B403 |
+| 时区 | A Task creation为`2026-11-03 00:11:22.368551`，与UTC+8相符；due_date=`2026-11-04 00:11:22`读回全等 |
+| 管理员导入回归 | 更新后再次preview/apply旧合成来源，重复2/错误1、关联详情原文正常；Lead00001无新增/改写 |
+
+本组保留 A Lead `CRM-LEAD-2026-00006`、文本 Note `7ckndilddh`、Task `6`、Deal `CRM-DEAL-2026-00002` 等；前组与失败现场同样保留，未批量清理。所有本工具会话最终注销，普通口令不落盘、不输出。
+
+**明确产品限制与负例：** 当前策略禁止把带私附件 Note/Task 直接改成 Shared。第一修后组在此返回417后停止；最后两组将私附件与纯文本共享分开，同时显式复测该转换返回417，Note完整字段/Private可见性、File完整字段/私有状态均未变，B仍不可读。没有删除附件、转公共文件或改安全字段绕过。用户若要共享带附件内容，当前不支持该直接转换；不能将文本共享成功说成完整附件共享功能。
+
+**仍未覆盖/不放行：** M8 全部 legacy/历史 DocShare、实时 socket/通知及全部旁路矩阵；双普通用户浏览器UI、普通用户导出全部业务字段和大批量导出、手机实机；远端本轮备份真实恢复、长期容量。当前导出只验证标准CSV入口的授权记录ID集合，不等于全字段导出审计。Org/Contact属于已明确共享的业务资料，不能当私域对象。M12独立浏览器/安装证据和M9隔离恢复证据各自保留，不拼接成远端完整安全验收。未发现本次覆盖场景泄露，不声称证明全站无泄露。
+
+### 14.5 可复用脚本
 
 `deploy/acceptance/remote_trial.py` 使用 Python 标准库，Windows 内置 OpenSSH `-F NUL`、显式私钥与 pinned known_hosts、严格主机校验；管理员口令交互读取，仅经 SSH stdin，cookie/普通随机口令不落盘、不打印。示例（不含秘密）：
 
@@ -349,4 +378,13 @@ python deploy/acceptance/remote_trial.py clock --key '<KEY>' --known-hosts '<PIN
 python deploy/acceptance/remote_trial.py team --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
 ```
 
-`baseline` 是有写操作的中国合成试用初始化（保留密码策略，正常保存 zh/Shanghai、关闭两开关），不是通用迁移器；`import` 固定使用本节来源名，首次写入后不能预期再次为“成功”；`clock/team` 新建可识别的小规模合成记录并保留。`team` 遇失败立即退出，不绕过后续门禁。当前运行主机 Python 3.6，日期解析已避免使用其没有的 `datetime.fromisoformat`。inspect/preserve/baseline/import/clock 已实测，team 只有登录与失败创建实测，后续需在已审修复部署后继续。`preserve` 是部署前后只读检查：服务/镜像/端口、ping、安全设置，以及固定导入 Lead/企业/Contact 与 Task 1/2 的完整 canonical JSON SHA256；只输出合成对象摘要，不输出正文。部署前已执行通过，摘要已交 tower，更新后应逐项比对；它不会自动改镜像锁或修复不一致。
+`baseline` 是有写操作的中国合成试用初始化（保留密码策略，正常保存 zh/Shanghai、关闭两开关），不是通用迁移器；`import` 固定使用本节来源名，首次写入校验成功/重复/错误，以后校验幂等重复/错误。`clock/team` 新建小规模唯一合成记录并保留，`team` 遇失败立即退出、不绕门禁。主机 Python 3.6，日期解析已避免其没有的 `datetime.fromisoformat`。全部六 phase 已实测；`team` 最终版在远端真实通过，范围与限制见 §14.4。`preserve` 只读核服务/镜像/端口、ping、安全设置及固定五件完整文档 canonical SHA256，更新前后和深验后已三次一致；不会自动改镜像锁或修复不一致。
+
+后续运维不要调用旧 `~/crm-trial/deploy/remote/trial.sh`。每条命令独立指定本次同一 staging 和原 runtime（以下前两条只读，本轮已通过；后两条只供故障维护，**未执行且不自动恢复旧坏版服务**）：
+
+```sh
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime sh /home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh maintenance-status
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime sh /home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh check
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime sh /home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh maintenance-stop
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime sh /home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh restore-old-lock --confirm-site-image-update
+```

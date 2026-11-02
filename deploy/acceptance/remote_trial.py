@@ -87,10 +87,6 @@ def run_remote(phase):
             settings = admin.doc("System Settings", "System Settings")
             keys = ("language", "time_zone", "allow_error_traceback", "enable_telemetry", "enable_password_policy", "minimum_password_score")
             print(json.dumps({key: settings.get(key) for key in keys}))
-            errors = admin.api("frappe.client.get_list", {"doctype": "Error Log", "fields": ["name", "method", "error"], "order_by": "creation desc", "limit_page_length": 1})
-            for error in errors:
-                frames = [line.strip() for line in error["error"].splitlines() if line.strip().startswith('File "')]
-                print("Latest error frames", json.dumps(frames))
             for doctype in ("CRM Lead", "CRM Deal", "Contact", "CRM Organization", "CRM Task", "FCRM Note"):
                 docs = admin.api("frappe.client.get_list", {"doctype": doctype, "fields": ["name", "creation", "modified"], "limit_page_length": 20})
                 print(doctype, json.dumps(docs))
@@ -122,7 +118,8 @@ def run_remote(phase):
             assert len(preview["rows"]) == 3 and preview["rows"][2]["errors"]
             result = admin.api("resource_import.api.apply", dict(payload, token=preview["token"], confirm=True, choices={}))
             states = [row["state"] for row in result["rows"]]
-            assert states == ["成功", "已导入", "失败"], str(states)
+            expected_first = "已导入" if preview["rows"][0]["state"] == "已导入" else "成功"
+            assert states == [expected_first, "已导入", "失败"], str(states)
             repeated = admin.api("resource_import.api.apply", dict(payload, token=preview["token"], confirm=True, choices={}))
             assert [row["state"] for row in repeated["rows"]] == ["已导入", "已导入", "失败"]
             links = result["rows"][0]["links"]
@@ -153,13 +150,19 @@ def visible_channels(session, doc, expected):
     title = doc.get("title") or doc.get("first_name") or name
     rows = session.api("frappe.client.get_list", {"doctype": doctype, "fields": ["name"], "filters": {"name": name}})
     assert bool(rows) is expected, "STOP inconsistent filtered list " + doctype
-    links = session.api("frappe.desk.search.search_link", {"doctype": doctype, "txt": title, "page_length": 20})
+    search_field = "first_name" if doctype == "CRM Lead" else "title"
+    searched = session.api("frappe.client.get_list", {"doctype": doctype, "fields": ["name"], "filters": {search_field: ["like", "%" + str(doc.get(search_field) or title) + "%"]}})
+    assert any(str(row["name"]) == str(name) for row in searched) is expected, "STOP inconsistent normal text filter " + doctype
+    if doctype in ("CRM Lead", "CRM Deal"):
+        crm_list = session.api("crm.api.doc.get_data", {"doctype": doctype, "filters": {"name": name}, "order_by": "modified desc"})
+        assert any(str(row["name"]) == str(name) for row in crm_list["data"]) is expected, "STOP inconsistent CRM list " + doctype
+    links = session.api("frappe.desk.search.search_link", {"doctype": doctype, "txt": str(name), "page_length": 20})
     assert any(str(row.get("value")) == str(name) for row in links) is expected, "STOP inconsistent link search " + doctype
     payload = {"doctype": doctype, "file_format_type": "CSV", "fields": json.dumps(["name"]), "filters": json.dumps({"name": name}), "order_by": "creation desc", "start": 0, "page_length": 20, "view": "Report", "with_comment_count": 0, "export_in_background": 0}
     code, body = session.request("/api/method/frappe.desk.reportview.export_query", payload)
     assert code == 200, "Standard export unavailable HTTP " + str(code)
     exported = list(csv.reader(io.StringIO(body.lstrip("\ufeff"))))
-    assert any(str(name) in row for row in exported[2:]) is expected, "STOP inconsistent standard export " + doctype
+    assert any(str(name) in row for row in exported) is expected, "STOP inconsistent standard export " + doctype
     if doctype in ("FCRM Note", "CRM Task"):
         timeline = session.api("crm.api.activities.get_activities", {"name": doc["reference_docname"]})
         assert (title in json.dumps(timeline, ensure_ascii=False)) is expected, "STOP inconsistent timeline " + doctype
@@ -167,7 +170,9 @@ def visible_channels(session, doc, expected):
 
 def rejected_write(session, owner, doc):
     before = owner.doc(doc["doctype"], doc["name"])
-    changed = dict(before, title=before.get("title", "") + "-UNAUTHORIZED")
+    field = "first_name" if doc["doctype"] == "CRM Lead" else "title"
+    changed = dict(before)
+    changed[field] = before.get(field, "") + "-UNAUTHORIZED"
     code, body = session.request("/api/method/frappe.client.save", {"doc": json.dumps(changed)})
     assert code in (403, 404), "STOP unauthorized write accepted HTTP " + str(code)
     after = owner.doc(doc["doctype"], doc["name"])
@@ -175,7 +180,7 @@ def rejected_write(session, owner, doc):
 
 
 def team_flow(admin):
-    prefix = "C010800-TEAM-" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    prefix = "TEST-C010800-TEAM-" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     sessions = []
     try:
         for suffix in ("a", "b"):
@@ -188,9 +193,15 @@ def team_flow(admin):
             sessions.append((email, session))
         (email_a, a), (email_b, b) = sessions
         print("PASS two separate authenticated ordinary Sales User sessions", email_a, email_b)
+        for outsider in (a, b, Session()):
+            code, body = outsider.request("/api/method/resource_import.api.preview", {"csv_text": "", "source": prefix, "shared_consent": True})
+            assert code in (401, 403) and not any(key in json.loads(body) for key in ("exc", "exception"))
+        print("PASS ordinary/anonymous import API denied without traceback")
         status = a.api("frappe.client.get_list", {"doctype": "CRM Lead Status", "fields": ["name"], "limit_page_length": 1})[0]["name"]
-        lead = a.api("frappe.client.insert", {"doc": {"doctype": "CRM Lead", "first_name": prefix, "status": status, "lead_owner": email_a}})
+        lead = a.api("frappe.client.insert", {"doc": {"doctype": "CRM Lead", "first_name": prefix, "organization": prefix + "合成企业", "status": status, "lead_owner": email_a}})
         assert lead["owner"] == email_a
+        visible_channels(a, lead, True)
+        visible_channels(b, lead, False)
 
         def denied(doctype, name):
             code, body = b.request("/api/method/frappe.client.get", {"doctype": doctype, "name": name})
@@ -204,6 +215,25 @@ def team_flow(admin):
         assert b.doc("CRM Lead", lead["name"])["name"] == lead["name"]
         print("PASS private parent hidden then explicitly shared parent readable")
         note = a.api("frappe.client.insert", {"doc": {"doctype": "FCRM Note", "title": prefix + "私人记录", "content": "合成私有跟进记录", "reference_doctype": "CRM Lead", "reference_docname": lead["name"], "custom_team_visibility": "Private"}})
+        assert note["owner"] == email_a and a.doc("FCRM Note", note["name"])["name"] == note["name"]
+        file_note = a.api("frappe.client.insert", {"doc": {"doctype": "FCRM Note", "title": prefix + "私附件记录", "content": "单独私有附件，不发布共享", "reference_doctype": "CRM Lead", "reference_docname": lead["name"], "custom_team_visibility": "Private"}})
+        attachment_text = prefix + " harmless synthetic attachment"
+        attachment = a.api("frappe.client.insert", {"doc": {"doctype": "File", "file_name": prefix + ".txt", "is_private": 1, "attached_to_doctype": "FCRM Note", "attached_to_name": file_note["name"], "content": attachment_text}})
+        code, content = a.request(attachment["file_url"])
+        assert code == 200 and content == attachment_text
+        for outsider in (b, Session()):
+            code, content = outsider.request(attachment["file_url"])
+            assert code in (403, 404), "STOP private attachment downloadable without permission"
+        file_note_before = a.doc("FCRM Note", file_note["name"])
+        attachment_before = a.doc("File", attachment["name"])
+        code, body = a.request("/api/method/frappe.client.save", {"doc": json.dumps(dict(file_note_before, custom_team_visibility="Shared"))})
+        assert code == 417 and json.loads(body).get("exc_type") == "ValidationError"
+        assert a.doc("FCRM Note", file_note["name"]) == file_note_before
+        assert a.doc("File", attachment["name"]) == attachment_before
+        denied("FCRM Note", file_note["name"])
+        assert b.request(attachment["file_url"])[0] in (403, 404)
+        print("PASS owner Note/private attachment; direct Shared conversion refused 417 with record/visibility/file unchanged, B/anonymous denied")
+        rejected_write(b, a, lead)
         due = (datetime.now(timezone(timedelta(hours=8))) + timedelta(days=1)).replace(tzinfo=None, microsecond=0).isoformat(sep=" ")
         task = a.api("frappe.client.insert", {"doc": {"doctype": "CRM Task", "title": prefix + "合成跟进", "description": "合成私有任务", "status": "Todo", "due_date": due, "reference_doctype": "CRM Lead", "reference_docname": lead["name"], "custom_team_visibility": "Private"}})
         created = parse_datetime(task["creation"])
@@ -238,9 +268,44 @@ def team_flow(admin):
             sessions.append((email_b, fresh_b))
             visible_channels(fresh_b, doc, False)
         print("PASS private/shared/collaborator/revoked Note and Task detail, list, search, timeline, export; old/new B sessions")
+        file_note = a.doc("FCRM Note", file_note["name"])
+        file_note["custom_team_collaborator"] = email_b
+        file_note = a.save(file_note)
+        assert b.request(attachment["file_url"]) == (200, attachment_text)
+        file_note["custom_team_collaborator"] = ""
+        a.save(file_note)
+        for outsider in (b, fresh_b, Session()):
+            assert outsider.request(attachment["file_url"])[0] in (403, 404)
+        assert a.request(attachment["file_url"]) == (200, attachment_text)
+        print("PASS private attachment explicit collaboration/revocation; owner intact, old/new/anonymous denied")
         a.api("frappe.share.set_permission", {"doctype": "CRM Lead", "name": lead["name"], "user": email_b, "permission_to": "read", "value": 0})
         denied("CRM Lead", lead["name"])
+        visible_channels(b, lead, False)
+        visible_channels(fresh_b, lead, False)
+        assert admin.doc("CRM Lead", lead["name"])["owner"] == email_a
+        guest_code, _ = Session().request("/api/method/frappe.client.get", {"doctype": "CRM Lead", "name": lead["name"]})
+        assert guest_code in (401, 403)
         print("PASS parent sharing revoked; records retained", lead["name"], note["name"], task["name"])
+        statuses = a.api("frappe.client.get_list", {"doctype": "CRM Deal Status", "fields": ["name", "type"], "limit_page_length": 30})
+        deal_status = next((row["name"] for row in statuses if row.get("type") == "Open"), statuses[0]["name"])
+        deal_name = a.api("crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal", {"lead": lead["name"], "deal": {"status": deal_status, "deal_owner": email_a}})
+        deal = a.doc("CRM Deal", deal_name)
+        assert deal["deal_owner"] == email_a and deal["lead"] == lead["name"]
+        assert a.doc("CRM Organization", deal["organization"])["organization_name"] == prefix + "合成企业"
+        assert len(deal["contacts"]) == 1
+        a.doc("Contact", deal["contacts"][0]["contact"])
+        denied("CRM Deal", deal_name)
+        a.api("frappe.share.add", {"doctype": "CRM Deal", "name": deal_name, "user": email_b, "read": 1, "write": 0, "notify": 0})
+        assert b.doc("CRM Deal", deal_name)["name"] == deal_name
+        rejected_write(b, a, deal)
+        a.api("frappe.share.set_permission", {"doctype": "CRM Deal", "name": deal_name, "user": email_b, "permission_to": "read", "value": 0})
+        denied("CRM Deal", deal_name)
+        print("PASS normal Lead conversion -> Organization/Contact/Deal relationships; Deal private/read-only share/revoked", deal_name)
+        b_lead = b.api("frappe.client.insert", {"doc": {"doctype": "CRM Lead", "first_name": prefix + "B", "status": status, "lead_owner": email_b}})
+        b_note = b.api("frappe.client.insert", {"doc": {"doctype": "FCRM Note", "title": prefix + "B本人", "content": "B合成私文", "reference_doctype": "CRM Lead", "reference_docname": b_lead["name"]}})
+        assert b_note["owner"] == email_b and b.doc("FCRM Note", b_note["name"])["name"] == b_note["name"]
+        assert a.request("/api/method/frappe.client.get", {"doctype": "FCRM Note", "name": b_note["name"]})[0] == 403
+        print("PASS B normal own Lead/Note creation and owner read, A denied")
     finally:
         for email, session in sessions:
             session.api("logout", {})
