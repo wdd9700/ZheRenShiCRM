@@ -167,6 +167,48 @@ def run(h, upstream=None):
     from team_access import projections
 
     verify_ui_options(h)
+    with environment(h, upstream) as env:
+        dt = "CRM Lead"
+        base = {key: deepcopy(value) for key, value in UI_DEFAULTS.items() if key not in ("filters", "default_filters", "order_by")}
+        defaults = env.controllers[dt].default_list_data()
+        def prepare(options):
+            return projections.prepare(dt, options, {"converted": 0}, "modified desc")
+        for saved in (False, True):
+            source = deepcopy(defaults)
+            if saved:
+                source = {"rows": ["name", "lead_name", "_assign"], "columns": [{"key": "lead_name", "label": "Full Name"}, {"key": "_assign", "label": "Assigned To"}]}
+                env.saved_views[dt] = h.Doc(doctype="CRM View Settings", name="trusted-standard", dt=dt, type="list", is_standard=1, user="b", rows=json.dumps(source["rows"]), columns=json.dumps(source["columns"]))
+            snapshot = deepcopy(env.saved_views)
+            expected = prepare(deepcopy(base))
+            for serialize in (deepcopy, json.dumps):
+                explicit = {**deepcopy(base), **{key: serialize(source[key]) for key in ("rows", "columns")}}
+                before = len(env.loads)
+                assert prepare(explicit) == expected and env.saved_views == snapshot
+                assert len(env.loads) == before + int(saved)
+            h.forbidden(lambda: prepare({**deepcopy(base), **source, "view": {"view_type": "list", "custom_view_name": "other-custom-view"}}))
+            h.forbidden(lambda: projections.prepare(dt, {**deepcopy(base), **source}, {"_seen": "history-viewer"}, "modified desc"))
+            h.forbidden(lambda: projections.prepare(dt, {**deepcopy(base), **source}, {}, "_assign asc"))
+            h.forbidden(lambda: prepare({**deepcopy(base), **source, "view": {"view_type": "list", "group_by_field": "_assign"}}))
+            if saved:
+                named = {**deepcopy(base), "view": {"view_type": "list", "custom_view_name": "trusted-standard"}}
+                assert prepare({**named, **source}) == prepare(named)
+                h.native_denied.add(("CRM View Settings", "trusted-standard", "b", "read"))
+                try:
+                    h.forbidden(lambda: prepare({**deepcopy(base), **source}))
+                finally:
+                    h.native_denied.clear()
+                for key, value in (("user", "a"), ("dt", "CRM Deal"), ("type", "group_by"), ("is_standard", 0)):
+                    env.saved_views[dt][key] = value
+                    h.forbidden(lambda: prepare({**deepcopy(base), **source}))
+                    env.saved_views[dt] = deepcopy(snapshot[dt])
+            mismatch = deepcopy(source)
+            mismatch["columns"] = [{"key": "_assign", "label": "Different column"}]
+            h.forbidden(lambda: prepare({**deepcopy(base), **mismatch}))
+            for kind in ("kanban", "group_by", "custom"):
+                h.forbidden(lambda kind=kind: prepare({**deepcopy(base), **source, "view": {"view_type": kind}}))
+            assert prepare({**deepcopy(base), "rows": ["name", "lead_name"], "columns": [{"key": "lead_name", "label": "Custom safe"}]})[0]["rows"] == ["name", "lead_name"]
+            env.saved_views.clear()
+    print("PASS trusted ordinary-list default projection pairs: controller/current-user readable standard sources yield identical options/default_result to blank defaults; source snapshots unchanged, mismatches/other views/native read denial retained and safe custom projections preserved")
     with environment(h) as env:
         dt = "FCRM Note"
         for payload in ({"rows": ["_assign as history"]}, {"columns": [{"key": "_seen as history"}]}, {"view": {"view_type": "group_by", "group_by_field": "_assign"}}, {"kanban_fields": ["_liked_by as history"]}, {"column_field": "_assign"}, {"title_field": "_seen"}):
@@ -244,6 +286,44 @@ def verify_crm(h, upstream):
             frappe.get_list = original_get_list
             env.saved_views.clear()
         print("PASS exact fixed UI list defaults through guard/override/native get_data: converted=0, list/owner, page20 and blank projections work; saved canonical caches removed in memory, malformed JSON and native permission denial retained")
+        for dt, (_, _, body) in TYPES.items():
+            for saved_source in (False, True):
+                source = deepcopy(env.controllers[dt].default_list_data())
+                if saved_source:
+                    source = {"rows": ["name", body, "_assign"], "columns": [{"key": body, "label": "Body"}, {"key": "_assign", "label": "Assigned To"}]}
+                    env.saved_views[dt] = Doc(doctype="CRM View Settings", name="trusted-standard", dt=dt, type="list", is_standard=1, user="b", rows=json.dumps(source["rows"]), columns=json.dumps(source["columns"]))
+                before = len(env.queries)
+                blank = call(dt, view={"view_type": "list"})
+                queries = deepcopy(env.queries[before:])
+                for serialize in (deepcopy, json.dumps):
+                    before = len(env.queries)
+                    matched = call(dt, view={"view_type": "list"}, **{key: serialize(source[key]) for key in ("rows", "columns")})
+                    assert env.queries[before:] == queries
+                    has_caches = any(field in responses.RAW_FIELDS for field in [*source["rows"], *(column["key"] for column in source["columns"])])
+                    if has_caches:
+                        assert matched == blank
+                    else:
+                        assert matched["is_default"] is False and matched["data"] == blank["data"]
+                    assert all(marker not in json.dumps(matched) for marker in ("history-assignee", "history-liker", "history-viewer"))
+                original_list = frappe.get_list
+                def denied_list(*args, **kwargs):
+                    assert not kwargs.get("ignore_permissions")
+                    raise frappe.PermissionError()
+                frappe.get_list = denied_list
+                try:
+                    h.forbidden(lambda: call(dt, view={"view_type": "list"}, **source))
+                finally:
+                    frappe.get_list = original_list
+                if saved_source:
+                    h.native_denied.add(("CRM View Settings", "trusted-standard", "b", "read"))
+                    try:
+                        before = len(env.queries)
+                        h.forbidden(lambda: call(dt, view={"view_type": "list"}, **source))
+                        assert len(env.queries) == before
+                    finally:
+                        h.native_denied.clear()
+                env.saved_views.clear()
+        print("PASS fixed native ordinary-list projection equivalence: canonical-cache controller/current-user standard pairs have identical query fields, filters, response and is_default; already-safe custom defaults keep native semantics, standard-view and business-query permission denials retained")
         raw_rows = ["name", "content", "_assign as history_assignment", "_liked_by as history_liker", "_seen as history_viewer"]
         old = responses.sanitize(namespace["get_data"]("FCRM Note", {"name": note.name}, "modified desc", rows=raw_rows, columns=[{"key": "content", "label": "Body"}]), True)
         assert all(marker in json.dumps(old) for marker in ("history-assignee", "history-liker", "history-viewer"))

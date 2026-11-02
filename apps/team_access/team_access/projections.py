@@ -1,4 +1,5 @@
 from copy import deepcopy
+import re
 
 import frappe
 
@@ -48,22 +49,49 @@ def without_caches(rows, columns):
     return [field for field in rows if field not in RAW_FIELDS], [column for column in columns if column.get("key") not in RAW_FIELDS]
 
 
+def standard_settings(doctype, view_type):
+    filters = {"dt": doctype, "type": view_type or "list", "is_standard": 1, "user": frappe.session.user}
+    return frappe.get_doc("CRM View Settings", filters) if frappe.db.exists("CRM View Settings", filters) else None
+
+
 def prepare(doctype, options, filters, order_by):
     if doctype not in (*PROTECTED, *PARENTS) or frappe.session.user == "Administrator":
         return options, None
     from frappe.model.document import get_controller
 
     options = parse_options(options)
-    validate_options(options, doctype, filters, order_by)
     controller = get_controller(doctype)
     defaults = deepcopy(controller.default_list_data()) if hasattr(controller, "default_list_data") else {}
     defaults_rows, defaults_columns = without_caches(defaults.get("rows") or [], defaults.get("columns") or [])
-    default_result = None
+    clean_rows, clean_columns = without_caches(options["rows"], options["columns"])
     view_type = options["view"].get("view_type")
+    settings, source_loaded = None, False
+    if (view_type or "list") == "list" and (clean_rows != options["rows"] or clean_columns != options["columns"]):
+        other_options = {**options, "rows": [], "columns": []}
+        validate_options(other_options, doctype, filters, order_by)
+        settings = standard_settings(doctype, view_type)
+        source_loaded = True
+        if settings is not None:
+            if any(settings.get(key) != value for key, value in {"dt": doctype, "type": "list", "is_standard": 1, "user": frappe.session.user}.items()):
+                deny()
+            settings.check_permission("read")
+            source = parse_options({"rows": settings.get("rows"), "columns": settings.get("columns")})
+        else:
+            source = parse_options({"rows": defaults.get("rows"), "columns": defaults.get("columns")})
+        view_name = options["view"].get("custom_view_name")
+        if view_name and (settings is None or str(view_name) != str(settings.name)):
+            deny()
+        if options["rows"] != source["rows"] or options["columns"] != source["columns"]:
+            deny()
+        if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", field) for field in [*options["rows"], *(column["key"] for column in options["columns"])]):
+            deny()
+        options.update(rows=[], columns=[])
+    validate_options(options, doctype, filters, order_by)
+    default_result = None
     if view_type != "kanban" and not (options["rows"] or options["columns"]):
-        settings_filters = {"dt": doctype, "type": view_type or "list", "is_standard": 1, "user": frappe.session.user}
-        if frappe.db.exists("CRM View Settings", settings_filters):
-            settings = frappe.get_doc("CRM View Settings", settings_filters)
+        if not source_loaded:
+            settings = standard_settings(doctype, view_type)
+        if settings is not None:
             resolved = parse_options({"rows": settings.get("rows"), "columns": settings.get("columns")})
             resolved["rows"], resolved["columns"] = without_caches(resolved["rows"], resolved["columns"])
             validate_options(resolved, doctype, filters, order_by)
