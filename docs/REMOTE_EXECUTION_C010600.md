@@ -1,6 +1,8 @@
 # 远端合成部署真实执行记录（C010600）
 
-**状态：已在 `dev@8.133.190.46` 上完成独立合成试用部署的真实建站、启动、扩展前备份、双扩展安装、两次迁移与 G1 观测；站点只监听 `127.0.0.1:8088`，使用全新合成的凭据与数据。未做 Windows 客户端安装、真实浏览器登录、权限矩阵、PWA、恢复演练，也未解除 M8/M9 门禁。**
+**最新状态（C010800，2026-11-02）：既有远端站点健康；正常 API 保存 System Settings 安全基线、上海时区、管理员合成导入与关联查询已通过。普通 Sales User 正常创建 Lead 暴露兼容性 500，权限深验暂停待修复，不能称团队生产可用。详见 §14。**
+
+§1–13 是 C010600 部署时点的历史记录，包含当时“未执行”状态，不代表后续任务没有完成。Windows 原生浏览器与安装入口由 M12 独立验收；恢复门禁由 M9 单独记录。站点始终只监听 `127.0.0.1:8088`，仅经 SSH 回环隧道接入。
 
 本文件记录两轮真实执行：第一轮在 M13 精确 `240b9a8…` 的镜像身份门禁处失败并保留现场；M13 修复合约并独审 clean 后，第二轮按 `92f9de6…` 的工具更新包恢复，从 `check` 继续到 G1。文中所有结论都来自本轮实际命令输出；未执行项在 §13 明列，观测限制在 §14。
 
@@ -250,7 +252,7 @@ host: used 862MiB, available 1008MiB, buff/cache 365MiB, swap 0
 
 ## 11. 凭据与后续接入
 
-- 凭据只在远端：`~/crm-trial/deploy/remote/.runtime/.env`（600，含 DB 与 Administrator 合成口令）。本轮未打印、未回传、未复制到本地或 Git。安全获取方式：以 `dev` 登录后本地读取；不要经命令行参数、日志或聊天传递；`init-env` 拒绝覆盖，禁止重建。
+- C010600 初始化材料位于远端 `~/crm-trial/deploy/remote/.runtime/.env`（600）。**其中旧 `ADMIN_PASSWORD` 已在 C010700 失效，不要读取它尝试登录；当前口令由用户掌握，权威见 [TRIAL_ACCOUNT_C010700.md](TRIAL_ACCOUNT_C010700.md)。** 不同步该文件、不重 `init-env`、不打印或回传 DB 秘密。验收脚本交互读取管理员口令，仅经 SSH stdin 传入，cookie 与普通用户随机口令仅留进程内存。内部敏感操作转录不属于公开交付材料。
 - Windows 接入前提（尚未执行，未声称可用）：SSH 隧道到 `127.0.0.1:18088`，专用 known_hosts + `StrictHostKeyChecking=yes` + `IdentitiesOnly=yes`，仅回环、不开公网；按 §7.1，单站点下 127.0.0.1 访问可直接解析到该站点。
 
 ## 12. 只读复核清单
@@ -294,4 +296,56 @@ EOS
 | 备份/扩展/迁移 | `backup`；`install-extensions`；`migrate`；`versions` | 均 exit 0；四 app 与固定版本一致 |
 | G1 | `curl ping`；`docker ps -a`；`docker inspect`；`docker stats` | pong 200；9 运行 + 2 Exited(0)；restart 0 / OOM false |
 
-**结论：本轮完成了独立合成试用的真实部署——工具更新、锁迁移、身份门禁、建站、启动、扩展前备份、双扩展安装、两次迁移与 G1 观测均真实通过。未执行 Windows 客户端、真实登录、权限矩阵、PWA 与恢复演练，服务端仍只监听回环，M8/M9 门禁未推进。**
+**C010600 当轮结论：独立合成试用部署与 G1 通过；当轮未执行的后续验收不得据此视为通过。最新增量如下。**
+
+## 14. C010800 可用性与权限增量验收（2026-11-02）
+
+### 14.1 健康、安全设置与时间
+
+- 严格主机校验 SSH 复核：9 个长驻服务 Up 46h，DB healthy，另两一次性容器 Exited(0)；四 app 版本仍为 §6 所列。ping 200/pong；仅 SSH 与 `127.0.0.1:8088` 监听；内存 available 945 MiB、无 swap。本轮没有重部署、重初始化、迁移、删除容器/卷/备份或改网络策略。
+- 原 System Settings：`language/time_zone` 空、`allow_error_traceback=1`、`enable_telemetry=1`。管理员真实登录、获取正常 Desk CSRF 后，经受支持的 `frappe.client.get/save` 完整单例正常校验保存；没有 `ignore_mandatory`、`ignore_permissions`、SQL、DOM 或全局权限绕过。
+- 首轮补必填 `zh/Asia/Kolkata` 并关闭 traceback/telemetry；复核固定运行源码 `now_datetime()` 先由 UTC 转系统时区再去掉 tzinfo，空系统时区原有效默认 Kolkata。随后确认 Lead/Deal/Contact/Organization/Task/Note 六类业务对象全为空，按中国团队语义再正常保存为 **`language=zh`、`time_zone=Asia/Shanghai`、`allow_error_traceback=0`、`enable_telemetry=0`**。不批量重写历史；旧系统审计 naive 时间仍可能属 Kolkata，不应按上海重新解释。
+- fresh API 读取上述四值匹配，密码策略仍启用、minimum score 仍 2。匿名导入 API 403 且无 `exc/exception`，认证后管理员身份与正常业务 API 可用。Guest 调 `get_logged_user` 本版返回 403，不将其误判成服务故障。关闭 telemetry 不保证阻断所有第三方网络行为。
+- 只过滤非秘密 site config 复核：`mute_emails` 严格整数 1、`server_script_enabled=0`、`team_access_synthetic_only` 严格整数 1；未读取/打印 DB 或旧初始化口令。
+- 上海时间实际验证：管理员通过正常 API 创建合成跟进 Task `2`，`creation=2026-11-02 22:49:38.636849`，与同刻 UTC+8 差小于 120 秒；`due_date=2026-11-03 22:49:38` 创建后重读完全一致。Task `1` 为先前脚本兼容性断言失败留下的同类合成记录，保留不删。此为 API 时间往返，不冒充浏览器时间控件展示验收。
+
+### 14.2 合成导入与入口
+
+安全基线通过后，执行既有受控命令 `CRM_TRIAL_DOCKER_SUDO=1 sh deploy/remote/trial.sh enable-import --confirm-synthetic-only`，只将 `resource_import_disabled` 设 0 并清本站缓存，返回 PASS。
+
+同一真实管理员 HTTP/CSRF 会话使用 `C010800-REMOTE-20261102.csv`，邮箱 `c010800@example.invalid`，无真实资料、无邮件：
+
+| 验收 | 实际结果 |
+|---|---|
+| 三行预览 | 正常行、文件内重复、缺姓名错误反馈可辨认 |
+| 明确共享确认 + 二次导入确认 | 成功 1 / 已导入 1 / 失败 1 |
+| 同 receipt 重复确认 | 已导入 2 / 失败 1，无第二条 Lead |
+| 业务关联详情 | Lead `CRM-LEAD-2026-00001`、`C010800-REMOTE-20261102合成企业`、同前缀 Contact 三类详情均正常查询；需求原文一致 |
+
+记录全部保留。管理员成功只证明该受控入口可用，不证明普通销售私域安全。Windows 经既有 SSH 隧道：`http://127.0.0.1:18088/login` 正常登录，CRM `/crm`，导入 `/resource-import`（只限管理员/System Manager）；不开放服务器公网端口。Windows 原生 Edge 登录/安装应用/独立入口重启为 M12 独立结果，本节 API 验收不替代其浏览器证据。
+
+### 14.3 普通用户与当前阻断
+
+两轮各创建两名 `C010800-TEAM-<唯一时间>-a/b@example.invalid` 合成账号，只授予 Sales User、关闭欢迎邮件，随机强口令仅进程内存，分别真实登录并核验身份成功；会话结束后注销。未提升角色、未管理员代建替代普通用户、未关闭权限扩展。
+
+**失败并停止：** A 标准 `frappe.client.insert` 创建自己拥有的 CRM Lead，字段仅 `doctype/first_name/status=New/lead_owner=A`，返回 HTTP 500、`exc_type=TypeError`，未提交 Lead。定点诊断以同 A 的正常 ORM insert（不忽略权限）在 finally rollback 事务内复现，根因：
+
+`CRMLead.after_insert → assign_agent → ToDo.add_assign_comment → team_access.events.validate:44 → permissions.can_contribute:44 → can_reference:35 → frappe.has_permission(..., raise_exception=False)`。
+
+实际 Frappe 15.125.0 外层签名是 `has_permission(..., throw=False, ...)`，不接受 `raise_exception`；该关键字仅属于内部 `frappe.permissions.has_permission`。运行 `frappe/__init__.py` SHA256 `4538c6ac2da144ef1c0460443b05ef1028a04236fa27307e34b8d5e936a614af`。已提交 high finding 给 tower，由所属 worker 修复和独审，M17 不在 scope 外热改代码。
+
+**尚未通过：** 普通用户私有→明确共享→撤销共享、读写授权区分、新旧会话、列表/搜索/关联选择/时间线/附件/标准导出与商机关系深验。脚本已准备部分标准流程，但因正常创建失败未执行到后续断言，不能把代码存在当通过。未触发已知泄露；这也不是“证明无泄露”。M8 完整安全矩阵与生产门禁仍保留。
+
+### 14.4 可复用脚本
+
+`deploy/acceptance/remote_trial.py` 使用 Python 标准库，Windows 内置 OpenSSH `-F NUL`、显式私钥与 pinned known_hosts、严格主机校验；管理员口令交互读取，仅经 SSH stdin，cookie/普通随机口令不落盘、不打印。示例（不含秘密）：
+
+```sh
+python deploy/acceptance/remote_trial.py inspect --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
+python deploy/acceptance/remote_trial.py baseline --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
+python deploy/acceptance/remote_trial.py import --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
+python deploy/acceptance/remote_trial.py clock --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
+python deploy/acceptance/remote_trial.py team --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
+```
+
+`baseline` 是有写操作的中国合成试用初始化（保留密码策略，正常保存 zh/Shanghai、关闭两开关），不是通用迁移器；`import` 固定使用本节来源名，首次写入后不能预期再次为“成功”；`clock/team` 新建可识别的小规模合成记录并保留。`team` 遇失败立即退出，不绕过后续门禁。当前运行主机 Python 3.6，日期解析已避免使用其没有的 `datetime.fromisoformat`。inspect/baseline/import/clock 已实测，team 只有登录与失败创建实测，后续需在已审修复部署后继续。
