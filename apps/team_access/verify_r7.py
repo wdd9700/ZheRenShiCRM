@@ -10,6 +10,33 @@ from urllib.parse import quote
 
 
 TYPES = {"FCRM Note": ("fcrm_note", "FCRMNote", "content"), "CRM Task": ("crm_task", "CRMTask", "description"), "CRM Lead": ("crm_lead", "CRMLead", "lead_name"), "CRM Deal": ("crm_deal", "CRMDeal", "organization")}
+UI_DEFAULTS = {"filters": {}, "default_filters": {"converted": 0}, "order_by": "modified desc", "view": {"custom_view_name": "", "view_type": "list", "group_by_field": "owner"}, "page_length": 20, "page_length_count": 20, "column_field": "status", "title_field": "", "kanban_columns": "", "kanban_fields": "", "columns": "", "rows": ""}
+
+
+def verify_ui_options(h):
+    from team_access import projections
+
+    assert projections.parse_options({}) == {"rows": [], "columns": [], "kanban_fields": [], "kanban_columns": [], "view": {}}
+    for key in ("rows", "columns", "kanban_fields", "kanban_columns", "view"):
+        empty = {} if key == "view" else []
+        for value in (None, "", empty, json.dumps(empty)):
+            source = {key: value}
+            before = deepcopy(source)
+            assert projections.parse_options(source)[key] == empty and source == before
+        legal = {"view_type": "list"} if key == "view" else ([{"key": "name"}] if key == "columns" else [{"name": "Open"}] if key == "kanban_columns" else ["name"])
+        for value in (legal, json.dumps(legal)):
+            assert projections.parse_options({key: value})[key] == legal
+        for value in (" ", "[", "not-json"):
+            try:
+                projections.parse_options({key: value})
+            except json.JSONDecodeError:
+                pass
+            else:
+                raise AssertionError("nonempty malformed UI option was accepted")
+        for value in ("false", "0", "null", '""', "[]" if key == "view" else "{}"):
+            h.forbidden(lambda key=key, value=value: projections.parse_options({key: value}))
+    assert projections.parse_options(deepcopy(UI_DEFAULTS))["view"] == UI_DEFAULTS["view"]
+    print("PASS fixed UI option contract: missing/None/exact empty defaults, typed and JSON nonempty values retained; malformed and wrong-shape nonempty values rejected without swallowing errors")
 
 
 @contextmanager
@@ -139,6 +166,7 @@ def guard(h, path, args):
 def run(h, upstream=None):
     from team_access import projections
 
+    verify_ui_options(h)
     with environment(h) as env:
         dt = "FCRM Note"
         for payload in ({"rows": ["_assign as history"]}, {"columns": [{"key": "_seen as history"}]}, {"view": {"view_type": "group_by", "group_by_field": "_assign"}}, {"kanban_fields": ["_liked_by as history"]}, {"column_field": "_assign"}, {"title_field": "_seen"}):
@@ -173,6 +201,49 @@ def verify_crm(h, upstream):
             args.update(kwargs)
             args = guard(h, "/api/method/crm.api.doc.get_data", args)
             return responses.sanitize(api.get_data(**args), True)
+        lead = env.fixtures["CRM Lead"]
+        lead.converted = 0
+        original_get_list = frappe.get_list
+        deny_queries = False
+        def permission_checked_list(*args, **kwargs):
+            assert not kwargs.get("ignore_permissions")
+            if deny_queries:
+                raise frappe.PermissionError()
+            return original_get_list(*args, **kwargs)
+        frappe.get_list = permission_checked_list
+        try:
+            cases = [deepcopy(UI_DEFAULTS)]
+            for value in (None, "[]", []):
+                cases.append({**deepcopy(UI_DEFAULTS), **{key: value for key in ("rows", "columns", "kanban_fields", "kanban_columns")}})
+            cases.append({key: deepcopy(value) for key, value in UI_DEFAULTS.items() if key not in ("rows", "columns", "kanban_fields", "kanban_columns")})
+            cases.append({**deepcopy(UI_DEFAULTS), "rows": '["name", "lead_name"]', "columns": '[{"key":"lead_name","label":"Full Name"}]'})
+            for kwargs in cases:
+                before = deepcopy(kwargs)
+                result = call("CRM Lead", **kwargs)
+                assert [row["name"] for row in result["data"]] == [lead.name] and result["total_count"] == 1
+                assert result["page_length"] == result["page_length_count"] == 20 and kwargs == before
+                assert all(marker not in json.dumps(result) for marker in ("history-assignee", "history-liker", "history-viewer"))
+            saved = Doc(rows=json.dumps(env.controllers["CRM Lead"].default_list_data()["rows"]), columns=json.dumps(env.controllers["CRM Lead"].default_list_data()["columns"]))
+            env.saved_views["CRM Lead"] = saved
+            result = call("CRM Lead", **deepcopy(UI_DEFAULTS))
+            assert result["data"][0]["name"] == lead.name and result["is_default"] is False
+            assert env.saved_views["CRM Lead"] == saved and "_assign" not in result["rows"]
+            env.saved_views.clear()
+            for key in ("rows", "columns", "kanban_fields", "kanban_columns"):
+                before = len(env.queries)
+                try:
+                    call("CRM Lead", **{**deepcopy(UI_DEFAULTS), key: "["})
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    raise AssertionError("malformed UI request reached query")
+                assert len(env.queries) == before
+            deny_queries = True
+            h.forbidden(lambda: call("CRM Lead", **deepcopy(UI_DEFAULTS)))
+        finally:
+            frappe.get_list = original_get_list
+            env.saved_views.clear()
+        print("PASS exact fixed UI list defaults through guard/override/native get_data: converted=0, list/owner, page20 and blank projections work; saved canonical caches removed in memory, malformed JSON and native permission denial retained")
         raw_rows = ["name", "content", "_assign as history_assignment", "_liked_by as history_liker", "_seen as history_viewer"]
         old = responses.sanitize(namespace["get_data"]("FCRM Note", {"name": note.name}, "modified desc", rows=raw_rows, columns=[{"key": "content", "label": "Body"}]), True)
         assert all(marker in json.dumps(old) for marker in ("history-assignee", "history-liker", "history-viewer"))

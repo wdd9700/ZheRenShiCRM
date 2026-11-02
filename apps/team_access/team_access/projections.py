@@ -9,11 +9,13 @@ from team_access.responses import RAW_FIELDS, reject_raw_fields
 def parse_options(options):
     result = deepcopy(options)
     for key in ("rows", "columns", "kanban_fields", "kanban_columns"):
-        value = frappe.parse_json(result.get(key)) or []
+        value = result.get(key)
+        value = [] if value is None or value == "" else frappe.parse_json(value)
         if not isinstance(value, list):
             deny()
         result[key] = value
-    view = frappe.parse_json(result.get("view")) or {}
+    view = result.get("view")
+    view = {} if view is None or view == "" else frappe.parse_json(view)
     if not isinstance(view, dict):
         deny()
     result["view"] = view
