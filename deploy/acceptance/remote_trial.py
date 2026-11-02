@@ -71,7 +71,19 @@ def run_remote(phase):
     admin = Session()
     admin.login("Administrator", password)
     try:
-        if phase == "inspect":
+        if phase == "preserve":
+            subprocess.run(["sudo", "-n", "docker", "ps", "-a", "--filter", "label=com.docker.compose.project=crm-trial-c010400", "--format", "{{.Names}}|{{.Image}}|{{.Status}}"], check=True)
+            subprocess.run(["ss", "-ltn"], check=True)
+            assert admin.api("ping") == "pong"
+            settings = admin.doc("System Settings", "System Settings")
+            assert all(settings.get(key) == value for key, value in {"language": "zh", "time_zone": "Asia/Shanghai", "allow_error_traceback": 0, "enable_telemetry": 0}.items())
+            import hashlib
+            for doctype, name in (("CRM Lead", "CRM-LEAD-2026-00001"), ("CRM Organization", "C010800-REMOTE-20261102合成企业"), ("Contact", "C010800-REMOTE-20261102合成人员-C010800-REMOTE-20261102合成企业"), ("CRM Task", "1"), ("CRM Task", "2")):
+                doc = admin.doc(doctype, name)
+                canonical = json.dumps(doc, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+                print("PRESERVE", doctype, name, hashlib.sha256(canonical).hexdigest())
+            print("PASS baseline retained; compare PRESERVE digests before/after controlled deployment")
+        elif phase == "inspect":
             settings = admin.doc("System Settings", "System Settings")
             keys = ("language", "time_zone", "allow_error_traceback", "enable_telemetry", "enable_password_policy", "minimum_password_score")
             print(json.dumps({key: settings.get(key) for key in keys}))
@@ -236,7 +248,7 @@ def team_flow(admin):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("inspect", "baseline", "import", "clock", "team"))
+    parser.add_argument("phase", choices=("inspect", "preserve", "baseline", "import", "clock", "team"))
     parser.add_argument("--key")
     parser.add_argument("--known-hosts")
     parser.add_argument("--ssh", default="C:/Windows/System32/OpenSSH/ssh.exe")

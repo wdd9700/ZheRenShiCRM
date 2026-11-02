@@ -342,10 +342,11 @@ EOS
 
 ```sh
 python deploy/acceptance/remote_trial.py inspect --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
+python deploy/acceptance/remote_trial.py preserve --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
 python deploy/acceptance/remote_trial.py baseline --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
 python deploy/acceptance/remote_trial.py import --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
 python deploy/acceptance/remote_trial.py clock --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
 python deploy/acceptance/remote_trial.py team --key '<KEY>' --known-hosts '<PINNED_KNOWN_HOSTS>'
 ```
 
-`baseline` 是有写操作的中国合成试用初始化（保留密码策略，正常保存 zh/Shanghai、关闭两开关），不是通用迁移器；`import` 固定使用本节来源名，首次写入后不能预期再次为“成功”；`clock/team` 新建可识别的小规模合成记录并保留。`team` 遇失败立即退出，不绕过后续门禁。当前运行主机 Python 3.6，日期解析已避免使用其没有的 `datetime.fromisoformat`。inspect/baseline/import/clock 已实测，team 只有登录与失败创建实测，后续需在已审修复部署后继续。
+`baseline` 是有写操作的中国合成试用初始化（保留密码策略，正常保存 zh/Shanghai、关闭两开关），不是通用迁移器；`import` 固定使用本节来源名，首次写入后不能预期再次为“成功”；`clock/team` 新建可识别的小规模合成记录并保留。`team` 遇失败立即退出，不绕过后续门禁。当前运行主机 Python 3.6，日期解析已避免使用其没有的 `datetime.fromisoformat`。inspect/preserve/baseline/import/clock 已实测，team 只有登录与失败创建实测，后续需在已审修复部署后继续。`preserve` 是部署前后只读检查：服务/镜像/端口、ping、安全设置，以及固定导入 Lead/企业/Contact 与 Task 1/2 的完整 canonical JSON SHA256；只输出合成对象摘要，不输出正文。部署前已执行通过，摘要已交 tower，更新后应逐项比对；它不会自动改镜像锁或修复不一致。
