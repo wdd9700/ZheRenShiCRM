@@ -23,9 +23,9 @@ Frappe CRM为AGPL-3.0，Framework为MIT；网络提供修改版服务时评估�
 - 不提交`.env`、token、客户数据、渲染后的含秘密Compose、OCI缓存、日志、卷或备份。基座构建入口的`deploy/Dockerfile.dockerignore`只放行Dockerfile与两个app源；新前端入口使用独立的`Dockerfile.frontend.dockerignore`，只再放行after校验器及apply/manifest/payload，均排除pycache/egg-info。精确集成context先由Git白名单导出再逐件核SHA，不直接使用整个运行目录；`deploy/.dockerignore`继续拒绝旧式deploy上下文的其他文件。
 - 不`down -v`、prune，不清理旧容器/镜像/卷。初始化/探针容器故意保留。仅configurator无状态一次性容器经tower批准可必要重建，保留sites/logs卷；其可写层已核验仅pycache。官方入口重建`sites/assets`镜像资产链接，不删除站点public/private资料。
 
-## C011000 前端补丁候选入口（仅准备，未构建）
+## C011000 前端补丁候选入口（标准构建/离线测试通过，未部署）
 
-`Dockerfile.frontend` 是 M19 缓存隔离的独立候选配方；旧 `Dockerfile` / `manage.py build` 仅保留基座兼容路径，**不包含 C011000 补丁，不可替代新安全候选交付**。本轮没有 build / 部署授权。M19旧 `1c66c7fe7274655388ffb0a709ed4ef18f85cfad` 首审已要求返工；新冻结 `1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1` 也仅完成离线接口测试，仍待重新独审；必须待最终 tip 重新独审及本接入独审、新窗口后才能构建。
+`Dockerfile.frontend` 是 M19 缓存隔离的独立候选配方；旧 `Dockerfile` / `manage.py build` 仅保留基座兼容路径，**不包含 C011000 补丁，不可替代新安全候选交付**。2026-11-03，M19精确`1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1`独审clean/merge（旧1c66首审返工记录保留），接入`58a0fd68e630ad06ea07dd6b332c1cbb8956f071`限定clean/hold；tower另授权第一Ubuntu构建/独立none probe，未授权更新任何站点或远端。原四源/69件context receipt不变，标准构建与before/check/apply/after/guard、资产强断言通过；新index `sha256:f43a277d62eab434ba90922f36b8a75e86a99a7d0dbdede1cbb70bbe57783a6d`，config `sha256:50836b19cb4ac574f53840c100123f87f19032c22788cbd63b12f2146537a69d`。完整Linux依赖原生Vitest 34文件/326项通过，另实际bridge 1项通过（只是受控Node18包装），独立probe exited0并保留新两命名卷。标准save只读流核镜像原始摘要链和四label通过，不落tar、不load；所有48个旧容器所选状态/挂载及主活动锁最终不变。命令、完整身份与警告见 `docs/RECOVERY_VALIDATION.md`。**仍需另开本地站点更新窗口与M18固定资产真实UI验收，不能自行部署或传远端。**
 
 纯源码准备（从本 checkout，所有参数必须为已审完整40位commit）：
 

@@ -2,7 +2,27 @@
 
 状态（2026-11-02，兼容补丁复验）：**原生隔离恢复已通过；新候选在本轮两个合成项目先备份再定点切换，普通 Sales User 原生创建 Lead/本人 Note、Private/Shared/协作撤权/私附件及重启后同一基础 HTTP 矩阵已实测通过。** M8 仅三处 API 兼容增量获得 clean/hold，不是完整权限独审或整体合并许可；M9 任务仍未完成。远端、原 M7、第二发行版未操作。持久入口、已有加密字段恢复及最终依赖整合仍未验，不能标完整团队 MVP。
 
-## 2026-11-03：M19精确构建接入准备（尚未build/部署）
+## 2026-11-03：已审四源标准构建、独立probe与标准Vitest（未部署）
+
+本节追加并替代下方准备阶段的当前停点，不抹除早期未验证记录。M19精确1f48ddae已经独审clean/merge并由tower合并至主7962e5d；接入58a0fd68限定clean/hold。tower另授权仅第一实验Ubuntu标准构建/独立none probe，不授权更新任何本地站点或远端；本工作树未rebase，构建输入保持原精确四源。
+
+| 来源 | 精确commit |
+|---|---|
+| resource_import | `faa5f0330ad54bd9f4d02bb498ea305651c95ed9` |
+| team_access | `6b70971f0ac12b2e96b959a61a4c8346eb0868e1` |
+| frontend_cache | `1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1` |
+| deployment | `58a0fd68e630ad06ea07dd6b332c1cbb8956f071` |
+| 上游CRM | `36bd8859f2a6345a620477bc708d0546e8c3f08a` |
+
+- **原context/receipt**：`deploy/.runtime/integration-ddf00447d86e4e02b8dfb3e39651bf79`，原manifest SHA256 `f527b52d8dc4dc8b071677b800fa6ee34cfb8822dc9ce6d24f598c32eb98db3b`。Windows及Linux原摘要复核、69件精确Git blob/四源与clean HEAD58a0fd6通过；构建前固定本地base、工具/空间/既有回环代理及48个已有容器选定状态已记录。build后context正常增加candidate-image.env/build-result.json，不再作为未构建context重复调用load_context；原manifest及69件内容最终仍完全不变。
+- **标准构建一次**：第一Ubuntu执行 `python3 -B deploy/prepare_integration.py --context /mnt/p/CRM/.tower/worktrees/wt-9/deploy/.runtime/integration-ddf00447d86e4e02b8dfb3e39651bf79 --context-sha256 f527b52d8dc4dc8b071677b800fa6ee34cfb8822dc9ce6d24f598c32eb98db3b --build --proxy http://127.0.0.1:7897`，exit0；helper含前检计时88.135秒。真实Linux `Baseline verified: 7 files`→`Patch applied: 7 files`→7after/5guard通过，CRM及team_access标准资产build与原Framework preseed/强断言通过，最终after/guard再次通过。没有改baseline或补丁后安装依赖。CRM源依赖层命中既有本机缓存，因此只证明该完整Linux输入可用，不证明全新机器无缓存依赖安装的字节级重现。
+- **精确镜像身份**：OCI index/本机candidate ID `sha256:f43a277d62eab434ba90922f36b8a75e86a99a7d0dbdede1cbb70bbe57783a6d`；linux/amd64 manifest `sha256:48b33d5065440e2800cc3f2812676d3071a61b62f4d093f0b5506c508f8440ca`；config `sha256:50836b19cb4ac574f53840c100123f87f19032c22788cbd63b12f2146537a69d`。四revision label与上表精确一致，RootFS28有序diff_id在报告。辅助直读预期containerd公开blob路径因本机路径不存在失败，现场报告保留；随后标准 `docker image save <candidate>` 仅流式解析、不落tar、不load、不传输，32普通成员/29blob内容SHA及index→平台manifest→原始config链全等，config四label/有序RootFS与inspect全等PASS。不是离线release包或逐层解压diff_id验收。
+- **独立none probe**：`crm-m9-frontend-probe-1b20b68debd1401bac7f7966f628e5a6`，容器ID `06bd9805077884ca8a39d1debf37c423ea6de859ac8a87bf1406a9a5939645fc`，仅新同前缀`-sites`/`-logs`两个命名卷。首次启动前核image、run label、network=none、无ports/privileged/bind/匿名卷；无--rm，现exited0及两卷全留。原四app版本/registry、双Framework manifest各32键/全部映射目标、access.js/page.js内容一致与Node语法、restore CLI、最终after7/guard5及33件team_access源SHA均PASS。
+- **完整依赖树标准测试实跑**：该探针内CRM/frontend现有Node22.23.4、Yarn1.22.22、Vitest4.1.10，先原生 `yarn test:run`（未加bridge）：34文件/326测试全PASS、exit0，4.909秒。再将精确context的bridge复制到该隔离容器原有tests目录，`C011000_PATCH_DIR=/home/frappe/c011000-tests yarn test:run tests/c011000.test.js`：1文件/1测试PASS、exit0，0.769秒；实际执行同一受控Node18项，但仍只是Vitest包装，不升级为真实Vue/浏览器业务UI覆盖。没有安装依赖/换版本/换框架。原生套件stderr含localhost:3000 ECONNREFUSED、旧Browserslist和预期无效文件提示，测试均通过；未为消除输出改上游测试。构建无Redis和Yarn无网络警告亦保留，不当共享HTTP缓存证明。
+- **运行资源边界最终核验**：48个原有容器ID/image/status/StartedAt/全部挂载与构建前逐项完全相等，仅新增上述离线probe；原主M7活动锁仍c47b7cc，本轮两个合成项目仍34fc2237。未up/restart/migrate/install-app现有站点、未清运行缓存/会话、未写业务、未进入第二Ubuntu、未远端操作、不删旧镜像/容器/卷、不prune。只新增候选镜像、两个新探针卷及ignored证据。
+- **证据/后继**：`deploy/.runtime/frontend-c011000-{build,probe}.{log}`、`frontend-c011000-{build,probe}-report.json`、`frontend-c011000-image-identity.json`（失败辅助路径）、`frontend-c011000-image-stream-identity.json`（标准流验证PASS）、`frontend-c011000-final-state.json`；执行器为同目录build_frontend_c011000.py、probe_frontend_c011000.py、verify_frontend_image_identity.py、verify_frontend_image_stream.py、check_frontend_final_state.py。标准构建/离线测试完成不等于新站点安装或真实账号切换/权限/UI通过；下一步须tower另开本地更新窗口，再交M18固定新资产验收。未导出新release tar、未远端传输，M8整体阻断与M9未完成状态保持。
+
+## 2026-11-03：M19精确构建接入准备（历史阶段，后续结果见上）
 
 - 本轮仅deploy代码/离线验证，未调用Docker/WSL、未改容器、远端、共享上游或活动锁。M8输入锁 `6b70971f0ac12b2e96b959a61a4c8346eb0868e1`（两段兼容有限clean/hold，不是M8整体通过）。M19旧冻结 `1c66c7fe7274655388ffb0a709ed4ef18f85cfad` 首审发现auto资源promise消费者回归，随后收到返工新冻结 `1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1`（仍待新独审）；两者均只作本轮离线接口测试，**绝不当可构建/已审交付**。接入使用显式最终commit参数，不内置旧tip。
 - 专用 `deploy/Dockerfile.frontend` 保留原c3873基底和完整 `bench get-app` 依赖流程，不继承/复制fb00镜像；resource_import和team_access的pip安装全部先完成，随后M19严格 `apply --check`→apply→after SHA复核→既有Framework preseed及CRM标准assets build/强断言→team_access build→再次after复核。补丁后没有任何pip/yarn安装，旧基座入口保持兼容但不含安全补丁，不能用作新候选替代。具体命令见deploy/README.md新入口。
