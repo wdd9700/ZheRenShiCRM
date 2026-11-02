@@ -177,6 +177,7 @@ def rejected_write(session, owner, doc):
     assert code in (403, 404), "STOP unauthorized write accepted HTTP " + str(code)
     after = owner.doc(doc["doctype"], doc["name"])
     assert before == after, "STOP rejected write changed record"
+    return code
 
 
 def team_flow(admin):
@@ -203,14 +204,26 @@ def team_flow(admin):
         visible_channels(a, lead, True)
         visible_channels(b, lead, False)
 
-        def denied(doctype, name):
-            code, body = b.request("/api/method/frappe.client.get", {"doctype": doctype, "name": name})
+        def denied(session, doctype, name):
+            code, body = session.request("/api/method/frappe.client.get", {"doctype": doctype, "name": name})
             assert code in (403, 404), "STOP unexpected private access: " + doctype + " HTTP " + str(code)
             assert not any(key in json.loads(body) for key in ("exc", "exception")), "Traceback leaked"
-            rows = b.api("frappe.client.get_list", {"doctype": doctype, "fields": ["name"], "filters": {"name": name}})
+            rows = session.api("frappe.client.get_list", {"doctype": doctype, "fields": ["name"], "filters": {"name": name}})
             assert rows == [], "STOP private record appears in list"
+            return code
 
-        denied("CRM Lead", lead["name"])
+        def new_b():
+            session = Session()
+            session.login(email_b, password)
+            sessions.append((email_b, session))
+            return session
+
+        def revoked(session, doc, label):
+            code = denied(session, doc["doctype"], doc["name"])
+            write_code = rejected_write(session, a, doc)
+            print("PASS revoked direct GET", label, doc["doctype"], doc["name"], "HTTP", code, "; write HTTP", write_code, "; owner full document unchanged")
+
+        denied(b, "CRM Lead", lead["name"])
         a.api("frappe.share.add", {"doctype": "CRM Lead", "name": lead["name"], "user": email_b, "read": 1, "write": 0, "notify": 0})
         assert b.doc("CRM Lead", lead["name"])["name"] == lead["name"]
         print("PASS private parent hidden then explicitly shared parent readable")
@@ -230,19 +243,22 @@ def team_flow(admin):
         assert code == 417 and json.loads(body).get("exc_type") == "ValidationError"
         assert a.doc("FCRM Note", file_note["name"]) == file_note_before
         assert a.doc("File", attachment["name"]) == attachment_before
-        denied("FCRM Note", file_note["name"])
+        denied(b, "FCRM Note", file_note["name"])
         assert b.request(attachment["file_url"])[0] in (403, 404)
         print("PASS owner Note/private attachment; direct Shared conversion refused 417 with record/visibility/file unchanged, B/anonymous denied")
         rejected_write(b, a, lead)
         due = (datetime.now(timezone(timedelta(hours=8))) + timedelta(days=1)).replace(tzinfo=None, microsecond=0).isoformat(sep=" ")
         task = a.api("frappe.client.insert", {"doc": {"doctype": "CRM Task", "title": prefix + "合成跟进", "description": "合成私有任务", "status": "Todo", "due_date": due, "reference_doctype": "CRM Lead", "reference_docname": lead["name"], "custom_team_visibility": "Private"}})
+        assert task["owner"] == email_a
+        task_read = a.doc("CRM Task", task["name"])
+        assert task_read["owner"] == email_a and task_read["due_date"] == due
+        print("PASS explicit owner CRM Task", task["name"], "created and read back as", email_a)
         created = parse_datetime(task["creation"])
         shanghai = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
         assert abs((shanghai - created).total_seconds()) < 120, "Creation is not Shanghai wall time"
-        assert a.doc("CRM Task", task["name"])["due_date"] == due
         print("PASS Shanghai creation and follow-up round trip", task["creation"], due)
         for doc in (note, task):
-            denied(doc["doctype"], doc["name"])
+            denied(b, doc["doctype"], doc["name"])
             visible_channels(a, doc, True)
             visible_channels(b, doc, False)
             rejected_write(b, a, doc)
@@ -260,27 +276,29 @@ def team_flow(admin):
             doc["custom_team_collaborator"] = ""
             doc["custom_team_visibility"] = "Private"
             doc = a.save(doc)
-            denied(doc["doctype"], doc["name"])
+            revoked(b, doc, "old-B")
             visible_channels(b, doc, False)
-            rejected_write(b, a, doc)
-            fresh_b = Session()
-            fresh_b.login(email_b, password)
-            sessions.append((email_b, fresh_b))
+            fresh_b = new_b()
+            revoked(fresh_b, doc, "fresh-B-after-revoke")
             visible_channels(fresh_b, doc, False)
-        print("PASS private/shared/collaborator/revoked Note and Task detail, list, search, timeline, export; old/new B sessions")
+            print("PASS revoked list/text-filter/link/timeline/export old/fresh B", doc["doctype"], doc["name"])
+        print("PASS Note/Task private, Shared read-only and explicit collaborator write; revoked direct GET/write tested independently for old/fresh B")
         file_note = a.doc("FCRM Note", file_note["name"])
         file_note["custom_team_collaborator"] = email_b
         file_note = a.save(file_note)
         assert b.request(attachment["file_url"]) == (200, attachment_text)
         file_note["custom_team_collaborator"] = ""
         a.save(file_note)
+        fresh_b = new_b()
         for outsider in (b, fresh_b, Session()):
             assert outsider.request(attachment["file_url"])[0] in (403, 404)
         assert a.request(attachment["file_url"]) == (200, attachment_text)
         print("PASS private attachment explicit collaboration/revocation; owner intact, old/new/anonymous denied")
         a.api("frappe.share.set_permission", {"doctype": "CRM Lead", "name": lead["name"], "user": email_b, "permission_to": "read", "value": 0})
-        denied("CRM Lead", lead["name"])
+        revoked(b, lead, "old-B")
         visible_channels(b, lead, False)
+        fresh_b = new_b()
+        revoked(fresh_b, lead, "fresh-B-after-revoke")
         visible_channels(fresh_b, lead, False)
         assert admin.doc("CRM Lead", lead["name"])["owner"] == email_a
         guest_code, _ = Session().request("/api/method/frappe.client.get", {"doctype": "CRM Lead", "name": lead["name"]})
@@ -294,14 +312,18 @@ def team_flow(admin):
         assert a.doc("CRM Organization", deal["organization"])["organization_name"] == prefix + "合成企业"
         assert len(deal["contacts"]) == 1
         a.doc("Contact", deal["contacts"][0]["contact"])
-        denied("CRM Deal", deal_name)
+        denied(b, "CRM Deal", deal_name)
         a.api("frappe.share.add", {"doctype": "CRM Deal", "name": deal_name, "user": email_b, "read": 1, "write": 0, "notify": 0})
         assert b.doc("CRM Deal", deal_name)["name"] == deal_name
         rejected_write(b, a, deal)
         a.api("frappe.share.set_permission", {"doctype": "CRM Deal", "name": deal_name, "user": email_b, "permission_to": "read", "value": 0})
-        denied("CRM Deal", deal_name)
+        revoked(b, deal, "old-B")
+        fresh_b = new_b()
+        revoked(fresh_b, deal, "fresh-B-after-revoke")
         print("PASS normal Lead conversion -> Organization/Contact/Deal relationships; Deal private/read-only share/revoked", deal_name)
         b_lead = b.api("frappe.client.insert", {"doc": {"doctype": "CRM Lead", "first_name": prefix + "B", "status": status, "lead_owner": email_b}})
+        assert b_lead["owner"] == email_b and b.doc("CRM Lead", b_lead["name"])["owner"] == email_b
+        print("PASS explicit owner CRM Lead", b_lead["name"], "created and read back as", email_b)
         b_note = b.api("frappe.client.insert", {"doc": {"doctype": "FCRM Note", "title": prefix + "B本人", "content": "B合成私文", "reference_doctype": "CRM Lead", "reference_docname": b_lead["name"]}})
         assert b_note["owner"] == email_b and b.doc("FCRM Note", b_note["name"])["name"] == b_note["name"]
         assert a.request("/api/method/frappe.client.get", {"doctype": "FCRM Note", "name": b_note["name"]})[0] == 403

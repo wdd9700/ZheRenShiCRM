@@ -346,20 +346,24 @@ M9 交付 tar `crm-m9-compat-c1102-image.tar` 1,539,446,272 字节，SHA256 `e00
 
 更新后同 staging + 原 runtime 的 `maintenance-status=ready`、`check` 身份/labels/24层 PASS；独立再次核 DB/双 Redis IDs 不变、四命名卷创建时间仍为 11-01、六 app 仅挂原 sites/logs 卷且 restart=0/OOM=false。`preserve` 五件完整文档 SHA 与更新前逐项全等；深验与重复导入后再次比对仍全等。最终 available 886 MiB、磁盘余 25 GiB、无 swap，仅 SSH/回环8088。此短期健康不是长期容量保证。
 
-**远端真实普通用户验收：** 最终唯一组 `TEST-C010800-TEAM-20261102161118`，A/B 仅 Sales User，标准密码登录、CRM/Desk CSRF与身份；所有业务由普通账号自己创建，管理员仅建用户及核验。最终 `team` exit 0；结果如下（HTTP/API 会话，不冒充双用户浏览器 UI）：
+**远端真实普通用户验收：** R2 最终唯一组 `TEST-C010800-TEAM-20261102163350`，A/B 仅 Sales User，标准密码登录、CRM/Desk CSRF与身份；所有业务由普通账号自己创建，管理员仅建用户及核验。修订后 `team` 真实远端 exit 0（约25秒）；结果如下（HTTP/API 会话，不冒充双用户浏览器 UI）：
+
+R1 独审指出 `d47b0df` 的证据缺口：旧组 `TEST-C010800-TEAM-20261102161118` 的 fresh B 只测列表等渠道，详情拒绝函数固定使用旧 B，未实际覆盖 fresh B 直接详情请求；A Task/B Lead 也未显式断言响应及重读的 owner。旧版文案/PASS 对此过述，不能作为这些断言的通过证据。R2 将拒绝函数参数化，每类撤权后重新登录 B，分别对旧/新 B 直接调用标准 `frappe.client.get/save`；补齐 Task/Lead owner 双断言，不改权限实现、不部署。原始 stdout 由执行管道直接保存，不是手工转录：`P:/CRM/.tower/worktrees/wt-17/deploy/.runtime/m17-r2-team.stdout.log`；本轮只读保留复核为同目录 `m17-r2-preserve.stdout.log`。两文件均 ignored、不入 Git，仅含输出；不要把含敏感输入的命令/会话转录当作可分享证据。
 
 | 场景 | 实测 |
 |---|---|
-| A/B 正常能力 | A 自建 Lead/本人 Note/Task；B 自建 Lead/本人 Note，owner 实际为本人，读回200；对方私文403 |
-| 私父及共享/撤回 | A 私父对B详情/列表/正常文本筛选/link选择/CRM列表/CSV不可见；显式父read-only共享后详情200，撤回后旧/新B同入口再次不可见 |
-| 文本 Note/Task | Private对B拒绝；Shared对父读者B可读但写403；显式collaborator后B合法写200、A读回一致；撤回后原/新B拒绝；未授权写后完整doc与请求前全等 |
+| A/B 正常能力 | A 自建 Lead/本人 Note/Task；B 自建 Lead/本人 Note；A Task `7` 与 B Lead `CRM-LEAD-2026-00009` 均显式断言创建响应及本人重读 owner 等于对应账号；对方私文403 |
+| 私父及共享/撤回 | A 私父对B详情/列表/正常文本筛选/link选择/CRM列表/CSV不可见；显式父read-only共享后详情200，撤回后旧/新B同入口再次不可见，直接详情及写各403、owner完整文档未变 |
+| 文本 Note/Task | Private对B拒绝；Shared对父读者B可读但写403；显式collaborator后B合法写200、A读回一致；撤回后旧B/撤权后新登录B各自直接详情403、写403，每次owner完整doc与请求前全等 |
 | 入口一致性 | Note/Task本人正向与B私有/共享/撤回的标准详情、列表、文本筛选、关联选择、父活动时间线、标准CSV导出一致；普通/匿名导入API403且无堆栈 |
-| 私附件 | A正常创建私File并读取字节200；B/匿名403；明确collaborator后B字节200；撤回后原/新B/匿名403，A仍200且字节相等 |
-| 商机关联 | A正常Lead转换生成企业/Contact/Deal，三类关联详情200；Deal私有B403、显式read-only共享B200/写403、撤回B403 |
-| 时区 | A Task creation为`2026-11-03 00:11:22.368551`，与UTC+8相符；due_date=`2026-11-04 00:11:22`读回全等 |
-| 管理员导入回归 | 更新后再次preview/apply旧合成来源，重复2/错误1、关联详情原文正常；Lead00001无新增/改写 |
+| 私附件 | A正常创建私File并读取字节200；B/匿名403；明确collaborator后B字节200；撤回后旧B/撤权后新登录B/匿名403，A仍200且字节相等 |
+| 商机关联 | A正常Lead转换生成企业/Contact/Deal，三类关联详情200；Deal私有B403、显式read-only共享B200/写403；撤回后旧B/撤权后新登录B各自直接详情403、写403，每次owner完整doc未变 |
+| 时区 | A Task creation为`2026-11-03 00:33:55.507546`，与UTC+8相符；due_date=`2026-11-04 00:33:55`读回全等 |
+| 管理员导入回归（前轮） | 更新后再次preview/apply旧合成来源，重复2/错误1、关联详情原文正常；R2不重复导入，改用只读preserve复核 |
 
-本组保留 A Lead `CRM-LEAD-2026-00006`、文本 Note `7ckndilddh`、Task `6`、Deal `CRM-DEAL-2026-00002` 等；前组与失败现场同样保留，未批量清理。所有本工具会话最终注销，普通口令不落盘、不输出。
+R2 的四类对象 × 旧/新 B 共八次直接详情与八次拒绝写均为 HTTP403，八次拒绝写前后 owner 读取的完整文档逐项全等。本组保留 A Lead `CRM-LEAD-2026-00008`、文本 Note `kje4nhtjnr`、Task `7`、Deal `CRM-DEAL-2026-00003`、B Lead `CRM-LEAD-2026-00009` 等；前组与失败现场同样保留，未批量清理。所有本工具会话最终注销，普通口令不落盘、不输出。
+
+R2 随后 `preserve` exit 0：ping、安全设置断言通过，六长驻 app 仍为 `fb00dd791671`，DB healthy、监听仍仅 SSH 与回环8088；五件既有完整文档摘要与部署前基线逐项比较一致：Lead00001 `7d5b860a…550b8d`、Organization `56f48d86…9abd4`、Contact `451095ca…acac0`、Task1 `19d08947…5eb6`、Task2 `8d3024f7…eea22`。`preserve` 本身只生成摘要，比较是此次对原始输出与既有基线的逐项核对，不把其 PASS 行当自动比较。
 
 **明确产品限制与负例：** 当前策略禁止把带私附件 Note/Task 直接改成 Shared。第一修后组在此返回417后停止；最后两组将私附件与纯文本共享分开，同时显式复测该转换返回417，Note完整字段/Private可见性、File完整字段/私有状态均未变，B仍不可读。没有删除附件、转公共文件或改安全字段绕过。用户若要共享带附件内容，当前不支持该直接转换；不能将文本共享成功说成完整附件共享功能。
 
