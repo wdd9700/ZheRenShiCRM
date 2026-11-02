@@ -13,11 +13,12 @@ PATCH_FILES = frozenset({
     "payload/resources/local.ts", "payload/resources/resources.js",
 })
 CONSUMER_FIXTURES = frozenset({"consumer-fixtures/router.js", "consumer-fixtures/users.js", "consumer-fixtures/views.js"})
+INITIALIZATION_TESTS = frozenset({"initialization.test.mjs", "real-runtime.test.mjs"})
 
 
 def patch_file_set(paths):
     actual = set(paths)
-    if actual not in (PATCH_FILES, PATCH_FILES | CONSUMER_FIXTURES):
+    if actual not in (PATCH_FILES, PATCH_FILES | CONSUMER_FIXTURES, PATCH_FILES | CONSUMER_FIXTURES | INITIALIZATION_TESTS):
         raise RuntimeError("Frontend patch source differs from the exact file whitelist")
     return actual
 
