@@ -1,8 +1,57 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
-状态（2026-11-02）：**本地新建同版本合成来源→原生四件备份→另一独立项目恢复、完整内容/关联核对、管理员 HTTP、新写入重启持久化及受控导出已实际通过；双 Sales User 登录通过，但合法 Note 读取因 M8 候选 API 不兼容返回500，权限验收未通过。** 不代表远端现站恢复、原 M7 业务持久化或完整团队 MVP 完成；M9 任务仍未完成。仅第一 Ubuntu-24.04、合成资料，第二发行版及远端均未操作。以下先列当前结果，后文保留各历史窗口及当时未验证状态。
+状态（2026-11-02，兼容补丁复验）：**原生隔离恢复已通过；新候选在本轮两个合成项目先备份再定点切换，普通 Sales User 原生创建 Lead/本人 Note、Private/Shared/协作撤权/私附件及重启后同一基础 HTTP 矩阵已实测通过。** M8 仅三处 API 兼容增量获得 clean/hold，不是完整权限独审或整体合并许可；M9 任务仍未完成。远端、原 M7、第二发行版未操作。持久入口、已有加密字段恢复及最终依赖整合仍未验，不能标完整团队 MVP。
 
-## 2026-11-02 本地真实恢复与持久化结果（D-006）
+## 兼容补丁新候选与本地正常功能复验
+
+### 精确来源与受控切换
+
+- deploy `5b218c4ac3ddee8777b55a2647cd019f999969a8`、resource_import `faa5f0330ad54bd9f4d02bb498ea305651c95ed9`、team_access `9c0c8f50e159fd58dc1a647b1884656377ef8a04`（有限增量独审 clean/hold）。准备前 HEAD/clean 核验，53个 Git blob 与两部署文件逐字核对；新 context `integration-8d1acc3961e64de6bdec6d9b2ca8c765`，manifest SHA256 `cb5be231d8273e547d119dcc2a249c993c7778300341d9b240f57a6546f04813`。
+- 新版只标准 build 一次，exit0（35.7秒），不是重建旧候选；四 app 版本仍15.125.0/1.90.0/0.1.0/0.1.0。独立 network=none 探针 `crm-m9-compat-probe-ea472aac2ade4c2882e3b3c128dc93b6` exit0，四app注册、双manifest各32键/所有目标、Node及restore CLI、两修改生产源码与9c0c8f5精确SHA均PASS，容器和新卷保留。缺构建Redis的资产更新警告不当HTTP缓存通过证据。
+- 镜像身份：OCI index `sha256:34fc2237983f8c65fa0adc8614844e4d1974c8c9f785a639cd0d22ed6e61ea73`；linux/amd64 manifest `sha256:22c02958a7ba4e08d3d5d66811e9c6f90d9f65973f6a801dcb2d778e7212fc5e`；config `sha256:fb00dd79167160c4e00d9678ff7df3f59c8e86a932e029384112145fc8a134ae`。三者来自真实 build 输出，RootFS24层来自 inspect，完整有序值保存在 `deploy/.runtime/compat-c1102-build-report.json`，不可把 index 当经典 store config或tar摘要。
+- 替换前六个应用容器均仅两个业务命名卷，无匿名卷；写层普通文件仅 nginx生成配置/pid及Python缓存，无未备份业务文件。非秘密诊断保留。来源备份 `20261102_211206-crm_localhost`，恢复项目备份 `20261102_211251-recovery_localhost`；两次原生四件完整可读且配置与当前站点一致后，才用 Compose `up --no-deps --force-recreate backend websocket frontend` 定点切换。tower明确允许替换这六个旧无状态容器；没有删DB/Redis/业务卷/keys、旧镜像、旧context、备份、失败初始化现场，也未使用 remove-orphans。
+- 两项目三个应用均运行新index，DB/Redis容器ID、全部业务挂载、site/common配置逐字及主M7 image锁不变；切换后12类完整记录/原文/关联与切换前各自快照全等（source103引用、recovery105引用），没有再次执行旧restore。旧relay先退役，新relay重新核新image/labels/internal网络及固定IP；仍仅127.0.0.1、16连接/60秒空闲/3小时，非持久入口。
+
+### 标准会话案例（两个项目各自独立执行）
+
+A=`m9-recovery-a@example.invalid`，B=`m9-recovery-b@example.invalid`；两者存储角色为 Sales User、无 Sales Manager/System Manager。会话通过标准密码登录、身份请求和CRM CSRF取得，不注入sid；创建/更新/共享/撤权均普通账号真实HTTP，不用管理员代建、ignore_permissions或改DocPerm。
+
+| 案例 | 操作身份 / 预期 | 实际（创建在重启前；重启后复查保留对象与权限，本人PUT另重测） |
+|---|---|---|
+| 原生创建Lead | A、B各 `frappe.client.insert`，owner及lead_owner应为本人 | 200；本人读取200，未共享B Lead对A403 |
+| 创建/读取本人Private Note | A、B分别真实POST，检查owner==本人 | 200，owner精确匹配，GET200 |
+| Private正文/写入隔离 | 对方GET与PUT应拒绝；本人可写读 | 对方403，本人PUT/GET200及内容相等 |
+| Shared只读 | A正常share父Lead给B(read1/write0)，Note先Private再Shared | Private时B403，Shared时BGET200、PUT403 |
+| 显式协作及撤权 | A授B collaborator，B可写；A撤回后B立即拒绝 | 授权BPUT200，撤回BGET/PUT403；旧会话及新密码会话均403 |
+| Task | A创建本人Private Task并PUT/读回；B拒绝 | 本人200，B403，内容/引用相等 |
+| 私附件 | A正常创建附于本人Note的private File并下载；B不能下载 | A200且字节相等，B403，无堆栈 |
+| 导入入口 | B不能进入管理员资源导入入口 | 拒绝（未启用导入、未冒称导入功能整链回归） |
+
+- 重启测试保持A/B原真实会话，先再次正常授回/撤权并验证旧B与新登录B拒绝，再分别重启每个项目DB/双Redis/三app共6服务。完整12类状态与各自紧邻重启前快照完全相等、缺引用0；旧A/B会话身份仍正确，撤权旧B及新B仍403，新登录再执行表内同一矩阵亦PASS。来源最终Lead3/Task2/Note7/Version10/141引用；恢复项目因先前唯一恢复Note为Note8/143引用，其余同；差异明确来自各项目独立合成写入，不要求此阶段两库业务全等。
+- 两项目重启后各私有 JSON+12 CSV 全字段读回通过，证据名 `M9CompatRevokeBeforeRestart` / `M9CompatRevokeAfterRestart`，不含User/__Auth/配置/凭据；普通用户导出权限未验证。
+- **owner证据纠正**：旧5b218c4文档把旧Admin ORM建的Note称“owner合法GET500”不准确。实际Framework把传入owner=A的初始Note落为Administrator；当时只证实普通用户读取受保护Note触发TypeError，不能算owner正向。未改旧owner凑测试，新候选对旧Admin-owned Private Note/附件拒绝A/B403正确，旧Shared Note对B200。只有本节普通Sales亲自创建、实际owner==本人的新Note才是ownerGET200证据；已报告tower并保留失败历史。
+- **未覆盖/门禁**：本轮不是M8全矩阵，未新增历史/legacy DocShare、列表/搜索/CSV导出权限、socket/实时通知、全部旁路或浏览器UI验证；不重启被拒的广泛审查，不解除M8整体blocker。新版也没有重新执行同版本全新restore来冒称另一次恢复通过；此前原生恢复证据保留。远端传输/切换仍等M13维护失败停写修复独审及tower另行协调，未执行38cbcd0运维切换。
+
+### 已核验离线交付物及当前运维停点
+
+- 全新独立目录：`P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/compat-release-a880b0085406437dbc72d80133d4b114`（第一Ubuntu对应 `/mnt/p/CRM/.tower/worktrees/wt-9/deploy/.runtime/...`），没有覆盖旧交付包，未传远端。
+- `crm-m9-compat-c1102-image.tar`：1,539,446,272字节，真实SHA256 `e00a4c2c6573588abec8d28ff8b33dab0f9d7ef5dcffe1250ee1c18b1601ebba`。`release.env` 含M13约定七字段（三镜像digest/tarSHA/三源码commit），文件SHA256 `1770decfda6d3d3619fdaacae21423386a8617779ca02714adeb7784b3ff2fa9`；`image-rootfs-layers.txt` 保留全部24层有序diff_id，文件SHA256 `defbc996a7829b70c0f00e0e335ddc3db7b5704dd399fc064fe542826614ec05`。
+- 已先阅读M13 `38cbcd02da0c22b363d4236077fe3d0abd6e4af1` 格式并与所属worker沟通，再按tower额外明确导出授权执行本地 `docker image save`。同目录精确公开 `verify_image_archive.py` 源自该commit，SHA256 `ac13f1f9dfecc21eb6cc6df06ae1471f0d4aa20645a9eab9906c478b992b1b4a`；纯离线核验所有blob内容SHA、index→linux/amd64 manifest→config、每层gzip解压diff_id与inspect RootFS全等PASS。没有执行其有维护缺陷的38cbcd0运维更新器；远端执行须等修复独审和新协调。
+- 复验日志/报告：`deploy/.runtime/compat-c1102-{build,probe,switch,release}-report.json`、`compat-c1102-build.log`、`compat-c1102-restart-http.log`；完整业务证据仍只在各站点private目录。未重复旧build/restore，未容器内热修。
+- 当前恢复项目应用已是新index，而保留的restore容器仍是旧index。`recovery_manage.py` 的原单image保护会拒绝该混合运维历史，**不要用旧image调用up来回切，也不要放宽保护伪造restore身份**。当前两个项目的启动/停止只按本次核验过的Compose文件、原run marker及新index显式操作；启动不代表通过持久入口或完整权限验收。例如第一Ubuntu在wt9：
+
+```bash
+export CRM_IMAGE=sha256:34fc2237983f8c65fa0adc8614844e4d1974c8c9f785a639cd0d22ed6e61ea73
+# 来源：run=b4a562ef23334fc0bdc41f3b90996a2d；文件=deploy/.runtime/compose.m9-source-c1102.yml
+# 恢复：run=eafceeb05b0a45e59fbc6825674e28fc；文件=deploy/compose.recovery.yml
+export CRM_RECOVERY_RUN_ID=eafceeb05b0a45e59fbc6825674e28fc
+docker compose -p crm-recovery-b010200 --env-file /dev/null -f deploy/compose.recovery.yml ps -a
+# 只有获准运行时才用同一参数stop或up -d --wait；不down、不init、不再restore。
+```
+
+额外sleep保活已退役。仅两个新版relay有界运行：source task `bash-5851fysl` / WindowsPID49144，recovery task `bash-ypk7a9q6` / PID51072，均重新核验固定image/labels/IP后显式启动，3小时到期，停止可用对应TaskStop；不触任何容器/卷。它们持有实验WSL会话，不是系统服务或正式长期托管。
+
+## 前一阶段：本地真实恢复与持久化结果（D-006）
 
 - **来源/目标**：新来源 `crm-m9-source-c1102` / `crm.localhost` / 8090，run `b4a562ef23334fc0bdc41f3b90996a2d`；新恢复 `crm-recovery-b010200` / `recovery.localhost` / 8089，run `eafceeb05b0a45e59fbc6825674e28fc`。两项目独立 DB/sites/Redis/logs/keys/bundle 卷及 internal 网络，无 worker/scheduler，禁发信/导入/Server Script。原站点、旧卷/镜像/失败容器/备份全部保留，不 down-v/prune/uninstall。
 - **精确候选**：`sha256:cae67cc3ad2bfebffd3635efd7ffd4741528bbc1ad29d84a92589df7d3ba0705`，Framework15.125.0/CRM1.90.0/resource_import0.1.0/team_access0.1.0；resource `faa5f0330ad54bd9f4d02bb498ea305651c95ed9`，access `0e5fed78841f8acad31278a3e06cb08b0e6e93d0`。context `integration-7d31d600dbcf49bbaf52b5c97dee6a42`，53源文件 manifest SHA `7d1506ba87354547e09a36c4884e4159c66b6d204909a3cc05751a5b0d15c031`。此前一次标准 build 与独立 network=none probe 已通过（两 manifest 各32键及真实目标/Node/四app/CLI），本轮没有重建或激活主 M7 镜像锁。
@@ -10,7 +59,7 @@
 - **备份/恢复**：来源原生 `bench --site crm.localhost backup --with-files` 生成 `20261102_202855-crm_localhost` 四件；流送 network=none receiver，源/receiver逐件字节摘要私下全等，原件保留。目标全新原生 `_restore` exit0，0400 root 密钥初始化、转义固定单库 `%` 账号与 SHOW GRANTS 核验实际通过；公私文件 inventory 共2个内容/路径全等。没有从 Windows 落地或输出备份、密码、密钥及其摘要。
 - **完整一致性**：源/恢复12类对象完整字段、子表、原文、owner/visibility/collaborator、103条 Link/Dynamic Link 引用及摘要完全一致，缺引用0；不只是计数。依次计数为 Organization1、Contact1、Lead1、Deal1、Task1、Note3、Comment11、Communication1、File4（含目录）、Version3、DocShare6、Custom Field29。新 DB 名/password 不同、各自 DB/sites 挂载独立；合成/禁用配置保留，telemetry=0、error_traceback=0、Asia/Kolkata在来源初始化。来源当时没有 encryption_key/backup_encryption_key，恢复亦无：只验证键存在性一致，**未验证已有加密字段或加密备份解密**。
 - **真实 HTTP**：两项目管理员标准密码登录→身份/CRM/CSRF→Note/Task写读基线、中文/引号/换行/危险文本 Code 原文、Lead/Deal/企业/Contact关联与公私文件字节均通过。恢复副本另用标准管理员 HTTP 新建唯一合成 Note 并读回，来源没有该记录。两个普通 Sales User 在来源/恢复的标准密码登录、身份、CSRF均通过，存储角色核无 Sales/System Manager；原生 own User API 隐藏角色子表，因此不能用该响应空roles误判账号无角色。
-- **权限失败（未解除）**：首个 owner 合法 Note GET在两项目均500 TypeError；只读内部复现指向 `team_access.permissions.can_reference:35` 向固定 `frappe.has_permission` 传不支持的 `raise_exception=False`。已交 M8 修复/独审，未修改镜像内 app 或停用 hook。Private/Shared/撤权状态在合成图存在，撤权及基线写入由管理员 HTTP 完成；**普通用户合法读写、Shared/撤权及私附件下载权限矩阵未通过，不能以管理员结果替代**。本候选不可用于真实私域资料。
+- **权限失败（未解除）**：首个普通用户读取受保护 Note 在两项目均500 TypeError（旧fixture实际owner为Administrator，不能称owner正向）；只读内部复现指向 `team_access.permissions.can_reference:35` 向固定 `frappe.has_permission` 传不支持的 `raise_exception=False`。已交 M8 修复/独审，未修改镜像内 app 或停用 hook。Private/Shared/撤权状态在合成图存在，撤权及基线写入由管理员 HTTP 完成；**普通用户合法读写、Shared/撤权及私附件下载权限矩阵未通过，不能以管理员结果替代**。本候选不可用于真实私域资料。
 - **真实重启/导出**：仅重启本轮两个新项目各6个服务，恢复前后基线完整内容/103引用均不变，管理员重新登录及文件读回通过。恢复副本新增 Note 后再重启其6服务，Note4/105引用/缺0及完整内容与新写入快照相等；管理员重新登录通过。来源基线未混入恢复新记录。源/恢复各私有 JSON+12 CSV 全字段/子表/公式转义读回通过，恢复前导出 records/relations完整全等；新增写入重启后的导出亦通过。目录分别为站点 `private/recovery-evidence`（新0600摘要）与 `private/recovery-exports`（新0700目录、0600文件），不导 User/__Auth/配置/凭据，不当普通用户导出权限证明。
 - **入口限制与临时措施**：Docker29.1.3仅 internal 桥网络实际忽略声明的 ports（HostConfig有绑定、NetworkSettings.Ports为null）；容器内及宿主直连 frontend bridge IP ping200，原生宿主回环端口不可达，与 [moby #53256](https://github.com/moby/moby/discussions/53256)一致。tower只批准本轮 Python 标准库临时 relay：仅127.0.0.1:8090/8089→各自核验 labels/image/internal 网络的固定 frontendIP:8080，16连接、60秒空闲、3小时运行上限、不记录流量或秘密。未改 daemon/firewall/internal、未加外网网络。**这不是原生 Compose 持久入口修复**；容器重启如IP改变须重新核验显式启动，正规入口仍待另验。
 - **生命周期/范围**：有界 WSL `sleep 10800` 只保障本轮实验，不是服务或正式托管；WSL启动时原 M7可能按unless-stopped自然重启，不声称原实例未重启/业务零写。本轮未手工操作原M7业务、未接触第二发行版/远端，也未证明原远端现站的备份恢复。所有运行证据脚本/日志在忽略的 `deploy/.runtime/night_*`，完整业务证据仅在上述 private 目录。
