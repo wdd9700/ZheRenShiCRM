@@ -209,7 +209,7 @@ sh deploy/remote/trial.sh check
 
 单次更新后仅当 `site-update.state=ready` 才允许下一次续升；`updating`、停止/恢复失败或其他维护态必须停止审查，不能手工删改 ready 绕过。每轮以新 config 为代次标识，独立保存锁备份、release/layers、临时文件和状态历史，已有同名路径即拒绝而非覆盖。新 config 必须不同，且锁/runtime manifest/全部应用服务须先与本轮起点一致。新四件备份完成可读后才 load；失败停写并恢复本轮起点，而不是首次镜像。新独立 staging 和 Tower 单独执行窗口仍是每次升级前置条件。
 
-代次文件名分别为 `image.env.pre-site-update-<新config>`、`site-update.state.pre-<新config>`、`release.pre-<新config>.env`、`image-rootfs-layers.pre-<新config>.txt`；失败的新元数据隔离到 `failed-release-<新config>.env` 和 `failed-image-rootfs-layers-<新config>.txt`，随后恢复本轮备份并记 `metadata=restored`。`restore-old-lock` 依据 `site-update.state` 中的 `image=<失败代次config>` 选择该代锁/manifest 备份；首轮旧文件名保持不变，禁止用首次备份替代本轮恢复点。
+代次文件名分别为 `image.env.pre-site-update-<新config>`、`site-update.state.pre-<新config>`、`release.pre-<新config>.env`、`image-rootfs-layers.pre-<新config>.txt`；失败的新元数据隔离到 `failed-release-<新config>.env` 和 `failed-image-rootfs-layers-<新config>.txt`，隔离目标已存在时不得搬迁或覆盖，重复 stop/restore 保持原失败现场，随后恢复本轮备份并记 `metadata=restored`。`restore-old-lock` 依据 `site-update.state` 中的 `image=<失败代次config>` 选择该代锁/manifest 备份；首轮旧文件名保持不变，禁止用首次备份替代本轮恢复点。状态文件及 legacy/versioned 证据的 symlink（包括 dangling symlink）均按存在处理，在备份/load/临时写入前拒绝。
 
 ### 运行站点的已审补丁镜像更新（待 M9 元数据）
 

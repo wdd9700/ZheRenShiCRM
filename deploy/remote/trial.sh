@@ -299,7 +299,7 @@ set_update_paths() {
     ROLLBACK_TEMP="$RUNTIME/.image.env.rollback-$NEW_CONFIG.tmp"
 }
 write_state() {
-    STATE_TEMP="$RUNTIME/.site-update.state.${NEW_CONFIG:-manual}.tmp"
+    STATE_TEMP="$RUNTIME/.site-update.state.${NEW_CONFIG:-manual}.$$.tmp"
     if (umask 077 && set -C && printf '%s\n' "$1" > "$STATE_TEMP") && mv "$STATE_TEMP" "$RUNTIME/site-update.state"; then
         return 0
     fi
@@ -328,11 +328,13 @@ restore_previous_lock() {
 }
 quarantine_metadata() {
     META_RESULT=quarantined
-    if [ -e "$RUNTIME/release.env" ]; then
-        mv "$RUNTIME/release.env" "${FAILED_RELEASE:-$RUNTIME/failed-release.env}" || META_RESULT=quarantine-failed
+    FAILED_RELEASE=${FAILED_RELEASE:-$RUNTIME/failed-release.env}
+    FAILED_LAYERS=${FAILED_LAYERS:-$RUNTIME/failed-image-rootfs-layers.txt}
+    if [ -e "$RUNTIME/release.env" ] && [ ! -e "$FAILED_RELEASE" ] && [ ! -L "$FAILED_RELEASE" ]; then
+        mv "$RUNTIME/release.env" "$FAILED_RELEASE" || META_RESULT=quarantine-failed
     fi
-    if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
-        mv "$RUNTIME/image-rootfs-layers.txt" "${FAILED_LAYERS:-$RUNTIME/failed-image-rootfs-layers.txt}" || META_RESULT=quarantine-failed
+    if [ -e "$RUNTIME/image-rootfs-layers.txt" ] && [ ! -e "$FAILED_LAYERS" ] && [ ! -L "$FAILED_LAYERS" ]; then
+        mv "$RUNTIME/image-rootfs-layers.txt" "$FAILED_LAYERS" || META_RESULT=quarantine-failed
     fi
     [ "$META_RESULT" = quarantined ]
 }
@@ -410,6 +412,7 @@ update_site_image() {
     command -v python3 >/dev/null 2>&1 || fail 'Python 3 standard library is required for offline archive chain verification'
     python3 "$REMOTE/verify_image_archive.py" "$IMAGE_ARCHIVE" "$NEW_RELEASE" "$NEW_LAYERS" || fail 'reviewed archive digest chain verification failed'
     set_update_paths
+    [ ! -L "$RUNTIME/site-update.state" ] || fail 'site-update.state must not be a symlink; refuse any update write'
     if [ -e "$RUNTIME/site-update.state" ]; then
         CURRENT_LOCK=$(cat "$IMAGE_FILE")
         [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=${CURRENT_LOCK#CRM_IMAGE=}" ] || fail 'repeat update requires a clean ready state matching the current lock; do not edit or delete maintenance state to bypass it'
@@ -419,7 +422,7 @@ update_site_image() {
           "$RUNTIME"/image.env.pre-site-update-* "$RUNTIME"/site-update.state.pre-* \
           "$RUNTIME"/release.pre-* "$RUNTIME"/image-rootfs-layers.pre-* \
           "$RUNTIME"/failed-release-* "$RUNTIME"/failed-image-rootfs-layers-*; do
-            [ ! -e "$EVIDENCE" ] || fail "update evidence exists without state; refuse first-only bypass: $EVIDENCE"
+            [ ! -e "$EVIDENCE" ] && [ ! -L "$EVIDENCE" ] || fail "update evidence exists without state; refuse first-only bypass: $EVIDENCE"
         done
     fi
     for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
