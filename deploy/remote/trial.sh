@@ -413,6 +413,14 @@ update_site_image() {
     if [ -e "$RUNTIME/site-update.state" ]; then
         CURRENT_LOCK=$(cat "$IMAGE_FILE")
         [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=${CURRENT_LOCK#CRM_IMAGE=}" ] || fail 'repeat update requires a clean ready state matching the current lock; do not edit or delete maintenance state to bypass it'
+    else
+        for EVIDENCE in "$RUNTIME/release.env" "$RUNTIME/image-rootfs-layers.txt" \
+          "$RUNTIME/image.env.pre-site-update" "$RUNTIME/failed-release.env" "$RUNTIME/failed-image-rootfs-layers.txt" \
+          "$RUNTIME"/image.env.pre-site-update-* "$RUNTIME"/site-update.state.pre-* \
+          "$RUNTIME"/release.pre-* "$RUNTIME"/image-rootfs-layers.pre-* \
+          "$RUNTIME"/failed-release-* "$RUNTIME"/failed-image-rootfs-layers-*; do
+            [ ! -e "$EVIDENCE" ] || fail "update evidence exists without state; refuse first-only bypass: $EVIDENCE"
+        done
     fi
     for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
       "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
@@ -422,12 +430,12 @@ update_site_image() {
       "$RUNTIME/.site-update.state.$NEW_CONFIG.tmp"; do
         [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "site update generation target/temporary/backup conflict must be resolved before any runtime change: $CONFLICT"
     done
-    (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
-    (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
     require_runtime
     [ "$CRM_IMAGE" = "$CRM_IMAGE_CONFIG" ] || fail 'running-site update only accepts the existing classic config lock'
     [ "$NEW_CONFIG" != "$CRM_IMAGE_CONFIG" ] || fail 'reviewed update must select a different config; no-op update refused'
     require_marker migrated-twice
+    require_docker
+    verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
     if [ -e "$RUNTIME/release.env" ]; then
         (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
     fi
@@ -437,7 +445,8 @@ update_site_image() {
     if [ -e "$RUNTIME/site-update.state" ]; then
         (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
     fi
-    require_docker
+    (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
+    (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
     ENV_BEFORE=$(sha256sum "$ENV_FILE")
     DB_BEFORE=$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')
     CACHE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
@@ -488,8 +497,15 @@ maintenance_stop() {
     else
         STOP_RESULT=stop-failed
     fi
-    MANUAL_IMAGE=$(cat "$IMAGE_FILE")
-    write_state "maintenance reason=manual-stop image=${MANUAL_IMAGE#CRM_IMAGE=} stop=$STOP_RESULT lock=unchanged metadata=unchanged" || fail "maintenance stop=$STOP_RESULT but state write failed; no persistence is claimed"
+    STATE_IMAGE=
+    if [ -f "$RUNTIME/site-update.state" ]; then
+        STATE_IMAGE=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$RUNTIME/site-update.state")
+    fi
+    if [ -z "$STATE_IMAGE" ]; then
+        MANUAL_IMAGE=$(cat "$IMAGE_FILE")
+        STATE_IMAGE=${MANUAL_IMAGE#CRM_IMAGE=}
+    fi
+    write_state "maintenance reason=manual-stop image=$STATE_IMAGE stop=$STOP_RESULT lock=unchanged metadata=unchanged" || fail "maintenance stop=$STOP_RESULT but state write failed; no persistence is claimed"
     [ "$STOP_RESULT" = stopped ] || fail 'maintenance stop failed; failure state was recorded, preserve resources'
     printf 'PASS: project stopped without requiring release metadata validation\n'
 }

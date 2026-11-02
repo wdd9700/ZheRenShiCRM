@@ -213,7 +213,7 @@ sh deploy/remote/trial.sh check
 
 ### 运行站点的已审补丁镜像更新（待 M9 元数据）
 
-现有工具支持上述工具更新和旧锁迁移，但运行站点补丁还必须有 M9 提供的独立 `release.env`、完整 `image-rootfs-layers.txt` 和镜像 tar。元数据须包含精确 `CRM_IMAGE_CONFIG`、OCI index、平台 manifest、tar SHA 及三个源码 revision；本包不猜补丁 digest、不重 build。当前锁须为旧 config `129b0357…`，且站点已完成双迁移。
+现有工具支持上述工具更新和旧锁迁移，但运行站点补丁还必须有 M9 提供的独立 `release.env`、完整 `image-rootfs-layers.txt` 和镜像 tar。元数据须包含精确 `CRM_IMAGE_CONFIG`、OCI index、平台 manifest、tar SHA 及三个源码 revision；本包不猜补丁 digest、不重 build。首轮当前锁须为旧 config `129b0357…`；续升则必须为当前 runtime 对应 config，且站点已完成双迁移。无状态仅在无任何首轮/续升证据时允许，已有证据但状态丢失必须停止审查；同 config/no-op、冲突及当前应用运行镜像漂移均须零写入拒绝。
 
 从独立已审 staging 调用新工具，显式复用现有 runtime，不覆盖旧工具目录：
 
