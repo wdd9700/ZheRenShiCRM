@@ -27,7 +27,7 @@ M9 构建日志逐项证明 config `129b0357…` → linux/amd64 manifest `6014c
 
 M10 已知主机为 2 CPU / 1.8 GiB RAM / 无 swap。该栈同时运行 9 个长驻服务，可能 OOM、重启或无法完成迁移；33 GiB 磁盘也只表示当前空间，不代表持续备份容量。预检要求 home 和 Docker 文件系统各有至少 8 GiB 可用空间，作为镜像导入、数据库和短期备份的保守门槛，不是生产容量建议。不得擅自加 swap、停安全服务、清其他项目资源或降低权限来释放资源。
 
-主机 Python 3.6.8 不用于运行应用，也不用于 M9 `manage.py`（其代码使用 Python 3.9+ 接口）。应用 Python 固定在候选镜像内；本包远端运维使用 POSIX shell、标准系统工具和容器内 Python。不要替换系统 Python 或另装解释器来绕过这一边界。
+主机 Python 3.6.8 不用于运行应用或 M9 `manage.py`（其代码使用 Python 3.9+ 接口）。应用 Python 固定在候选镜像内；本包远端运维使用 POSIX shell、标准系统工具和容器内 Python，只有 `verify_image_archive.py` 显式兼容主机 Python 3.6 标准库用于离线摘要链核验。不要替换系统 Python 或另装解释器来绕过这些边界。
 
 ### Docker 访问模式（默认不提权）
 
@@ -173,7 +173,7 @@ git archive --format=tar --output="$UPDATE_DIR/crm-c010400-tools-update.tar" "$U
   deploy/remote/image-rootfs-layers.txt deploy/remote/preflight.sh \
   deploy/remote/release.env deploy/remote/trial.sh \
   deploy/remote/update-from-240b9a8.sha256 deploy/remote/verify_backup.py \
-  docs/REMOTE_TRIAL.md
+  deploy/remote/verify_image_archive.py docs/REMOTE_TRIAL.md
 (
   cd "$UPDATE_DIR"
   sha256sum crm-c010400-tools-update.tar > crm-c010400-tools-update.sha256
@@ -204,6 +204,20 @@ sh deploy/remote/trial.sh check
 ```
 
 锁迁移只接受精确旧 index 锁，先验证 config 的 ID、平台、labels 和完整 RootFS，再要求旧锁为非 symlink 的 0600 文件；它排他保留旧锁到 `image.env.pre-c010400-config`，在同目录原子更换新锁，不改 `.env`、站点、容器或卷。已有备份/临时路径、错误旧值、错误 config/平台/labels/diff_ids 均拒绝且不换锁。两个动作都只服务本次 M15 停点，不是通用升级器或任意 ID 回退。
+
+### 运行站点的已审补丁镜像更新（待 M9 元数据）
+
+现有工具支持上述工具更新和旧锁迁移，但运行站点补丁还必须有 M9 提供的独立 `release.env`、完整 `image-rootfs-layers.txt` 和镜像 tar。元数据须包含精确 `CRM_IMAGE_CONFIG`、OCI index、平台 manifest、tar SHA 及三个源码 revision；本包不猜补丁 digest、不重 build。当前锁须为旧 config `129b0357…`，且站点已完成双迁移。
+
+从独立已审 staging 调用新工具，显式复用现有 runtime，不覆盖旧工具目录：
+
+```sh
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" update-site-image \
+  /已审release目录 /已核验镜像.tar --confirm-site-image-update
+```
+
+该动作先离线核验 tar SHA、index→amd64 manifest→config 及逐层 diff_ids，再完成四件备份可读检查后加载并验证新镜像，保留 `.env`、站点配置、数据库/卷、原镜像和 `image.env.pre-site-update`，以 Compose 原生重建。六个长驻应用服务须全部运行新 config，configurator 须同 config 且 exit 0；DB/Redis 容器 ID、`.env` 和站点配置哈希不得改变。重建或验证失败会恢复旧锁并停止项目进入维护，仍失败则停止保留现场；不得自动重启已知权限缺陷版本。成功后才写入 runtime 新 manifest/层清单供后续 `check`。后续权限复验失败同样立即停写/维护，不以旧版回退冒充健康。不 `down -v`/prune、不 init、不重复旧 load 迁移、不改公开范围/SSH/firewall，也不解除 M8/M9 门禁。
 
 ## 4. 新站点、备份、安装与双迁移
 

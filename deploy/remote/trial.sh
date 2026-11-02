@@ -3,7 +3,15 @@ set -eu
 
 REMOTE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$REMOTE/../.." && pwd)
-RUNTIME=$REMOTE/.runtime
+RUNTIME=${CRM_TRIAL_RUNTIME_DIR:-$REMOTE/.runtime}
+case "$RUNTIME" in
+    /*) ;;
+    *) printf 'ERROR: CRM_TRIAL_RUNTIME_DIR must be absolute\n' >&2; exit 1 ;;
+esac
+if [ -e "$RUNTIME" ] && { [ ! -d "$RUNTIME" ] || [ -L "$RUNTIME" ]; }; then
+    printf 'ERROR: runtime must be a real non-symlink directory\n' >&2
+    exit 1
+fi
 ENV_FILE=$RUNTIME/.env
 IMAGE_FILE=$RUNTIME/image.env
 PROJECT=crm-trial-c010400
@@ -16,6 +24,13 @@ if [ "$ACTION" = load-image ]; then
     IMAGE_ARCHIVE=$1
     shift
 fi
+UPDATE_RELEASE_DIR=
+if [ "$ACTION" = update-site-image ]; then
+    [ "$#" -ge 2 ] || { printf 'update-site-image requires a reviewed release directory and image archive\n' >&2; exit 2; }
+    UPDATE_RELEASE_DIR=$1
+    IMAGE_ARCHIVE=$2
+    shift 2
+fi
 CONFIRM=0
 if [ "${1:-}" = "--confirm-synthetic-only" ]; then
     CONFIRM=1
@@ -26,16 +41,22 @@ if [ "${1:-}" = "--confirm-classic-image-lock-migration" ]; then
     CONFIRM_CLASSIC=1
     shift
 fi
+CONFIRM_SITE_UPDATE=0
+if [ "${1:-}" = "--confirm-site-image-update" ]; then
+    CONFIRM_SITE_UPDATE=1
+    shift
+fi
 
 usage() {
     cat <<'EOF'
-Usage: trial.sh ACTION [ARCHIVE] [--confirm-synthetic-only] [--confirm-classic-image-lock-migration]
+Usage: trial.sh ACTION [ARGS] [--confirm-synthetic-only] [--confirm-classic-image-lock-migration] [--confirm-site-image-update]
 Actions:
   verify-source                 Verify the 53 exact app/build source files
   init-env                     Generate new 0600 credentials; never overwrite
   load-image ARCHIVE           Load a verified image archive through the selected Docker mode
   check                        Check Compose, locked image identity, platform, labels and RootFS
   migrate-image-lock-to-config One-time exact index-to-config lock migration; requires classic confirmation
+  update-site-image DIR TAR    One-time reviewed image update with backup and rollback; requires confirmation
   create-site                  One-time new site; requires synthetic confirmation
   up                           Start/wait all trial services
   install-extensions           One-time resource_import then team_access install; requires confirmation
@@ -68,9 +89,25 @@ require_docker() {
     docker_cli compose version >/dev/null 2>&1 || fail 'Compose v2 or selected Docker access mode failed; no privilege fallback is attempted'
     docker_cli version --format '{{.Server.Version}}' >/dev/null 2>&1 || fail 'local Docker daemon access failed in the selected mode; sudo mode uses only sudo -n'
 }
+release_value() {
+    awk -F= -v key="$1" '$1 == key {count++; value=substr($0, index($0, "=") + 1)} END {if (count != 1) exit 1; print value}' "$2"
+}
 require_runtime() {
     [ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || fail 'new trial credentials are missing; run init-env once, never reuse local credentials'
     [ -f "$IMAGE_FILE" ] && [ ! -L "$IMAGE_FILE" ] || fail 'trial image lock is missing'
+    ACTIVE_RELEASE=$REMOTE/release.env
+    ACTIVE_LAYERS=$REMOTE/image-rootfs-layers.txt
+    if [ -e "$RUNTIME/release.env" ]; then
+        [ -f "$RUNTIME/release.env" ] && [ ! -L "$RUNTIME/release.env" ] || fail 'runtime release metadata must be an ordinary non-symlink file'
+        [ -f "$RUNTIME/image-rootfs-layers.txt" ] && [ ! -L "$RUNTIME/image-rootfs-layers.txt" ] || fail 'runtime RootFS metadata must be an ordinary non-symlink file'
+        ACTIVE_RELEASE=$RUNTIME/release.env
+        ACTIVE_LAYERS=$RUNTIME/image-rootfs-layers.txt
+    fi
+    CRM_IMAGE_CONFIG=$(release_value CRM_IMAGE_CONFIG "$ACTIVE_RELEASE")
+    CRM_IMAGE_INDEX=$(release_value CRM_IMAGE_INDEX "$ACTIVE_RELEASE")
+    CRM_RESOURCE_IMPORT_COMMIT=$(release_value CRM_RESOURCE_IMPORT_COMMIT "$ACTIVE_RELEASE")
+    CRM_TEAM_ACCESS_COMMIT=$(release_value CRM_TEAM_ACCESS_COMMIT "$ACTIVE_RELEASE")
+    CRM_UPSTREAM_CRM_COMMIT=$(release_value CRM_UPSTREAM_CRM_COMMIT "$ACTIVE_RELEASE")
     IMAGE_LOCK=$(cat "$IMAGE_FILE")
     case "$IMAGE_LOCK" in
         "CRM_IMAGE=$CRM_IMAGE_CONFIG")
@@ -115,21 +152,25 @@ init_env() {
 verify_image_identity() {
     IMAGE=$1
     EXPECTED_ID=$2
+    RESOURCE_REVISION=$3
+    TEAM_REVISION=$4
+    CRM_REVISION=$5
+    LAYERS_FILE=$6
     ACTUAL=$(docker_cli image inspect "$IMAGE" --format '{{.Id}}') || fail "locked image is unavailable: $EXPECTED_ID"
     [ "$ACTUAL" = "$EXPECTED_ID" ] || fail "loaded image ID does not match the exact lock: $EXPECTED_ID"
     [ "$(docker_cli image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || fail 'candidate image platform mismatch'
-    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "crm.resource-import.revision"}}')" = "$CRM_RESOURCE_IMPORT_COMMIT" ] || fail 'resource_import revision label mismatch'
-    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "crm.team-access.revision"}}')" = "$CRM_TEAM_ACCESS_COMMIT" ] || fail 'team_access revision label mismatch'
-    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CRM_UPSTREAM_CRM_COMMIT" ] || fail 'upstream CRM revision label mismatch'
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "crm.resource-import.revision"}}')" = "$RESOURCE_REVISION" ] || fail 'resource_import revision label mismatch'
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "crm.team-access.revision"}}')" = "$TEAM_REVISION" ] || fail 'team_access revision label mismatch'
+    [ "$(docker_cli image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CRM_REVISION" ] || fail 'upstream CRM revision label mismatch'
     ACTUAL_LAYERS=$(docker_cli image inspect "$IMAGE" --format '{{range .RootFS.Layers}}{{println .}}{{end}}') || fail 'unable to read locked image RootFS layers'
-    EXPECTED_LAYERS=$(cat "$REMOTE/image-rootfs-layers.txt")
+    EXPECTED_LAYERS=$(cat "$LAYERS_FILE")
     [ "$ACTUAL_LAYERS" = "$EXPECTED_LAYERS" ] || fail 'image RootFS diff_ids differ from the pinned config content; labels are not identity proof'
 }
 check() {
     require_runtime
     require_docker
     compose --profile setup config -q
-    verify_image_identity "$CRM_IMAGE" "$CRM_IMAGE"
+    verify_image_identity "$CRM_IMAGE" "$CRM_IMAGE" "$CRM_RESOURCE_IMPORT_COMMIT" "$CRM_TEAM_ACCESS_COMMIT" "$CRM_UPSTREAM_CRM_COMMIT" "$ACTIVE_LAYERS"
     printf 'PASS: Compose and %s image lock, linux/amd64, three labels and all RootFS diff_ids; runtime health not yet proven\n' "$CRM_IMAGE_LOCK_KIND"
 }
 mark() {
@@ -222,7 +263,7 @@ migrate_image_lock_to_config() {
     [ "$(stat -c %a "$IMAGE_FILE")" = 600 ] || fail 'existing image lock must already be mode 0600; no permission change is attempted'
     OLD_LOCK=$(cat "$IMAGE_FILE")
     [ "$OLD_LOCK" = "CRM_IMAGE=$CRM_IMAGE_INDEX" ] || fail 'image lock migration only accepts the exact previous index lock'
-    verify_image_identity "$CRM_IMAGE_CONFIG" "$CRM_IMAGE_CONFIG"
+    verify_image_identity "$CRM_IMAGE_CONFIG" "$CRM_IMAGE_CONFIG" "$CRM_RESOURCE_IMPORT_COMMIT" "$CRM_TEAM_ACCESS_COMMIT" "$CRM_UPSTREAM_CRM_COMMIT" "${ACTIVE_LAYERS:-$REMOTE/image-rootfs-layers.txt}"
     BACKUP="$RUNTIME/image.env.pre-c010400-config"
     TEMP="$RUNTIME/.image.env.c010400.tmp"
     [ ! -e "$BACKUP" ] && [ ! -L "$BACKUP" ] || fail 'previous lock backup already exists; preserve it and investigate'
@@ -235,6 +276,94 @@ migrate_image_lock_to_config() {
     [ "$(cat "$IMAGE_FILE")" = "CRM_IMAGE=$CRM_IMAGE_CONFIG" ] || fail 'atomic image lock replacement did not verify; previous backup retained'
     printf 'PASS: exact index lock migrated to config atomically; previous lock and .env retained unchanged\n'
 }
+valid_sha256() {
+    printf '%s' "$1" | awk 'length == 71 && substr($0, 1, 7) == "sha256:" && substr($0, 8) ~ /^[0-9a-f]+$/ && length(substr($0, 8)) == 64 {ok=1} END {exit !ok}'
+}
+valid_revision() {
+    printf '%s' "$1" | awk 'length == 40 && $0 ~ /^[0-9a-f]+$/ {ok=1} END {exit !ok}'
+}
+rollback_site_image() {
+    printf 'WARN: site image update failed; restoring the exact previous lock and stopping the project for maintenance\n' >&2
+    ROLLBACK_TEMP="$RUNTIME/.image.env.rollback.tmp"
+    (umask 077 && set -C && cat "$UPDATE_BACKUP" > "$ROLLBACK_TEMP")
+    mv "$ROLLBACK_TEMP" "$IMAGE_FILE"
+    if compose stop; then
+        fail 'site image update failed; previous lock restored and project stopped for maintenance; do not resume the known-broken permission version'
+    else
+        fail 'site image update failed and project stop also failed; previous lock restored, preserve all resources and stop'
+    fi
+}
+verify_running_app_images() {
+    EXPECTED=$1
+    for SERVICE in backend websocket frontend queue-short queue-long scheduler; do
+        ACTUAL=$(docker_cli container inspect "$PROJECT-$SERVICE-1" --format '{{.Image}} {{.State.Status}}')
+        [ "$ACTUAL" = "$EXPECTED running" ] || return 1
+    done
+    ACTUAL=$(docker_cli container inspect "$PROJECT-configurator-1" --format '{{.Image}} {{.State.Status}} {{.State.ExitCode}}')
+    [ "$ACTUAL" = "$EXPECTED exited 0" ]
+}
+update_site_image() {
+    [ "$CONFIRM_SITE_UPDATE" -eq 1 ] || fail 'site image update requires --confirm-site-image-update'
+    case "$UPDATE_RELEASE_DIR" in /*) ;; *) fail 'reviewed release directory must be absolute' ;; esac
+    case "$IMAGE_ARCHIVE" in /*) ;; *) fail 'reviewed image archive must be absolute' ;; esac
+    [ -d "$UPDATE_RELEASE_DIR" ] && [ ! -L "$UPDATE_RELEASE_DIR" ] || fail 'reviewed release directory must be real and non-symlink'
+    NEW_RELEASE=$UPDATE_RELEASE_DIR/release.env
+    NEW_LAYERS=$UPDATE_RELEASE_DIR/image-rootfs-layers.txt
+    [ -f "$NEW_RELEASE" ] && [ ! -L "$NEW_RELEASE" ] || fail 'reviewed release.env is required'
+    [ -f "$NEW_LAYERS" ] && [ ! -L "$NEW_LAYERS" ] || fail 'reviewed RootFS layer list is required'
+    [ -f "$IMAGE_ARCHIVE" ] && [ ! -L "$IMAGE_ARCHIVE" ] || fail 'reviewed image archive must be an ordinary non-symlink file'
+    NEW_CONFIG=$(release_value CRM_IMAGE_CONFIG "$NEW_RELEASE")
+    NEW_INDEX=$(release_value CRM_IMAGE_INDEX "$NEW_RELEASE")
+    NEW_MANIFEST=$(release_value CRM_IMAGE_PLATFORM_MANIFEST "$NEW_RELEASE")
+    NEW_ARCHIVE_SHA=$(release_value CRM_IMAGE_ARCHIVE_SHA256 "$NEW_RELEASE")
+    NEW_RESOURCE=$(release_value CRM_RESOURCE_IMPORT_COMMIT "$NEW_RELEASE")
+    NEW_TEAM=$(release_value CRM_TEAM_ACCESS_COMMIT "$NEW_RELEASE")
+    NEW_CRM=$(release_value CRM_UPSTREAM_CRM_COMMIT "$NEW_RELEASE")
+    for DIGEST in "$NEW_CONFIG" "$NEW_INDEX" "$NEW_MANIFEST" "$NEW_ARCHIVE_SHA"; do
+        valid_sha256 "$DIGEST" || fail 'reviewed release contains an invalid digest'
+    done
+    for REVISION in "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM"; do
+        valid_revision "$REVISION" || fail 'reviewed release contains an invalid source revision'
+    done
+    awk 'substr($0, 1, 7) != "sha256:" || length($0) != 71 || substr($0, 8) !~ /^[0-9a-f]+$/ {bad=1} {count++} END {exit bad || count < 1}' "$NEW_LAYERS" || fail 'reviewed RootFS layer list is empty or invalid'
+    ARCHIVE_HASH=$(sha256sum "$IMAGE_ARCHIVE")
+    ARCHIVE_HASH=sha256:${ARCHIVE_HASH%% *}
+    [ "$ARCHIVE_HASH" = "$NEW_ARCHIVE_SHA" ] || fail 'reviewed image archive SHA mismatch'
+    command -v python3 >/dev/null 2>&1 || fail 'Python 3 standard library is required for offline archive chain verification'
+    python3 "$REMOTE/verify_image_archive.py" "$IMAGE_ARCHIVE" "$NEW_RELEASE" "$NEW_LAYERS" || fail 'reviewed archive digest chain verification failed'
+    require_runtime
+    [ "$CRM_IMAGE" = "$CRM_IMAGE_CONFIG" ] || fail 'running-site update only accepts the existing classic config lock'
+    [ "$NEW_CONFIG" != "$CRM_IMAGE_CONFIG" ] || fail 'reviewed update must select a different config; no-op update refused'
+    require_marker migrated-twice
+    require_docker
+    ENV_BEFORE=$(sha256sum "$ENV_FILE")
+    DB_BEFORE=$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')
+    CACHE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
+    QUEUE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')
+    SITE_CONFIG_BEFORE=$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)
+    backup
+    docker_cli load -i "$IMAGE_ARCHIVE"
+    verify_image_identity "$NEW_CONFIG" "$NEW_CONFIG" "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM" "$NEW_LAYERS"
+    UPDATE_BACKUP="$RUNTIME/image.env.pre-site-update"
+    [ ! -e "$UPDATE_BACKUP" ] && [ ! -L "$UPDATE_BACKUP" ] || fail 'site update lock backup already exists; refuse a repeated update'
+    (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
+    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update.tmp")
+    mv "$RUNTIME/.image.env.site-update.tmp" "$IMAGE_FILE"
+    compose up -d --wait || rollback_site_image
+    verify_running_app_images "$NEW_CONFIG" || rollback_site_image
+    [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || rollback_site_image
+    [ "$CACHE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')" ] || rollback_site_image
+    [ "$QUEUE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')" ] || rollback_site_image
+    [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || rollback_site_image
+    [ "$SITE_CONFIG_BEFORE" = "$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)" ] || rollback_site_image
+    [ ! -e "$RUNTIME/release.env" ] && [ ! -L "$RUNTIME/release.env" ] || fail 'runtime release metadata already exists; stop before replacing it'
+    [ ! -e "$RUNTIME/image-rootfs-layers.txt" ] && [ ! -L "$RUNTIME/image-rootfs-layers.txt" ] || fail 'runtime RootFS metadata already exists; stop before replacing it'
+    (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update.tmp")
+    (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update.tmp")
+    mv "$RUNTIME/.release.env.site-update.tmp" "$RUNTIME/release.env"
+    mv "$RUNTIME/.image-rootfs-layers.site-update.tmp" "$RUNTIME/image-rootfs-layers.txt"
+    printf 'PASS: reviewed image loaded, all application services recreated consistently, backup/old image/old lock retained; run check and business regression\n'
+}
 inspect_volumes() {
     require_docker
     docker_cli volume inspect crm_trial_c010400_db crm_trial_c010400_redis crm_trial_c010400_sites crm_trial_c010400_logs
@@ -246,6 +375,7 @@ case "$ACTION" in
     load-image) load_image ;;
     check) check ;;
     migrate-image-lock-to-config) migrate_image_lock_to_config ;;
+    update-site-image) update_site_image ;;
     create-site) create_site ;;
     up) up ;;
     install-extensions) install_extensions ;;
