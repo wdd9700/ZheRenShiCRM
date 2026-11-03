@@ -6,6 +6,7 @@ import { getConfig } from '../utils/config'
 import { accountBoundary } from './accountBoundary'
 
 let cached = {}
+accountBoundary.onInvalidate(() => { cached = {} })
 
 export function createResource(options, vm) {
   let cacheKey = null
@@ -59,12 +60,24 @@ export function createResource(options, vm) {
   })
 
   let generation = 0
+  const epoch = accountBoundary.epoch
+  const authAction = ['login', 'logout'].includes(options.url)
+  const unsubscribe = authAction ? () => {} : accountBoundary.onInvalidate(() => {
+    generation++
+    controller.abort()
+    out.data = null
+    out.previousData = null
+    out.params = null
+    out.loading = false
+    out.fetched = false
+    unsubscribe()
+  })
 
   function assertCurrent(id) {
     if (id !== generation) {
       throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
     }
-    if (!['login', 'logout'].includes(options.url)) accountBoundary.assertActive()
+    if (!authAction) accountBoundary.assertRequest(epoch, options.url)
   }
 
   function fetch(params, tempOptions = {}) {
@@ -72,6 +85,7 @@ export function createResource(options, vm) {
     let promise = runFetch(params, tempOptions, id)
     promise.catch(() => {})
     out.promise = promise
+    accountBoundary.track(promise)
     if (id === generation) {
       out.loading = true
       out.error = null
@@ -227,7 +241,7 @@ export function getCacheKey(cacheKey) {
   if (typeof cacheKey === 'string') {
     cacheKey = [cacheKey]
   }
-  return JSON.stringify([accountBoundary.scope, cacheKey])
+  return JSON.stringify([accountBoundary.scope, accountBoundary.epoch, cacheKey])
 }
 
 export function getCachedResource(cacheKey) {

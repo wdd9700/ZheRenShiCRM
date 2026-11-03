@@ -50,7 +50,7 @@ async function fixture(identity = 'Sales A', identify, waitForIdentity = true) {
   await root.link((specifier) => module(specifier === 'vue' ? 'vue' : 'entry/' + specifier.replace(/^.*\//, '')))
   await root.evaluate()
   const boundary = cache.get('entry/accountBoundary').namespace.accountBoundary
-  if (waitForIdentity) await boundary.ready
+  if (waitForIdentity) await boundary.resume()
   return {
     resources: root.namespace, boundary, config, env, covers, listeners,
     get uncovered() { return uncovered }, get broadcasts() { return broadcasts },
@@ -70,7 +70,7 @@ test('server identity, not editable cookie, gates startup; Guest and offline rem
   assert.equal(a.uncovered, 1)
   for (const f of [await fixture('Guest'), await fixture(null, async () => { throw Error('offline') })]) {
     assert.equal(f.uncovered, 0)
-    assert.throws(() => f.boundary.assertActive(), /locked/)
+    assert.throws(() => f.boundary.assertActive(), /locked|superseded/)
   }
 })
 
@@ -119,7 +119,7 @@ test('same-account revoked permission clears generic data and locks page', async
   f.config.resourceFetcher = async () => { throw Object.assign(Error('denied'), { status: 403 }) }
   await assert.rejects(r.fetch(), /denied/)
   assert.equal(r.data, null)
-  assert.throws(() => f.boundary.assertActive(), /locked/)
+  assert.throws(() => f.boundary.assertActive(), /locked|superseded/)
   assert.match(f.covers.at(-1)[0], /未保存编辑/)
 })
 
@@ -149,7 +149,7 @@ test('identity switch never shares cache, pending old response never calls succe
   await Promise.resolve()
   a.cookie('user_id=Sales A')
   resolve({ rows: ['administrator-only'] })
-  await assert.rejects(pending, /locked/)
+  await assert.rejects(pending, /locked|superseded/)
   assert.equal(r.data, null)
   assert.equal(successes, 0)
   assert.equal(b.resources.getCachedResource('Lead'), null)
@@ -160,7 +160,7 @@ test('background, BFCache and multi-tab changes cover without automatic draft de
     const f = await fixture()
     const draft = { text: 'unsubmitted synthetic draft' }
     action(f)
-    assert.throws(() => f.boundary.assertActive(), /locked/)
+    assert.throws(() => f.boundary.assertActive(), /locked|superseded/)
     assert.equal(draft.text, 'unsubmitted synthetic draft')
     assert.equal(f.uncovered, 1)
   }
@@ -183,7 +183,7 @@ test('identity changes during async validation prevent network submission', asyn
   const r = f.resources.createResource({ url: 'frappe.client.set_value', validate: async () => {
     f.cookie('user_id=Other Account')
   } })
-  await assert.rejects(r.submit(), /locked/)
+  await assert.rejects(r.submit(), /locked|superseded/)
   assert.equal(calls, 0)
 })
 
@@ -279,7 +279,7 @@ test('actual CRM session callbacks use confirmed identity and full navigation fo
   sales.config.resourceFetcher = async () => ({ message: 'Logged In' })
   await b.store.login.submit()
   assert.equal(b.location.href, '/crm')
-  assert.throws(() => sales.boundary.assertActive(), /locked/)
+  assert.throws(() => sales.boundary.assertActive(), /locked|superseded/)
 })
 
 function deferred() {
@@ -412,8 +412,15 @@ test('fixed router awaits identity gate and rejects Guest/offline without reques
     assert.equal(calls, 0)
     assert.equal(next.length, 0)
     if (failure === 'Guest') identity.resolve('Guest')
-    else identity.reject(Error('offline identity'))
-    await assert.rejects(users.promise, /locked/)
+    else {
+      identity.reject(Error('offline identity'))
+      await tick()
+      assert.equal(f.boundary.state, 'RETRY_COVERED')
+      assert.equal(calls, 0)
+      assert.equal(next.length, 0)
+      f.boundary.lock('Explicitly abandon startup for this test')
+    }
+    await assert.rejects(users.promise, /locked|superseded/)
     await navigating
     assert.equal(next.length, 1)
     assert.equal(next[0], false)

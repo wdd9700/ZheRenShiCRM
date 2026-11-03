@@ -1,0 +1,41 @@
+import { accountBoundary } from '../node_modules/frappe-ui/src/resources/accountBoundary'
+import { captureResume, discardResume, pendingCreation, resumePage, showDraftNotice } from './data/safeResume'
+
+export function createResumeAdapter({ router, boot, stop, nextTick, read }) {
+  let snapshot = null
+  let supported = true
+  return {
+    stop() { if (supported) stop() },
+    suspend() {
+      if (accountBoundary.state !== 'ACTIVE') { stop(); return }
+      try { snapshot = captureResume(router.currentRoute.value); supported = true }
+      catch { supported = false }
+      if (supported) stop()
+    },
+    discard() { discardResume(); stop() },
+    async refresh(context) {
+      if (!supported || !snapshot) throw Error('Current page has no safe resume adapter')
+      const doctype = ['Leads', 'Lead'].includes(snapshot.name) ? 'CRM Lead' : 'CRM Deal'
+      const route = router.resolve(snapshot.fullPath)
+      const name = route.params.leadId || route.params.dealId
+      const permissions = await read('frappe.client.get_doc_permissions', { doctype, ...(name ? { docname: name } : {}) })
+      context.assertCurrent()
+      if (!permissions?.permissions?.read || (pendingCreation() && !permissions.permissions.create)) throw Error('Current access denied')
+      if (name) await read('frappe.client.get', { doctype, name })
+      else await read('crm.api.doc.get_data', snapshot.params)
+      context.assertCurrent()
+      await boot()
+      await router.isReady()
+      const deadline = Date.now() + 15000
+      while (resumePage()?.epoch !== context.epoch || resumePage()?.name !== snapshot.name) {
+        context.assertCurrent()
+        if (Date.now() > deadline) throw Error('Current page did not mount')
+        await new Promise(resolve => setTimeout(resolve, 25))
+      }
+      for (let pass = 0; pass < 3; pass++) { await nextTick(); await context.settleReads() }
+      context.assertCurrent()
+      if (router.currentRoute.value.fullPath !== snapshot.fullPath) throw Error('Route changed during recovery')
+      return { commit() {}, afterCommit: showDraftNotice }
+    },
+  }
+}
