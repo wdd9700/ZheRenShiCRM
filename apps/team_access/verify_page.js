@@ -24,10 +24,10 @@ const cases = [
   { code: 200, invalid: { message: { name: 'synthetic-result', doctype: 'Wrong Type' } }, category: '保存确认响应不完整' },
 ]
 
-async function run(user, doctype) {
+async function run(user, doctype, savedName = doctype === 'CRM Task' ? 3 : 'synthetic-result') {
   const elements = new Map()
   const element = (id) => {
-    if (!elements.has(id)) elements.set(id, { value: '', disabled: false, hidden: false, textContent: '', replaceChildren() {}, append() {}, querySelector: () => element('submit') })
+    if (!elements.has(id)) elements.set(id, { value: '', disabled: false, hidden: false, textContent: '', children: [], replaceChildren() { this.children = [] }, append(child) { this.children.push(child) }, querySelector: () => element('submit') })
     return elements.get(id)
   }
   element(rootId).dataset = { user, csrf: secret }
@@ -36,9 +36,12 @@ async function run(user, doctype) {
   element('activity-type').value = doctype
   const calls = []
   const writes = []
+  let rows = []
+  let creates = 0
+  let updates = 0
   let scenario = { code: 200 }
   const fetch = async (url, options = {}) => {
-    if (options.method !== 'POST') return { ok: true, json: async () => ({ message: [] }) }
+    if (options.method !== 'POST') return { ok: true, json: async () => ({ message: rows }) }
     calls.push({ url, options })
     if (scenario.offline) throw new Error(secret)
     const document = JSON.parse(options.body).document
@@ -51,15 +54,23 @@ async function run(user, doctype) {
         if (scenario.nonJson) throw new SyntaxError(secret)
         if (scenario.lostBody) throw new Error(secret)
         if (Object.hasOwn(scenario, 'invalid')) return scenario.invalid
+        if (Object.hasOwn(scenario, 'invalidName')) return { message: { doctype, name: scenario.invalidName } }
         if (scenario.code >= 400 || scenario.exc) return { exc: secret, exc_type: secret, message: secret, _server_messages: secret, traceback: secret, token: secret }
-        return { message: { ...document, name: 'synthetic-result', owner: user } }
+        const saved = { ...document, name: savedName, owner: user }
+        if (Object.hasOwn(document, 'name')) {
+          assert.equal(document.name, savedName)
+          assert.equal(rows.length, 1)
+          updates++
+        } else creates++
+        rows = [saved]
+        return { message: saved }
       },
     }
   }
   vm.runInNewContext(source, { document: { getElementById, createElement: () => element(Symbol()) }, fetch, URLSearchParams, window: { confirm: () => true } })
   await new Promise((resolve) => setImmediate(resolve))
-  const submit = async () => {
-    element('activity-new').onclick()
+  const submit = async (editing = false) => {
+    if (!editing) element('activity-new').onclick()
     element('activity-title').value = secret
     element('activity-content').value = `合成 <b>content</b>, comma ${secret}`
     element('activity-parent-type').value = user === 'a' ? '' : 'CRM Lead'
@@ -75,7 +86,8 @@ async function run(user, doctype) {
     assert.equal(options.headers['X-Frappe-CSRF-Token'], secret)
     const payload = JSON.parse(options.body)
     assert.deepEqual(Object.keys(payload), ['document'])
-    assert.ok(!Object.hasOwn(payload.document, 'name'))
+    if (editing) assert.equal(payload.document.name, savedName)
+    else assert.ok(!Object.hasOwn(payload.document, 'name'))
     assert.equal(payload.document.doctype, doctype)
     assert.equal(payload.document.title, secret)
     assert.equal(payload.document.custom_team_visibility, 'Private')
@@ -86,7 +98,25 @@ async function run(user, doctype) {
     return element('activity-status').textContent
   }
   assert.match(await submit(), /保存成功/)
-  for (scenario of cases) {
+  assert.equal(String(element('activity-name').value), String(savedName))
+  assert.equal(element('submit').disabled, false)
+  element('activity-new').onclick()
+  assert.equal(element('activity-title').value, '')
+  await element('activity-refresh').onclick()
+  assert.equal(element('activity-list').children.length, 1)
+  element('activity-list').children[0].children[0].onclick()
+  assert.equal(String(element('activity-name').value), String(savedName))
+  assert.equal(element('activity-title').value, secret)
+  assert.equal(element('activity-content').value, `合成 <b>content</b>, comma ${secret}`)
+  assert.equal(element('activity-visibility').value, 'Private')
+  assert.equal(element('activity-parent').value, user === 'a' ? '' : 'synthetic-parent')
+  assert.match(await submit(true), /保存成功/)
+  assert.equal(creates, 1)
+  assert.equal(updates, 1)
+  assert.equal(rows.length, 1)
+  const invalidNames = [null, true, false, {}, [], 3.5, 0, -3, Number.MAX_SAFE_INTEGER + 1, '']
+  if (doctype === 'FCRM Note') invalidNames.push(3)
+  for (scenario of [...cases, ...invalidNames.map((invalidName) => ({ code: 200, invalidName, category: '保存确认响应不完整' }))]) {
     const text = await submit()
     assert.ok(text.startsWith(scenario.category))
     assert.ok(text.includes('保存结果未确认'))
@@ -104,7 +134,8 @@ async function run(user, doctype) {
   for (const user of ['a', 'Administrator']) {
     for (const doctype of ['FCRM Note', 'CRM Task']) await run(user, doctype)
   }
-  console.log('PASS actual page.js DOM/fetch contract: Note/Task success, fixed HTTP categories, non-JSON/network/response-loss unknown results, no raw errors/secrets or automatic retries; simulated error-side writes never claimed absent')
+  await run('a', 'CRM Task', '3')
+  console.log('PASS actual page.js DOM/fetch contract: Task integer name=3 and existing string IDs create/clear/refresh/select/update once without duplicate creation; invalid ID types and non-Task integer IDs stay unknown, fixed HTTP categories/no raw errors or automatic retries; simulated error-side writes never claimed absent')
   console.log('LOCAL ONLY: DOM/transport replacements, no browser, real CSRF/session, network or persistence')
 })().catch(() => {
   console.error('FAIL page.js controlled contract regression')

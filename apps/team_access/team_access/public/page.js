@@ -31,7 +31,8 @@
     }
     if (!body || typeof body !== 'object' || Array.isArray(body) || body.exc) throw saveError('服务端响应异常', response.status)
     const saved = body.message
-    if (!saved || typeof saved !== 'object' || Array.isArray(saved) || typeof saved.name !== 'string' || !saved.name || saved.doctype !== data.document.doctype) throw saveError('保存确认响应不完整', response.status)
+    const validName = (typeof saved?.name === 'string' && saved.name.length > 0) || (saved?.doctype === 'CRM Task' && Number.isSafeInteger(saved.name) && saved.name > 0)
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved) || !validName || saved.doctype !== data.document.doctype) throw saveError('保存确认响应不完整', response.status)
     return saved
   }
   async function get(method, data) {

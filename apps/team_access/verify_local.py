@@ -449,6 +449,8 @@ def run(upstream, website_source=None, request_source=None, jinja_source=None):
     from verify_r7 import run as verify_r7
 
     verify_r7(sys.modules[__name__], upstream)
+    if upstream:
+        verify_task_identity(upstream)
     verify_driver()
     subprocess.run(["node", str(Path(__file__).with_name("verify_page.js"))], check=True, timeout=30)
     print("LOCAL ONLY: in-memory Frappe replacement, not installed framework/HTTP/socket/UI acceptance")
@@ -855,6 +857,42 @@ def verify_native_communication(upstream):
         else:
             Communication.on_update = old_update
     print("PASS full fixed Communication.on_update + actual parent/cache/response-time/assignment/publish methods: private persistence equals native, shared-parent doc/list events suppressed; ordinary formal/callback positives and scoped-state exception restoration")
+
+
+def verify_task_identity(upstream):
+    import datetime
+    from unittest.mock import patch
+    from team_access.permissions import get_record
+
+    schema = json.loads((upstream / "apps/crm/crm/fcrm/doctype/crm_task/crm_task.json").read_text(encoding="utf-8"))
+    assert schema["autoname"] == "autoincrement" and schema["naming_rule"] == "Autoincrement"
+    namespace = {"_dict": Doc, "datetime": datetime, "json": json, "float_like_fields": (), "datetime_fields": ()}
+    load_native(upstream / "apps/frappe/frappe/model/document.py", {"as_dict", "get_valid_dict"}, namespace, "Document")
+    load_native(upstream / "apps/frappe/frappe/__init__.py", {"as_json"}, namespace)
+    original = types.ModuleType("frappe.utils.response")
+    original.json_handler = lambda value: (_ for _ in ()).throw(AssertionError("Primitive task identifiers must not need the fallback JSON handler"))
+    native_doc = type("NativeIdentityDoc", (), {"get_valid_dict": namespace["get_valid_dict"], "as_dict": namespace["as_dict"]})
+    with patch.dict(sys.modules, {"frappe.utils.response": original}):
+        for doctype, name in (("CRM Task", 3), ("FCRM Note", "synthetic-note")):
+            doc = native_doc()
+            doc.doctype, doc.name, doc.title = doctype, name, "synthetic-identity"
+            doc._table_fieldnames = {}
+            doc.meta = types.SimpleNamespace(get_valid_columns=lambda: ("name", "title"), get_field=lambda field: Doc(fieldtype="Int") if field == "name" and doctype == "CRM Task" else None)
+            result = doc.as_dict()
+            assert type(result["name"]) is type(name) and result["name"] == name
+            decoded = json.loads(namespace["as_json"]({"message": result}))["message"]
+            assert type(decoded["name"]) is type(name) and decoded["name"] == name
+    key = ("CRM Task", "3")
+    previous = records.get(key)
+    try:
+        records[key] = Doc(doctype="CRM Task", name=3)
+        assert get_record("CRM Task", 3) == get_record("CRM Task", "3") == records[key]
+    finally:
+        if previous is None:
+            records.pop(key)
+        else:
+            records[key] = previous
+    print("PASS fixed CRM Task autoincrement schema, native get_valid_dict/as_dict/as_json retain integer name=3 without JSON fallback; Note string preserved and numeric/string IDs resolve the same replacement-store record; not a captured HTTP body or real DB update")
 
 
 def verify_driver():
