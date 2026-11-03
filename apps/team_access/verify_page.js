@@ -4,6 +4,8 @@ const path = require('node:path')
 const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, 'team_access/public/page.js'), 'utf8')
+const template = fs.readFileSync(path.join(__dirname, 'team_access/www/team-activities.html'), 'utf8')
+const rootId = template.match(/<section id="([^"]+)" data-csrf=/)[1]
 const secret = 'SYNTHETIC-SECRET-NOT-FOR-STATUS'
 const cases = [
   { code: 400, category: '请求格式错误' },
@@ -28,7 +30,9 @@ async function run(user, doctype) {
     if (!elements.has(id)) elements.set(id, { value: '', disabled: false, hidden: false, textContent: '', replaceChildren() {}, append() {}, querySelector: () => element('submit') })
     return elements.get(id)
   }
-  element('team-activities').dataset = { user, csrf: secret }
+  element(rootId).dataset = { user, csrf: secret }
+  const websiteWrapper = { dataset: {} }
+  const getElementById = (id) => id === 'page-team-activities' ? websiteWrapper : element(id)
   element('activity-type').value = doctype
   const calls = []
   const writes = []
@@ -52,7 +56,7 @@ async function run(user, doctype) {
       },
     }
   }
-  vm.runInNewContext(source, { document: { getElementById: element, createElement: () => element(Symbol()) }, fetch, URLSearchParams, window: { confirm: () => true } })
+  vm.runInNewContext(source, { document: { getElementById, createElement: () => element(Symbol()) }, fetch, URLSearchParams, window: { confirm: () => true } })
   await new Promise((resolve) => setImmediate(resolve))
   const submit = async () => {
     element('activity-new').onclick()
@@ -71,10 +75,13 @@ async function run(user, doctype) {
     assert.equal(options.headers['X-Frappe-CSRF-Token'], secret)
     const payload = JSON.parse(options.body)
     assert.deepEqual(Object.keys(payload), ['document'])
+    assert.ok(!Object.hasOwn(payload.document, 'name'))
     assert.equal(payload.document.doctype, doctype)
+    assert.equal(payload.document.title, secret)
     assert.equal(payload.document.custom_team_visibility, 'Private')
     assert.equal(payload.document.custom_team_collaborator, '')
     assert.equal(payload.document.reference_doctype, user === 'a' ? '' : 'CRM Lead')
+    assert.equal(payload.document.reference_docname, user === 'a' ? '' : 'synthetic-parent')
     assert.equal(payload.document[doctype === 'FCRM Note' ? 'content' : 'description'], `合成 <b>content</b>, comma ${secret}`)
     return element('activity-status').textContent
   }

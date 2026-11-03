@@ -236,8 +236,11 @@ def verify_permission_signature(upstream):
     print("PASS exact Frappe has_permission public signature: unsupported keywords rejected; parent read/private write/snapshot native denials retained; ordinary ToDo assignment Comment validation succeeds without bypass")
 
 
-def run(upstream):
+def run(upstream, website_source=None):
     build_environment(upstream)
+    from verify_website import run as verify_website
+
+    verify_website(sys.modules[__name__], website_source)
     verify_permission_signature(upstream)
     from team_access import docinfo, events, files, install, permissions as policy, realtime, references, request, responses
 
@@ -918,4 +921,6 @@ def verify_driver():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deterministic local regression using Python standard library and Node built-ins; never connects to a site or database")
     parser.add_argument("--upstream-root", type=Path, help="optional fixed-source evidence root for native task, parent, attachment-log, pin-aggregate, deletion, full Communication update, v1/v2 PUT parent-save, independent relation lifecycle, existing-root freeze/preflight transition, first-insert/relink and ToDo -> Shared -> wildcard CSV/compressed-user-info, CRM resolved saved-view/group/kanban projection and REST collection JSON-contract regressions")
-    run(parser.parse_args().upstream_root)
+    parser.add_argument("--website-source", type=Path, help="optional fixed live website-source directory for native hyphen-route controller discovery and context invocation")
+    args = parser.parse_args()
+    run(args.upstream_root, args.website_source)
