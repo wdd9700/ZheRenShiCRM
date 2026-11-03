@@ -4,15 +4,35 @@
   const el = (id) => document.getElementById(`activity-${id}`)
   const status = (message) => { el('status').textContent = message }
   let current = null
+  function saveError(category, code) {
+    const http = Number.isInteger(code) && code >= 100 && code <= 599 ? `（HTTP ${code}）` : ''
+    return new Error(`${category}${http}。保存结果未确认；请先只读回查活动列表或记录，勿盲目重复提交。`)
+  }
   async function call(method, data) {
-    const response = await fetch(`/api/method/team_access.api.${method}`, {
-      method: 'POST', credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': root.dataset.csrf },
-      body: JSON.stringify(data),
-    })
-    const body = await response.json()
-    if (!response.ok || body.exc) throw new Error('请求被拒绝或失败；未保存。请检查授权和父记录。')
-    return body.message
+    let response
+    try {
+      response = await fetch(`/api/method/team_access.api.${method}`, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': root.dataset.csrf },
+        body: JSON.stringify(data),
+      })
+    } catch {
+      throw saveError('网络或连接异常')
+    }
+    let body
+    try {
+      body = await response.json()
+    } catch {
+      throw saveError('响应格式或传输异常', response.status)
+    }
+    if (!response.ok) {
+      const category = { 400: '请求格式错误', 401: '身份认证失败', 403: '访问或会话校验被拒绝', 417: '输入或业务校验失败' }[response.status]
+      throw saveError(category || (response.status >= 500 ? '服务器处理异常' : 'HTTP 请求失败'), response.status)
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || body.exc) throw saveError('服务端响应异常', response.status)
+    const saved = body.message
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved) || typeof saved.name !== 'string' || !saved.name || saved.doctype !== data.document.doctype) throw saveError('保存确认响应不完整', response.status)
+    return saved
   }
   async function get(method, data) {
     const query = new URLSearchParams(data)
