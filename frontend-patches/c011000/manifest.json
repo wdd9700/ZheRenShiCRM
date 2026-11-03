@@ -12,7 +12,7 @@
   {"target":"frontend/yarn.lock","before":"a5fd668768d60b83c8a79e57135d9752d1b3dbdd80927426086ae7be1c9a00ef"},
   {"target":"frontend/node_modules/frappe-ui/package.json","before":"05be24caa1b3d457eb170ceed482473b1f9519e47d6653c025c61bb2239b2631"},
   {"target":"frontend/node_modules/frappe-ui/src/utils/request.ts","before":"752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b"},
-  {"target":"frontend/src/data/document.js","edits":true,"before":"dc908262fa5fe976eeaa9c9622ba954ba8cadcfee695fbda3cf0e3b59f1c54d9","after":"175d246f292d34fff3805d6d5fdaef1795970b6608df54718c77f5f06bd187a0"},
+  {"target":"frontend/src/data/document.js","edits":true,"before":"dc908262fa5fe976eeaa9c9622ba954ba8cadcfee695fbda3cf0e3b59f1c54d9","after":"5f0b5b5464169d3a7a6ef8c288df93c2d7b88fb318bc2469cabb4144a80295c3"},
   {"target":"frontend/src/stores/meta.js","edits":true,"before":"02b524629540941c7e6445590bedb9e7d6dcae7e38e740f2107a3cc33ec7ac9d","after":"7ec1c9fd378d9449266b05cc3bf96b7251e682da71b0f4f826e34983475a0dae"},
   {"target":"frontend/src/data/script.js","edits":true,"before":"f3d119e41ed240d07514a6f47e02cbfa0eb714a53fdf80e9d084a8401760bac1","after":"736c4a6af52b58e0b102e8394db728e563046b42f92a8b46fa1f23c02b57580f"},
   {"target":"frontend/src/components/ViewControls.vue","edits":true,"before":"038c35cd700bb5e7e9d6121f540f347242d3317cb1b3971473a1e427ffe69aa4","after":"14383fb58bf6f35cdcd36857c6f3f91beb1cc5627e4c869d38a2f7b091b10d66"},

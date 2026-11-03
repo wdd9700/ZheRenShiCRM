@@ -62,7 +62,9 @@ test('all strict transformed JS/TS/JSX and Vue script blocks parse using the fix
   }
 })
 
-async function fixture({ routeName = 'Lead', create = false, communication = false, editors = [] } = {}) {
+async function fixture({ routeName = 'Lead', create = false, communication = false, editors = [], controllers = [] } = {}) {
+  const documentOptions = [], toasts = []
+  let writeError = null
   let hidden = false, identity = 'Synthetic Sales', covered = true, fail = false
   let readable = true, writable = true, creatable = true, current, session
   const events = {}, requests = [], runtimes = [], config = {}
@@ -78,7 +80,9 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     on: (type, fn) => { events[type] = fn }, cover: () => { covered = true }, uncover: () => { covered = false },
     identify: async () => identity, broadcast() {} }
   const context = createContext({ __env: env, Uint32Array, AbortController, Event, console,
-    setTimeout, clearTimeout, document: dom, window: { location: {} } })
+    setTimeout, clearTimeout, document: dom, window: { location: {} },
+    __: (text, values = []) => text.replace(/\{(\d+)\}/g, (_, index) => values[index]),
+  })
   const modules = new Map()
   function synthetic(id, values) {
     if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(values), function () {
@@ -91,6 +95,10 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     boundary.assertRequest(boundary.epoch, url)
     requests.push({ url, params })
     if (fail) throw Error('Synthetic offline')
+    if (url === 'frappe.client.set_value') {
+      if (writeError) throw writeError
+      return { name: 'SYNTHETIC-1', doctype: 'CRM Lead', ...params.fieldname }
+    }
     if (url === 'frappe.client.get_doc_permissions') return { permissions: { read: readable, write: writable } }
     if (url === 'frappe.client.has_permission') return { has_permission: params.perm_type === 'create' ? creatable : readable }
     if (url === 'frappe.client.get') return { name: 'SYNTHETIC-1', doctype: 'CRM Lead', title: 'server', email: 'synthetic@example.invalid' }
@@ -114,7 +122,7 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
   const plugin = { install() {} }
   const resources = new Set(['resources', 'documentResource', 'listResource', 'local', 'accountBoundary'])
   const business = {
-    '@/data/script': { getScript: () => ({ setupScript: async () => [], scripts: vue.ref([]) }) },
+    '@/data/script': { getScript: () => ({ setupScript: async () => controllers, scripts: vue.ref([]) }) },
     '@/stores/global': { globalStore: () => ({}) },
     '@/utils/model.js': { noValueFieldTypes: [], standardFieldsMeta: [] },
     '@/utils/numberFormat.js': { formatCurrency: value => value, formatNumber: value => value },
@@ -181,7 +189,8 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
       await generic.evaluate(); await doc.evaluate()
       return synthetic(id, { ...generic.namespace, ...doc.namespace, FrappeUI: plugin, Button: {}, TextInput: {}, FormControl: {},
         ErrorMessage: {}, Dialog: {}, Alert: {}, Badge: {}, setConfig(key, value) { config[key] = value },
-        frappeRequest: request, call: (url, params) => request({ url, params }), toast: { error() {}, success() {} } })
+        createDocumentResource(options, vm) { documentOptions.push(options); return doc.namespace.createDocumentResource(options, vm) },
+        frappeRequest: request, call: (url, params) => request({ url, params }), toast: { error(value) { toasts.push(value) }, success() {} } })
     }
     if (business[id]) return synthetic(id, business[id])
     let code
@@ -225,7 +234,8 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
   if (communication) { await namespace('communication'); await namespace('recipientWatch') }
   await namespace('main'); await tick(); await vue.nextTick()
   assert.equal(boundary.state, 'ACTIVE'); assert.equal(session.user, 'Synthetic Sales')
-  return { boundary, requests, fields, runtimes, namespace, route, storageCalls,
+  return { boundary, requests, fields, runtimes, namespace, route, storageCalls, documentOptions, toasts,
+    writeFailure(value) { writeError = value },
     get communication() { return communicationState },
     get current() { return current }, get session() { return session }, get covered() { return covered },
     identity(value) { identity = value }, permission(read, write = true, create = true) { readable = read; writable = write; creatable = create },
@@ -351,5 +361,90 @@ test('capture checks every contenteditable and explicit draft discard clears ret
   ;(await f.namespace('safeResume')).discardResume()
   assert.equal(previous.newEmail.value, ''); assert.equal(previous.newComment.value, '')
   assert.equal(previous.attachments.value.length, 0)
+  f.close()
+})
+
+
+test('synchronous document error notification consumes locked/retired hook rejection without weakening epoch guards', async () => {
+  let calls = 0
+  const f = await fixture({ controllers: [{ _className: 'CRMLead', async onError() { calls++ } }] })
+  const old = f.current, notify = f.documentOptions[0].setValue.onError
+  f.hide(true)
+  assert.equal(notify({ messages: ['Editing this lead is not allowed.'] }), undefined)
+  await tick()
+  assert.equal(calls, 0)
+  assert.deepEqual(f.toasts, ['Editing this lead is not allowed.'])
+  await f.resume()
+  assert.equal(notify({ messages: [] }), undefined)
+  await tick()
+  assert.equal(calls, 0)
+  assert.equal(f.toasts.at(-1), 'An error occurred while updating the document')
+  await assert.rejects(old.triggerOnError(), /locked/)
+  f.close()
+})
+
+test('active save retains original error promise and server toast while consuming asynchronous onError hook failure', async () => {
+  let calls = 0
+  const f = await fixture({ controllers: [{ _className: 'CRMLead', async onError() {
+    calls++; await tick(); throw Error('Synthetic hook rejection')
+  } }] })
+  const serverError = { messages: ['Editing this lead is not allowed.'] }
+  f.writeFailure(serverError)
+  f.current.document.doc.title = 'unsaved'
+  const pending = f.current.document.save.submit()
+  await assert.rejects(pending, error => error === serverError)
+  await tick(); await tick()
+  assert.equal(calls, 1)
+  assert.equal(f.boundary.state, 'ACTIVE')
+  assert.equal(f.toasts[0], 'Editing this lead is not allowed.')
+  assert.equal(f.toasts[1], 'An error occurred while running the document script')
+  assert.equal(f.current.document.doc.title, 'unsaved')
+  const notify = f.documentOptions[0].setValue.onError
+  f.toasts.length = 0
+  notify({ exc_type: 'MandatoryError', messages: ['Missing: first_name', 'Missing: email'] })
+  assert.equal(f.toasts[0], 'Mandatory field error: first_name, email')
+  await tick(); await tick()
+  f.close()
+})
+
+test('an in-flight hook failure after pause is consumed without stale feedback; active normal hooks still execute', async () => {
+  let release, calls = 0
+  const gate = new Promise(resolve => { release = resolve })
+  const f = await fixture({ controllers: [{ _className: 'CRMLead', async onError() {
+    calls++; await gate; throw Error('Late synthetic hook failure')
+  } }] })
+  f.documentOptions[0].setValue.onError({ messages: [] })
+  await tick(); assert.equal(calls, 1)
+  f.hide(true); release(); await tick(); await tick()
+  assert.deepEqual(f.toasts, ['An error occurred while updating the document'])
+  f.close()
+  let success = 0
+  const active = await fixture({ controllers: [{ _className: 'CRMLead', async onError() { success++ } }] })
+  active.documentOptions[0].setValue.onError({ messages: ['Synthetic server failure'] })
+  await tick()
+  assert.equal(success, 1)
+  assert.deepEqual(active.toasts, ['Synthetic server failure'])
+  active.close()
+})
+
+
+test('automatic load/render/save notifications observe rejected hooks without changing successful resource promise', async () => {
+  const calls = []
+  const controller = { _className: 'CRMLead' }
+  for (const name of ['onLoad', 'onRender', 'onSave']) controller[name] = async () => {
+    calls.push(name); await tick(); throw Error('Synthetic automatic hook rejection')
+  }
+  const f = await fixture({ controllers: [controller] })
+  await tick(); await tick()
+  assert.deepEqual(calls, ['onLoad', 'onRender'])
+  assert.equal(f.toasts.length, 2)
+  f.current.document.doc.title = 'explicitly saved'
+  const result = await f.current.document.save.submit()
+  assert.equal(result.title, 'explicitly saved')
+  await tick(); await tick()
+  assert.deepEqual(calls, ['onLoad', 'onRender', 'onSave'])
+  assert.equal(f.toasts.length, 3)
+  assert.ok(f.toasts.every(value => value === 'An error occurred while running the document script'))
+  assert.equal(f.boundary.state, 'ACTIVE')
   f.close()
 })
