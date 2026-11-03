@@ -275,14 +275,20 @@ export function createDocumentResource(options, vm) {
     })
   }
 
-  const unsubscribe = accountBoundary.onInvalidate(() => {
+  function clearRetiredDocument() {
     out.doc = null
     out.originalDoc = null
     out.previousDoc = null
     out.isDirty = false
     scope.stop?.()
     unsubscribe()
+    stopHydrate()
+  }
+  const unsubscribe = accountBoundary.onInvalidate(() => {
+    scope.stop?.()
+    if (accountBoundary.state === 'IDENTITY_REQUIRED') clearRetiredDocument()
   })
+  const stopHydrate = accountBoundary.onHydrate(clearRetiredDocument)
   documentCache[cacheKey] = out
 
   if (out.auto) {

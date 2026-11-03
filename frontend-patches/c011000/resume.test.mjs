@@ -143,7 +143,7 @@ test('recovery permits explicitly read-only endpoints, not method GET disguises 
   f.config.resourceFetcher = async () => { calls++; return {} }
   adapter(f, async context => {
     await createResource({ url: 'crm.api.doc.get_data' }).fetch()
-    await assert.rejects(createResource({ url: 'frappe.client.set_value', method: 'GET' }).fetch(), /locked/)
+    await assert.rejects(createResource({ url: 'frappe.client.set_value', method: 'GET' }).fetch(), /undeclared recovery request/)
     await context.settleReads()
     return { commit() {} }
   })
@@ -200,6 +200,7 @@ test('creation draft requires current create rights and unsupported editors fail
   assert.equal(f.draft.reopenCreation('CRM Lead'), true)
   assert.equal(f.draft.planDrafts(f.boundary.user).length, 1)
   f.draft.registerResumePage('Lead')
-  assert.throws(() => f.draft.captureResume({ name: 'Lead', hash: '#emails' }), /Unsupported/)
+  assert.equal(f.draft.captureResume({ name: 'Lead', hash: '#activity', fullPath: '/leads/SYNTHETIC-1#activity' }).name, 'Lead')
+  assert.throws(() => f.draft.captureResume({ name: 'Note', hash: '#emails' }), /当前编辑器/)
   f.draft.discardResume(); assert.equal(f.draft.planDrafts(f.boundary.user).length, 0)
 })

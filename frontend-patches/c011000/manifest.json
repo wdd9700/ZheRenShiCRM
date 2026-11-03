@@ -1,64 +1,41 @@
 [
-  {
-    "target": "frontend/node_modules/frappe-ui/src/resources/accountBoundary.js",
-    "payload": "resources/accountBoundary.js",
-    "before": null,
-    "after": "a3db2ba7b48f2b6581a89addb4d6ca8a089b048a81dbe5275099fa97dee54dac"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/src/resources/documentResource.js",
-    "payload": "resources/documentResource.js",
-    "before": "86730d44a02790a55dae7c98078e0c712f8cd036dcf619b9411654f1f179db8c",
-    "after": "1e2481acb737282b48b4ceb7d8e485b840aae985839dd1eb085b293bfb001a52"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/src/resources/listResource.js",
-    "payload": "resources/listResource.js",
-    "before": "3c1c1c9240917b697dbb9ac955014e956ae391da67d220191c22cb28ee7762d2",
-    "after": "74a0fcb7cb1d6e5a1ce37409928d68a6ffa9859ecad6ff7047ee50fbca1cb999"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/src/resources/local.ts",
-    "payload": "resources/local.ts",
-    "before": "87bdc83270d69248e002b97568402e50c16961c16f4e3f357241183a56a1f079",
-    "after": "59e5442af3e0e91f91542357c859b053b5d40106276a3e90d3cb30fc8a9f23c0"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/src/resources/resources.js",
-    "payload": "resources/resources.js",
-    "before": "96b9c846f1c71571debe553e0e8bc8eaa553f26eba1f584559670e6d41ba99f6",
-    "after": "17b8bef0cc7f5bc4232c8edf7bd93d404a52d94dfa428230052eca15efa5e6d4"
-  },
-  {
-    "target": "frontend/src/main.js",
-    "payload": "main.js",
-    "before": "c49ae1cc49039ded911ec6ab505afa2589f9119d4eb3376d87af9ca5b69fc609",
-    "after": "020c49ea9c8104d2e26fbf81ab842d849b4ceec018867c59c1ee76df9dce59d1"
-  },
-  {
-    "target": "frontend/src/stores/session.js",
-    "payload": "session.js",
-    "before": "6db0446b4fd20dae798e26cf2de5532ccbf2976430ceebea3d58a22da887afeb",
-    "after": "5d7434ff862fe08e4c1ad7f56145a95dd34c2f2263042b18e8a3f32ace1578ee"
-  },
-  {
-    "target": "frontend/package.json",
-    "before": "da762827d591e47cb42148107e00f06e8d2f2bf4159b554ca809d97a422ac4d5"
-  },
-  {
-    "target": "frontend/yarn.lock",
-    "before": "a5fd668768d60b83c8a79e57135d9752d1b3dbdd80927426086ae7be1c9a00ef"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/package.json",
-    "before": "05be24caa1b3d457eb170ceed482473b1f9519e47d6653c025c61bb2239b2631"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/src/utils/request.ts",
-    "before": "752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b"
-  },
-  {
-    "target": "frontend/node_modules/frappe-ui/src/utils/frappeRequest.ts",
-    "before": "5461f5925fdddc750b33e9cecf08953f98c740aea283e542c807b421a9fab444"
-  }
+  {"target":"frontend/node_modules/frappe-ui/src/resources/accountBoundary.js","payload":"resources/accountBoundary.js","before":null,"after":"c679a9e181e5b488967e3c9dcbacd8f08ae412ad958ac2781ea2ac63a209f757"},
+  {"target":"frontend/node_modules/frappe-ui/src/resources/documentResource.js","payload":"resources/documentResource.js","before":"86730d44a02790a55dae7c98078e0c712f8cd036dcf619b9411654f1f179db8c","after":"2ad759ee1fb44154389bc2374816abe085b36ae6a6a4d11078ebbc7f40623d56"},
+  {"target":"frontend/node_modules/frappe-ui/src/resources/listResource.js","payload":"resources/listResource.js","before":"3c1c1c9240917b697dbb9ac955014e956ae391da67d220191c22cb28ee7762d2","after":"14025d9b50175c341a12633ed0f1e99708a44417393da30357b7570d80d90f69"},
+  {"target":"frontend/node_modules/frappe-ui/src/resources/local.ts","payload":"resources/local.ts","before":"87bdc83270d69248e002b97568402e50c16961c16f4e3f357241183a56a1f079","after":"59e5442af3e0e91f91542357c859b053b5d40106276a3e90d3cb30fc8a9f23c0"},
+  {"target":"frontend/node_modules/frappe-ui/src/resources/resources.js","payload":"resources/resources.js","before":"96b9c846f1c71571debe553e0e8bc8eaa553f26eba1f584559670e6d41ba99f6","after":"8e8d7872f44c0fc3625efe54e3c4754a9ca3b7d7251357ff21a00681e8029b40"},
+  {"target":"frontend/src/main.js","payload":"main.js","before":"c49ae1cc49039ded911ec6ab505afa2589f9119d4eb3376d87af9ca5b69fc609","after":"bb5c334c9ad3ad9bc4ee1e2051cbb110d42353d9af72bb86c8204729bbfaa2d5"},
+  {"target":"frontend/src/stores/session.js","payload":"session.js","before":"6db0446b4fd20dae798e26cf2de5532ccbf2976430ceebea3d58a22da887afeb","after":"5d7434ff862fe08e4c1ad7f56145a95dd34c2f2263042b18e8a3f32ace1578ee"},
+  {"target":"frontend/src/data/safeResume.js","payload":"safeResume.js","before":null,"after":"689714b0af6eee9fc7d0ff19311f98033ea6bce632fbb69d1ae1cdd2eb6fce97"},
+  {"target":"frontend/src/resumeRuntime.js","payload":"resumeRuntime.js","before":null,"after":"843d37921a639c63491872a8499d88cd37408118859087fe7ef63d1c0a1beac2"},
+  {"target":"frontend/package.json","before":"da762827d591e47cb42148107e00f06e8d2f2bf4159b554ca809d97a422ac4d5"},
+  {"target":"frontend/yarn.lock","before":"a5fd668768d60b83c8a79e57135d9752d1b3dbdd80927426086ae7be1c9a00ef"},
+  {"target":"frontend/node_modules/frappe-ui/package.json","before":"05be24caa1b3d457eb170ceed482473b1f9519e47d6653c025c61bb2239b2631"},
+  {"target":"frontend/node_modules/frappe-ui/src/utils/request.ts","before":"752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b"},
+  {"target":"frontend/src/data/document.js","edits":true,"before":"dc908262fa5fe976eeaa9c9622ba954ba8cadcfee695fbda3cf0e3b59f1c54d9","after":"175d246f292d34fff3805d6d5fdaef1795970b6608df54718c77f5f06bd187a0"},
+  {"target":"frontend/src/stores/meta.js","edits":true,"before":"02b524629540941c7e6445590bedb9e7d6dcae7e38e740f2107a3cc33ec7ac9d","after":"7ec1c9fd378d9449266b05cc3bf96b7251e682da71b0f4f826e34983475a0dae"},
+  {"target":"frontend/src/data/script.js","edits":true,"before":"f3d119e41ed240d07514a6f47e02cbfa0eb714a53fdf80e9d084a8401760bac1","after":"736c4a6af52b58e0b102e8394db728e563046b42f92a8b46fa1f23c02b57580f"},
+  {"target":"frontend/src/components/ViewControls.vue","edits":true,"before":"038c35cd700bb5e7e9d6121f540f347242d3317cb1b3971473a1e427ffe69aa4","after":"14383fb58bf6f35cdcd36857c6f3f91beb1cc5627e4c869d38a2f7b091b10d66"},
+  {"target":"frontend/src/pages/Lead.vue","edits":true,"before":"ad184e23992af4b976f03a94bb5a3e075850dd31c794cbfc51be5d966ca52988","after":"8447b19676236db455357990620f2803f09b60752c87c8798abc5ac55659a596"},
+  {"target":"frontend/src/pages/Deal.vue","edits":true,"before":"94ebc0f93d7862ba84f9e138a2f6d8e21d67d5ff749577c65bc7e6cd1722f88c","after":"8f09f5380918c3fc4ba2ef53d92708787bfddd040f7b1f2db44b4093a332f05b"},
+  {"target":"frontend/src/pages/Leads.vue","edits":true,"before":"b1180e39ebd3dd50fb37d18bbc13d039dcf475dbe47c42fb1f2758672b240671","after":"0c1a92f7c5ec8f428249b45f89191eea9ef4b9992f4b89d53fb3da476c52b0ea"},
+  {"target":"frontend/src/pages/Deals.vue","edits":true,"before":"89dfe9eeb7a64936461db461df327f5d6e86e66f5258bb0925745764b6e9c5ec","after":"841667cedf5e490d78f6c5cfad29a304e560559d610e0e522987ff990cf69206"},
+  {"target":"frontend/src/stores/notifications.js","edits":true,"before":"45cdcec29ded33004b5aeb475d18957935544c3a698f70edb5f52a19a916d27a","after":"ab936e809bd7852aed3496737a65438476405e4ce4660e5c16235c1f00320ed5"},
+  {"target":"frontend/src/stores/settings.js","edits":true,"before":"0fe63e90ee50ebeacf329bf0e49bb0539e6f3ebdd9e38e8620b30d4d6365cd97","after":"200c99173a5815a0aa0124cc72bb124dbd31e3b0e4e29c04490bd059b1615aad"},
+  {"target":"frontend/src/composables/telephony.js","edits":true,"before":"707ef8be1faf728d2cdd4a92d0349bd3f14570aa290026bc31432974b4bdbc1a","after":"33b465bc7b823f75ca359b4c96c4aac5558d552191ca81688ebf5b657ecbbb71"},
+  {"target":"frontend/src/composables/whatsapp.js","edits":true,"before":"38ba770bd4866195daebc1ef849093dc1dc176189a5cc0e1e3afc2cf70a780a1","after":"b3d8a9a04cd865012f0bb42146c787fe1cdd72d22d720fec5d894f8effe1e5d2"},
+  {"target":"frontend/src/composables/erpnext.js","edits":true,"before":"d0c88155b446c4c0dab4cb53b736e13ff6dcd34f43b7c617f01f791a94befcc1","after":"e5044f840edf1865ad58aa368f97c1c5ef6ebd0c1f1085235389ced3e6070c66"},
+  {"target":"frontend/src/composables/useCommandPalette.js","edits":true,"before":"514689b02181e3f5ace22fa0b520cd67b224b3551186de3743e3248c7c82c6eb","after":"b08e43bc58ca983dff8f5b18e445a73864f95a9df855d1de68eae828804a0cd6"},
+  {"target":"frontend/node_modules/frappe-ui/src/utils/frappeRequest.ts","edits":true,"before":"5461f5925fdddc750b33e9cecf08953f98c740aea283e542c807b421a9fab444","after":"83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9"},
+  {"target":"frontend/src/composables/doctypeModal.js","edits":true,"before":"8b4a7018f5e2511a43f651d74be624574e7efeeebc1e4c153b4e8a90ed7a1783","after":"4518ade07cf5c1baab4a6c05a2ccb27d45baf4f1ee4d0f759912d8208a330949"},
+  {"target":"frontend/src/composables/document.js","edits":true,"before":"8fc82a244cc8a1dea2435280ec90cbd6b2d0127be8217c883d12b110e6acf397","after":"240fc6392dae3cc0ff4196fbb8d7db8e39258f612e5a0d42d275a49e65102e9f"},
+  {"target":"frontend/src/composables/noteView.ts","edits":true,"before":"c1ddafbe397870e745fedd1e0c03f44ede4b3d8b9e394d077e2bda4956108f86","after":"84898956b5753a094a6e2fce21557a43118854460f19e9026e3232107bd7fe7a"},
+  {"target":"frontend/src/utils/renderFieldLayoutDialog.js","edits":true,"before":"495e048a8653e99d54922535350882cea1088d90769a88ada82c0be6ad525dbf","after":"6b52bd92232e4c496d76b2ffedd96806ba5f270502659d93576b640c141f1723"},
+  {"target":"frontend/src/utils/dialogs.jsx","edits":true,"before":"a359cc345fa53d5e6e68e425c7d4bd68001c69a12e6df95b3be54390d2aad3fa","after":"862e9b430442eff33647587ed767d1055c6c9ce4efe8784e87b0db3ddd886794"},
+  {"target":"frontend/src/composables/modals.js","edits":true,"before":"cf730d6dbaddc7c05d736633be267ef8a7e769f28cb28482e519501ebf885b3b","after":"4bff9b68be3cda999f96efc2c73a29c04da6805cf39101a2a93b3ddb4e361d9e"},
+  {"target":"frontend/src/composables/useVisitedRecords.ts","edits":true,"before":"cdb43fef147d7cd38939f0ff48efc0e6c87e6504daa37de4b812a84b04c74f86","after":"87c238d37459a137a173f7738d806c0ae559a9e14c22894204ed1bd47faf356f"},
+  {"target":"frontend/src/components/Layouts/AppSidebar.vue","edits":true,"before":"940245e8ab6465cd1a4bf19192c95856974e733813da15d1b175f5f588e1842d","after":"6dfc293dfd44ed5b9673e8b65a019958bbc025b19abb415fa2b60d4e3561b2d0"},
+  {"target":"frontend/src/components/Activities/Activities.vue","edits":true,"before":"25cd68fb8ea43a16e7959aa1b94bf966e74a81937ee07bf76f04b576257d8feb","after":"8e4baa85e3dd9820717b5fa5aa3c4396168f03dfda89f4b70091e2f8a14dec36"},
+  {"target":"frontend/src/stores/users.js","edits":true,"before":"9e2b275acbb20a495168b3c1b22f4dbf1f48b7acb9c86f6f8b6770a96d46009d","after":"a031a4cbad685c56dc27d32e2b83da6247396560af3ffb5c74b7e92ba27ea3b8"},
+  {"target":"frontend/src/stores/views.js","edits":true,"before":"cd7967d37f0e5dccab8a89019c258a5554248b33860be60708c038fb178e553a","after":"e64c90057ea591f8fb32f0ef8458ede99c7c26c35f5a9711a92de6881b718884"}
 ]

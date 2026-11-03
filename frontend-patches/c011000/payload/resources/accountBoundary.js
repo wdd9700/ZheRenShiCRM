@@ -39,28 +39,32 @@ export function createAccountBoundary(env) {
   }
   function invalidate() {
     epoch++
-    for (const fn of invalidators) fn()
+    let failed = false
+    for (const fn of [...invalidators]) { try { fn() } catch { failed = true } }
+    if (failed) throw new Error('Runtime invalidation failed')
   }
   function lock(reason = '会话或权限需要重新确认。', code = 'BOUNDARY_LOCK') {
     if (state === 'IDENTITY_REQUIRED') return
     state = 'IDENTITY_REQUIRED'
     record(code)
     env.cover(`${reason} 未保存编辑不能跨身份恢复。刷新或重新登录将放弃本标签未保存编辑。`, true)
-    try { adapter?.discard?.() } finally { invalidate(); publish() }
+    try { adapter?.discard?.() } catch {}
+    try { invalidate() } catch {}
+    publish()
     resolveReady()
   }
   function pause(code = 'PAGE_HIDDEN') {
     if (state === 'IDENTITY_REQUIRED' || state === 'SUSPENDED') return
+    env.cover('标签已暂停；未保存编辑仅保留在本标签内存。返回后将重新核验身份与当前页面权限。', false)
     try { adapter?.suspend?.() } catch { return lock('无法安全暂停当前页面。') }
     state = 'SUSPENDED'
     record(code)
-    invalidate()
+    try { invalidate() } catch { return lock('无法隔离旧运行域，请重新登录。') }
     publish()
-    env.cover('标签已暂停；未保存编辑仅保留在本标签内存。返回后将重新核验身份与当前页面权限。', false)
   }
   const reads = new Set([
     'frappe.client.get', 'frappe.client.get_list', 'frappe.client.get_value',
-    'frappe.client.get_doc_permissions', 'frappe.client.get_single_value',
+    'frappe.client.get_doc_permissions', 'frappe.client.has_permission', 'frappe.client.get_single_value',
     'frappe.desk.form.load.getdoctype', 'frappe.desk.search.search_link', 'frappe.apps.get_apps',
     'crm.api.doc.get_data', 'crm.api.doc.get_assigned_users', 'crm.api.doc.get_quick_filters',
     'crm.api.doc.get_filterable_fields', 'crm.api.doc.get_group_by_fields', 'crm.api.doc.sort_options',
@@ -72,7 +76,10 @@ export function createAccountBoundary(env) {
     'crm.domain_enrichment.api.get_enriched_fields', 'crm.integrations.api.is_call_integration_enabled',
     'crm.api.whatsapp.is_whatsapp_enabled', 'crm.api.whatsapp.is_whatsapp_installed',
     'crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_view_quotations',
-    'crm.www.crm.get_context_for_dev',
+    'crm.www.crm.get_context_for_dev', 'crm.api.get_user_signature',
+    'crm.api.whatsapp.get_whatsapp_messages',
+    'crm.fcrm.doctype.crm_call_log.crm_call_log.get_call_log',
+    'crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.get_deal_quotations',
   ])
   const pending = new Set()
   let hydrationError = null
@@ -89,19 +96,30 @@ export function createAccountBoundary(env) {
     }
   }
   function assertRequest(expected, url) {
-    if (state === 'HYDRATING' && expected === epoch && reads.has((url || '').replace(/^\/api\/method\//, ''))) {
+    if (state === 'HYDRATING' && expected === epoch) {
       assertRecovery(expected)
-      return
+      if (reads.has((url || '').replace(/^\/api\/method\//, ''))) return
+      hydrationError ||= new Error('Current page attempted an undeclared recovery request')
+      throw hydrationError
     }
     assertActive(expected)
   }
+  const hydrators = new Set()
+  let readRevision = 0
   function track(promise) {
     if (state !== 'HYDRATING') return
+    readRevision++
+    const id = epoch
     pending.add(promise)
-    promise.catch(error => { hydrationError ||= error }).finally(() => pending.delete(promise))
+    promise.catch(error => { if (id === epoch) hydrationError ||= error }).finally(() => pending.delete(promise))
   }
   async function settleReads() {
-    while (pending.size) await Promise.allSettled([...pending])
+    const id = epoch
+    while (pending.size) {
+      assertRecovery(id)
+      await Promise.allSettled([...pending])
+    }
+    assertRecovery(id)
     if (hydrationError) throw hydrationError
   }
   async function identity(id) {
@@ -114,7 +132,10 @@ export function createAccountBoundary(env) {
   function resume() {
     if (env.hidden() || state === 'ACTIVE' || state === 'IDENTITY_REQUIRED') return Promise.resolve()
     if (flight?.epoch === epoch) return flight.promise
-    if (booted) { adapter?.stop?.(); invalidate() }
+    if (booted) {
+      try { adapter?.stop?.(); invalidate() }
+      catch { lock('无法隔离旧运行域，请重新登录。'); return Promise.resolve() }
+    }
     const id = epoch
     const promise = Promise.resolve().then(async () => {
       assertRecovery(id)
@@ -124,7 +145,13 @@ export function createAccountBoundary(env) {
       if (booted) {
         if (!adapter) throw Error('Unsupported current page')
         state = 'HYDRATING'; hydrationError = null; pending.clear(); publish()
-        prepared = await adapter.refresh({ epoch: id, user: value, assertCurrent: () => assertRecovery(id), settleReads })
+        let timeout
+        try {
+          prepared = await Promise.race([
+            adapter.refresh({ epoch: id, user: value, assertCurrent: () => assertRecovery(id), settleReads }),
+            new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('Recovery timed out')), 15000) }),
+          ])
+        } finally { clearTimeout(timeout) }
         assertRecovery(id)
         state = 'VERIFY_COMMIT'; publish()
         await identity(id)
@@ -141,14 +168,22 @@ export function createAccountBoundary(env) {
       resolveReady()
     }).catch(error => {
       if (id !== epoch || state === 'IDENTITY_REQUIRED' || env.hidden()) return
-      adapter?.stop?.()
+      try { adapter?.stop?.() }
+      catch { return lock('无法隔离旧运行域，请重新登录。') }
       if (error instanceof IdentityFailure && ['IDENTITY_INVALID', 'ACCOUNT_CHANGED', 'SESSION_CHANGED'].includes(error.code)) {
         return lock('无法确认服务端登录身份，请重新登录。', error.code)
       }
+      if ([401, 403].includes(error?.status || error?.response?.status) ||
+          ['PermissionError', 'AuthenticationError', 'SessionExpired'].includes(error?.exc_type)) {
+        return lock('当前访问权限已撤回，请重新确认登录。', 'ACCESS_UNCONFIRMED')
+      }
+      try { invalidate() } catch { return lock('无法隔离恢复失败的运行域。') }
       state = 'RETRY_COVERED'
       if (!booted) record(error?.code || 'IDENTITY_UNAVAILABLE')
       publish()
-      env.cover('无法安全恢复当前页面。旧业务内容继续隐藏，未保存编辑仍仅在本标签内存中；请联网后重试。', true, resume)
+      env.cover(adapter?.unsupportedEditor
+        ? '当前编辑器暂不支持安全恢复。未保存内容仍在本标签，业务内容继续隐藏；可明确放弃未保存编辑并刷新，或退出登录。'
+        : '无法安全恢复当前页面。旧业务内容继续隐藏，未保存编辑仍仅在本标签内存中；请联网后重试。', true, resume)
     }).finally(() => { if (flight?.epoch === id) flight = null })
     flight = { epoch: id, promise }
     return promise
@@ -181,7 +216,9 @@ export function createAccountBoundary(env) {
   if (!env.hidden()) void resume()
   return { scope, ready, get user() { return user }, get epoch() { return epoch }, get state() { return state },
     get diagnostic() { return diagnostic() }, assertActive, failed, lock, markStage, initializationFailed,
-    resume, pause, assertRequest, track,
+    resume, pause, assertRequest, track, get readRevision() { return readRevision },
+    onHydrate(fn) { hydrators.add(fn); return () => hydrators.delete(fn) },
+    hydrate() { for (const fn of [...hydrators]) fn() },
     setAdapter(value) { adapter = value },
     onInvalidate(fn) { invalidators.add(fn); return () => invalidators.delete(fn) },
     changed() { try { env.broadcast() } finally { lock('账号会话发生变化。', 'ACCOUNT_CHANGED') } } }

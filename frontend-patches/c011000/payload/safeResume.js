@@ -19,6 +19,18 @@ export function registerResumeDocument(doctype, name, document, getFields, getPe
   const entry = { doctype, name, document, getFields, getPermissions, epoch: accountBoundary.epoch,
     base: name ? null : clone(document.doc) }
   documents.set(id, entry)
+  function retire() {
+    if (entry.epoch === accountBoundary.epoch) return
+    entry.document.doc = null
+    entry.document.originalDoc = null
+    entry.base = null
+    if (documents.get(id) === entry) documents.delete(id)
+    stopInvalidate(); stopHydrate()
+  }
+  const stopInvalidate = accountBoundary.onInvalidate(() => {
+    if (accountBoundary.state === 'IDENTITY_REQUIRED') retire()
+  })
+  const stopHydrate = accountBoundary.onHydrate(retire)
   return () => { if (documents.get(id) === entry) documents.delete(id) }
 }
 
@@ -33,19 +45,29 @@ export function registerResumePage(name, getParams) {
   return () => { if (page === entry) page = null }
 }
 
+const sections = new Map()
+export function registerResumeSection(name) {
+  const epoch = accountBoundary.epoch
+  sections.set(name, epoch)
+  return () => { if (sections.get(name) === epoch) sections.delete(name) }
+}
+export function resumeSectionReady(name, epoch) { return sections.get(name) === epoch }
+
 export function reopenCreation(doctype) { return pendingCreate === doctype }
 let listParams = null
 export function resumeListParams(doctype, fallback) {
-  return listParams?.doctype === doctype ? clone(listParams) : fallback
+  return accountBoundary.state === 'HYDRATING' && listParams?.doctype === doctype ? clone(listParams) : fallback
 }
 
 export function captureResume(route) {
   notice?.remove(); notice = null
-  const allowed = ['Leads', 'Deals'].includes(route.name) ||
-    (['Lead', 'Deal'].includes(route.name) && route.hash === '#data')
+  const allowed = ['Leads', 'Deals', 'Lead', 'Deal'].includes(route.name)
   const creating = [...documents.values()].some(entry => !entry.name && entry.epoch === accountBoundary.epoch)
-  if (!allowed || page?.name !== route.name ||
-      (globalThis.document?.querySelector?.('[role="dialog"]') && !creating)) throw Error('Unsupported resume page')
+  const editor = globalThis.document?.querySelector?.('[contenteditable="true"]:not([data-crm-field])')
+  if (!allowed || page?.name !== route.name || editor?.textContent?.trim() ||
+      (globalThis.document?.querySelector?.('[role="dialog"]') && !creating)) {
+    throw Error('当前编辑器暂不支持安全恢复；未保存内容仍在本标签。可放弃未保存编辑并刷新，或退出登录。')
+  }
   const captured = new Map(drafts)
   pendingCreate = null
   for (const [id, entry] of documents) {
@@ -55,11 +77,14 @@ export function captureResume(route) {
     const current = entry.document.doc
     if (!original || !current) continue
     const changes = {}
-    for (const field of entry.getFields() || []) {
-      const name = field.fieldname
-      if (!scalarTypes.has(field.fieldtype) || field.hidden || field.read_only || Number(field.permlevel) ||
-          !Object.hasOwn(current, name)) continue
-      if (!equal(current[name], original[name])) changes[name] = { base: clone(original[name]), value: clone(current[name]) }
+    const fields = entry.getFields() || []
+    for (const name of new Set([...Object.keys(current), ...Object.keys(original)])) {
+      if (equal(current[name], original[name])) continue
+      const field = fields.find(field => field.fieldname === name)
+      if (!field || !scalarTypes.has(field.fieldtype) || field.hidden || field.read_only || Number(field.permlevel)) {
+        throw Error('Unsaved field has no safe draft adapter')
+      }
+      changes[name] = { base: clone(original[name]), value: clone(current[name]) }
     }
     if (Object.keys(changes).length) captured.set(id, { user: accountBoundary.user,
       changes: { ...captured.get(id)?.changes, ...changes } })
@@ -81,11 +106,15 @@ export function planDrafts(user) {
   const plans = []
   for (const [id, draft] of drafts) {
     const entry = documents.get(id)
-    if (draft.user !== user || !entry || entry.epoch !== accountBoundary.epoch) continue
+    if (draft.user !== user) { drafts.delete(id); continue }
+    if (!entry || entry.epoch !== accountBoundary.epoch) continue
     const permission = entry.getPermissions()?.permissions
-    if (!permission?.read || !(entry.name ? permission.write : permission.create)) continue
+    if (entry.name ? (!permission?.read || !permission.write) : !permission?.create) {
+      drafts.delete(id); continue
+    }
     const visible = new Map((entry.getFields() || []).filter(field => !field.hidden && !field.read_only &&
-      !field.permlevel && scalarTypes.has(field.fieldtype)).map(field => [field.fieldname, field]))
+      !Number(field.permlevel) && scalarTypes.has(field.fieldtype)).map(field => [field.fieldname, field]))
+    for (const field of Object.keys(draft.changes)) if (!visible.has(field)) delete draft.changes[field]
     const values = {}
     let conflict = false
     for (const [field, change] of Object.entries(draft.changes)) {

@@ -40,6 +40,9 @@ def apply(root, check=False):
                            if entry.get('payload') else transform(entry['target'], current))
             if sha(replacement) != entry['after']:
                 raise ValueError('Patch payload mismatch: ' + entry['target'])
+            temporary = target.with_name(target.name + '.c011000-tmp')
+            if temporary.exists() or temporary.is_symlink():
+                raise ValueError('Existing temporary target refused: ' + entry['target'])
             changes.append((target, replacement))
     if not check:
         for target, data in changes:

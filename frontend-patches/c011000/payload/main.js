@@ -24,12 +24,17 @@ function stop() {
   if (!runtime) return
   const previous = runtime
   runtime = null
-  previous.socket?.removeAllListeners?.()
-  previous.socket?.disconnect?.()
-  previous.app?.unmount()
-  if (previous.pinia) {
-    disposePinia(previous.pinia)
-    previous.pinia.state.value = {}
+  try {
+    previous.socket?.removeAllListeners?.()
+    previous.socket?.disconnect?.()
+  } finally {
+    try { previous.app?.unmount() }
+    finally {
+      if (previous.pinia) {
+        disposePinia(previous.pinia)
+        previous.pinia.state.value = {}
+      }
+    }
   }
 }
 
