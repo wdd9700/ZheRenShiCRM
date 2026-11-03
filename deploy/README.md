@@ -39,9 +39,9 @@ python -B deploy/prepare_integration.py \
   --deployment-commit REVIEWED_DEPLOY_40HEX
 ```
 
-- 新入口只从各精确 Git commit 导出普通 blob，不拼接其他工作树或未提交文件。`source-manifest.json` 记录四个commit与每件SHA；前端白名单支持精确12/15/17件历史集合，以及D020100完整21件集合（含source_edits、新payload和恢复测试）；半套/额外文件拒绝。历史manifest仍为7个payload/5个guard，D020100严格限定9个payload、26个source edit和4个guard，全部before/after与源码SHA保持校验。source_edits随精确Git输入进入镜像，不从运行目录补拷；部署白名单仅专用Dockerfile/ignore/after校验器。旧两种context继续兼容。
+- 新入口只从各精确 Git commit 导出普通 blob，不拼接其他工作树或未提交文件。`source-manifest.json` 记录四个commit与每件SHA；前端白名单支持精确12/15/17件历史集合，以及D020100完整21件集合（含source_edits、新payload和恢复测试）；半套/额外文件拒绝。历史manifest仍为7个payload/5个guard，D020100精确92443ca严格限定9个payload、27个source edit和5个guard（包括CommunicationArea修改与EmailEditor只读guard），全部before/after与源码SHA保持校验。source_edits随精确Git输入进入镜像，不从运行目录补拷；部署白名单仅专用Dockerfile/ignore/after校验器。旧两种context继续兼容。
 - 记录输出的绝对 `integration-<uuid>` 路径与 **source-manifest SHA256**。Windows准备后可用WSL路径重读：`python3 -B deploy/prepare_integration.py --context /mnt/p/.../integration-<uuid> --context-sha256 <原输出64位SHA>`；只校验，不构建。前端context没有原摘要、manifest漂移、缺件/多件、链接/硬链接、逐文件SHA漂移均拒绝。未来获准才附加 `--build`（必要时既有loopback `--proxy`），不可重新计算漂移后的摘要来绕过门禁。
-- 完整依赖准备：固定c3873 Framework基底→既有 `bench get-app` 与锁/CRM HEAD断言→两个扩展pip安装→固定补丁 `apply --check`→apply→全部after与guard复核（历史7/5，D020100为35/4）→原Framework资产preseed→标准 `bench build --app crm` 与资产强断言→team_access资产build→再次after/guard复核。应用后没有pip/yarn依赖安装，不允许手工增加reinstall。
+- 完整依赖准备：固定c3873 Framework基底→既有 `bench get-app` 与锁/CRM HEAD断言→两个扩展pip安装→固定补丁 `apply --check`→apply→全部after与guard复核（历史7/5，D020100精确92443ca为36/5）→原Framework资产preseed→标准 `bench build --app crm` 与资产强断言→team_access资产build→再次after/guard复核。应用后没有pip/yarn依赖安装，不允许手工增加reinstall。
 - 既有fb00构建日志的依赖层命中缓存，仅凭CRM HEAD/rc2版本号不能断言干净重建必然得到相同before SHA。任何before不符立即停，不改M19 manifest、不重装包凑通过；M17的39件公开证据不是完整node_modules。当前没有继承/复制fb00镜像作为构建输入，若需要改此设计，先记录决策/可重复条件并独审，不能临时静默换基线。
 - 镜像成功后才记录不可变ID和四个revision label；`build-result.json`另记原source-manifest摘要，不修改活动镜像锁。`probe_integration.py`对带C011000目录的镜像追加after/guard复核；原四app/双Framework manifest/全部资产/Node/restore CLI断言不变。
 - 后继必须在完整Linux依赖副本跑原 `yarn test:run`、M19 Vitest bridge及标准build，再独立probe、M18固定资产真实账号切换/撤权/后台与多标签UI；受控Node测试和源码重放不替代这些门槛。详见 `docs/RECOVERY_VALIDATION.md` 与 M19 `docs/FRONTEND_CACHE_C011000.md`。

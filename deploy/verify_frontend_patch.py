@@ -53,10 +53,12 @@ RESUME_EDITS = frozenset({
     "frontend/src/utils/renderFieldLayoutDialog.js", "frontend/src/utils/dialogs.jsx", "frontend/src/composables/modals.js",
     "frontend/src/composables/useVisitedRecords.ts", "frontend/src/components/Layouts/AppSidebar.vue",
     "frontend/src/components/Activities/Activities.vue", "frontend/src/stores/users.js", "frontend/src/stores/views.js",
+    "frontend/src/components/CommunicationArea.vue",
 })
 RESUME_TARGETS = dict(TARGETS, **{
     "frontend/src/data/safeResume.js": "safeResume.js",
     "frontend/src/resumeRuntime.js": "resumeRuntime.js",
+    "frontend/src/components/EmailEditor.vue": None,
 })
 RESUME_TARGETS.update({target: None for target in RESUME_EDITS})
 NEW_TARGETS = frozenset({
