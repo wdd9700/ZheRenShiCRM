@@ -28,7 +28,7 @@
 
 ## 补丁与固定证据
 
-`frontend-patches/c011000/manifest.json` 当前包含 **35 个修改目标（9 payload + 26 strict source edits）及 4 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
+`frontend-patches/c011000/manifest.json` 当前包含 **36 个修改目标（9 payload + 27 strict source edits）及 5 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
 
 只读使用两份本地证据，不修改它们：
 
@@ -51,9 +51,16 @@ frontend-patches/c011000 \
 P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m20-public-frontend-evidence-3828e3eb572143f99e2420809fd5f1b2/apps/crm
 ```
 
-结果：37 tests / 37 pass / 0 fail；35 目标严格重放通过，dry-run 无写；漂移/缺文件/错误 HEAD/hardlink/已有临时文件/重复应用拒绝且零写。原 18 个资源/Promise/默认视图/深链回归保留。新增覆盖初始化诊断、初始 hidden、重复恢复/再次 hidden、旧请求与写不重放、账号/Guest/广播/cookie、BFCache、网络重试、草稿权限/创建权限/冲突。
+结果：41 tests / 41 pass / 0 fail；36 目标严格重放通过，dry-run 无写；漂移/缺文件/错误 HEAD/hardlink/已有临时文件/重复应用拒绝且零写。原 18 个资源/Promise/默认视图/深链回归保留。新增覆盖初始化诊断、初始 hidden、重复恢复/再次 hidden、旧请求与写不重放、账号/Guest/广播/cookie、BFCache、网络重试、草稿权限/创建权限/冲突。
 
 真实运行测试使用真实 Vue renderer/Pinia，实际执行 payload main/session/boundary/resources/resumeRuntime/safeResume，以及固定上游经过 strict transform 的 useDocument/meta；同时用固定 Babel parser 解析所有改动 JS/TS/JSX 和 Vue script。它使用合成业务响应、插件/路由替身及小型测试组件，**没有编译完整 CRM SFC、没有真实 vue-router 导航，也不是浏览器端到端测试**。测试中相同替身 plugin 的重复安装警告不是生产组件证据。Vitest bridge 已接入全部四个 suite，但本机无 vitest，未运行 bridge 本身。
+
+## R1 两项 P1 回修与 bridge 修复
+
+- `CommunicationArea` 的 email/comment/signature/attachments 原 `useStorage` 路径全部改为组件内存 ref，不读写也不删除旧持久 key；`communicationEditorHeight` 非敏感偏好保持。收起的邮箱/评论/附件及收件人/主题变化由显式 registry 识别，capture 同时检查所有 contenteditable，不只第一个。未支持编辑器重试/再次 hidden 不销毁原内存；身份/Guest/权限拒绝或显式丢弃会清除内存，新挂载/刷新不会读回旧持久草稿。旧 key 仍留在浏览器，不宣称已安全擦除；回滚到旧版可能重新读取，回滚须另行决定这四类业务 key 的定向迁移/清理，不能无差别删存储。
+- 新增 `crm.api.get_unsubscribed_emails` 恢复期只读允许项前核了固定 commit 的 [服务端函数](https://raw.githubusercontent.com/frappe/crm/36bd8859f2a6345a620477bc708d0546e8c3f08a/crm/api/__init__.py)：先 `frappe.has_permission(doctype, "read", name, throw=True)`，随后只 select Email Unsubscribe，无写操作。测试实际执行转换后的 CommunicationArea setup 与固定 EmailEditor immediate recipient watcher，带非空 email、合成 unsubscribe 列表响应走恢复链；仍不是对真实 HTTP 服务的实测。
+- 新增 3 组真实运行回归：默认活动非空 email 正常恢复；收起邮件/评论/附件检测，账号/Guest/撤权清内存、重新挂载不访问旧 key；多 contenteditable 和明确丢弃。原 unsupported 编辑器连续 hide 也有独立回归。
+- real-runtime source loader 严格接受每个 manifest before 或 after SHA：before 转换并复核 after；after 原字节执行；其余 drift 拒绝。因此 bridge 可运行已 patch cwd，不会重复套 source edit。`C011100_SOURCE_ROOT` 可分离只读源码证据，`C011100_FRONTEND_ROOT` 只为既有依赖定位；`check_apply` 在设置后者时自动再以重放后的 after fixture 运行真实测试。生产 apply 的 before 门槛没有放宽。Python 默认 Windows `python`、Linux `python3`，可 `C011100_PYTHON` 指定。
 
 ## 尚待门槛
 

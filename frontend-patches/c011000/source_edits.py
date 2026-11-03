@@ -150,6 +150,15 @@ SOURCE_EDITS['frontend/src/stores/views.js'] = [
 ]
 
 
+SOURCE_EDITS['frontend/src/components/CommunicationArea.vue'] = [
+    ('<script setup>', "<script setup>\nimport { registerUnsavedEditor } from '@/data/safeResume'\nimport { onUnmounted as resumeUnmounted } from 'vue'"),
+    ("const newEmail = useStorage(\n  `emailBoxContent-${getUser().email}-${props.doctype}-${doc.value.name}`,\n  '',\n)", "const newEmail = ref('')"),
+    ("// A restored draft already carries its signature; this flag (persisted with the\n// draft) stops setSignature from prepending another one on every reopen/reload.\nconst signatureAdded = useStorage(\n  `emailSignatureAdded-${getUser().email}-${props.doctype}-${doc.value.name}`,\n  false,\n)", 'const signatureAdded = ref(false)'),
+    ("const newComment = useStorage(\n  `commentBoxContent-${getUser().email}-${props.doctype}-${doc.value.name}`,\n  '',\n)", "const newComment = ref('')"),
+    ("const attachments = useStorage(\n  `attachments-${getUser().email}-${props.doctype}-${doc.value.name}`,\n  [],\n  localStorage,\n  {\n    serializer: {\n      read: (v) => (v ? JSON.parse(v) : []),\n      write: (v) => JSON.stringify(v),\n    },\n  },\n)", "const attachments = ref([])\nconst stopUnsavedEditor = registerUnsavedEditor(\n  () => showEmailBox.value || showCommentBox.value || !isContentEmpty(newEmail.value) || !isContentEmpty(newComment.value) || attachments.value.length > 0 ||\n    Boolean(newEmailEditor.value?.ccEmails?.length || newEmailEditor.value?.bccEmails?.length) ||\n    (newEmailEditor.value && (newEmailEditor.value.subject !== subject.value ||\n      JSON.stringify(newEmailEditor.value.toEmails) !== JSON.stringify(doc.value.email ? [doc.value.email] : []))),\n  () => { newEmail.value = ''; newComment.value = ''; signatureAdded.value = false; attachments.value = []; newEmailEditor.value = null; newCommentEditor.value = null; showEmailBox.value = false; showCommentBox.value = false },\n)\nresumeUnmounted(stopUnsavedEditor)"),
+]
+
+
 def transform(target, data):
     text = data.decode('utf-8')
     for old, new in SOURCE_EDITS[target]:

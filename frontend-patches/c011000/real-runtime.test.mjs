@@ -16,10 +16,43 @@ assert.equal(require('pinia/package.json').version, '2.3.1')
 const vue = require('vue'), pinia = require('pinia')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const here = fileURLToPath(new URL('.', import.meta.url))
-const sources = JSON.parse(execFileSync('python', ['-c',
-  "import sys,json;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from source_edits import SOURCE_EDITS,transform;p=Path(sys.argv[2]).parent;print(json.dumps({t:transform(t,(p/t).read_bytes()).decode('utf-8') for t in SOURCE_EDITS}))",
-  here, root], { encoding: 'utf8' }))
+const python = process.env.C011100_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+const sources = JSON.parse(execFileSync(python, ['-c',
+  `import sys,json,hashlib
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from source_edits import SOURCE_EDITS,transform
+p=Path(sys.argv[2]).parent
+manifest={e['target']:e for e in json.loads((Path(sys.argv[1])/'manifest.json').read_text())}
+sources={}
+for t in SOURCE_EDITS:
+ data=(p/t).read_bytes()
+ sha=hashlib.sha256(data).hexdigest()
+ e=manifest[t]
+ if sha==e['before']: data=transform(t,data)
+ elif sha!=e['after']: raise ValueError('Runtime source evidence drift: '+t)
+ if hashlib.sha256(data).hexdigest()!=e['after']: raise ValueError('Runtime transformed source drift: '+t)
+ sources[t]=data.decode('utf-8')
+print(json.dumps(sources))`,
+  here, process.env.C011100_SOURCE_ROOT || root], { encoding: 'utf8' }))
 const documentCode = sources['frontend/src/data/document.js']
+const communicationScript = sources['frontend/src/components/CommunicationArea.vue'].match(/<script[^>]*>([\s\S]*?)<\/script>/)[1]
+const { parse: parseScript } = require('@babel/parser')
+let communicationBody = communicationScript
+for (const node of parseScript(communicationScript, { sourceType: 'module' }).program.body.filter(node => node.type === 'ImportDeclaration').reverse()) {
+  communicationBody = communicationBody.slice(0, node.start) + communicationBody.slice(node.end)
+}
+const communicationCode = `export function mount(deps) {
+const { ref, watch, computed, resumeUnmounted, registerUnsavedEditor, isContentEmpty, usersStore,
+useStorage, useWindowSize, useTelemetry, call, createResource, toast, defineProps, defineModel, defineEmits, defineExpose } = deps
+${communicationBody}
+return { newEmail, newComment, signatureAdded, attachments, showEmailBox, showCommentBox, newEmailEditor, newCommentEditor }
+}`
+const emailSource = await readFile(resolve(root, 'src/components/EmailEditor.vue'), 'utf8')
+const recipientWatchCode = `export function mount(deps) {
+const { ref, computed, watch, modelValue, props, toEmails, ccEmails, bccEmails, call } = deps
+${emailSource.slice(emailSource.indexOf('const unsubscribedEmails ='), emailSource.indexOf('watch(unsubscribedEmails,'))}
+}`
 
 test('all strict transformed JS/TS/JSX and Vue script blocks parse using the fixed Babel parser', () => {
   const { parse } = require('@babel/parser')
@@ -29,15 +62,16 @@ test('all strict transformed JS/TS/JSX and Vue script blocks parse using the fix
   }
 })
 
-async function fixture({ routeName = 'Lead', create = false } = {}) {
+async function fixture({ routeName = 'Lead', create = false, communication = false, editors = [] } = {}) {
   let hidden = false, identity = 'Synthetic Sales', covered = true, fail = false
   let readable = true, writable = true, creatable = true, current, session
   const events = {}, requests = [], runtimes = [], config = {}
   const fields = [{ fieldname: 'title', fieldtype: 'Data' }]
   const route = { name: routeName, fullPath: routeName.endsWith('s') ? '/leads?status=New' : '/leads/SYNTHETIC-1#activity',
     hash: '#activity', params: routeName.endsWith('s') ? {} : { leadId: 'SYNTHETIC-1' } }
-  const elements = []
-  const dom = { querySelector: () => null, body: { append: x => elements.push(x) }, createElement() {
+  let communicationState
+  const storageCalls = [], elements = []
+  const dom = { querySelector: () => null, querySelectorAll: () => editors, body: { append: x => elements.push(x) }, createElement() {
     return { style: {}, children: [], setAttribute() {}, append(...children) { this.children.push(...children) }, remove() {} }
   } }
   const env = { crypto: webcrypto, cookie: () => 'synthetic-stable', hidden: () => hidden,
@@ -59,7 +93,9 @@ async function fixture({ routeName = 'Lead', create = false } = {}) {
     if (fail) throw Error('Synthetic offline')
     if (url === 'frappe.client.get_doc_permissions') return { permissions: { read: readable, write: writable } }
     if (url === 'frappe.client.has_permission') return { has_permission: params.perm_type === 'create' ? creatable : readable }
-    if (url === 'frappe.client.get') return { name: 'SYNTHETIC-1', doctype: 'CRM Lead', title: 'server' }
+    if (url === 'frappe.client.get') return { name: 'SYNTHETIC-1', doctype: 'CRM Lead', title: 'server', email: 'synthetic@example.invalid' }
+    if (url === 'crm.api.get_user_signature') return ''
+    if (url === 'crm.api.get_unsubscribed_emails') return ['synthetic@example.invalid']
     if (url === 'frappe.desk.form.load.getdoctype') return { docs: [{ name: params.doctype, fields }], user_settings: '{}' }
     if (url === 'crm.api.doc.get_assigned_users') return []
     if (url === 'crm.api.activities.get_activities') return [[], [], [], [], []]
@@ -92,6 +128,28 @@ async function fixture({ routeName = 'Lead', create = false } = {}) {
     session = modules.get('session').namespace.sessionStore()
     current = modules.get('document').namespace.useDocument('CRM Lead', create ? '' : 'SYNTHETIC-1')
     const safe = modules.get('safeResume').namespace
+    if (communication) {
+      const model = vue.computed(() => current.document.doc || {})
+      communicationState = modules.get('communication').namespace.mount({ ...vue,
+        resumeUnmounted: vue.onUnmounted, registerUnsavedEditor: safe.registerUnsavedEditor,
+        isContentEmpty: value => !String(value || '').replace(/<[^>]*>/g, '').trim(),
+        usersStore: () => ({ getUser: () => ({ email: 'synthetic@example.invalid' }) }),
+        useStorage(key, fallback) {
+          storageCalls.push(key)
+          assert.equal(key, 'communicationEditorHeight', 'Business draft persistence must not be accessed')
+          return vue.ref(fallback)
+        },
+        useWindowSize: () => ({ height: vue.ref(800) }), useTelemetry: () => ({ capture() {} }),
+        call: (url, params) => request({ url, params }),
+        createResource: modules.get('resources').namespace.createResource, toast: {},
+        defineProps: () => ({ doctype: 'CRM Lead' }), defineModel: name => name === 'reload' ? vue.ref(false) : model,
+        defineEmits: () => () => {}, defineExpose() {},
+      })
+      modules.get('recipientWatch').namespace.mount({ ...vue, modelValue: model, props: { doctype: 'CRM Lead' },
+        toEmails: vue.computed(() => model.value.email ? [model.value.email] : []), ccEmails: vue.ref([]), bccEmails: vue.ref([]),
+        call: (url, params) => request({ url, params }),
+      })
+    }
     let cleanup
     vue.onMounted(() => {
       cleanup = safe.registerResumePage(routeName, () => ({ doctype: 'CRM Lead', filters: { status: 'New' }, page_length: 20 }))
@@ -129,6 +187,8 @@ async function fixture({ routeName = 'Lead', create = false } = {}) {
     let code
     if (id === 'document') code = documentCode
     else if (id === 'meta') code = sources['frontend/src/stores/meta.js']
+    else if (id === 'communication') code = communicationCode
+    else if (id === 'recipientWatch') code = recipientWatchCode
     else {
       const path = resources.has(id) ? `./payload/resources/${id}.${id === 'local' ? 'ts' : 'js'}` : `./payload/${id}.js`
       code = await readFile(new URL(path, import.meta.url), 'utf8')
@@ -162,9 +222,11 @@ async function fixture({ routeName = 'Lead', create = false } = {}) {
   boundary = (await namespace('accountBoundary')).accountBoundary
   await boundary.resume()
   await namespace('session'); await namespace('safeResume'); await namespace('document')
+  if (communication) { await namespace('communication'); await namespace('recipientWatch') }
   await namespace('main'); await tick(); await vue.nextTick()
   assert.equal(boundary.state, 'ACTIVE'); assert.equal(session.user, 'Synthetic Sales')
-  return { boundary, requests, fields, runtimes, namespace, route,
+  return { boundary, requests, fields, runtimes, namespace, route, storageCalls,
+    get communication() { return communicationState },
     get current() { return current }, get session() { return session }, get covered() { return covered },
     identity(value) { identity = value }, permission(read, write = true, create = true) { readable = read; writable = write; creatable = create },
     offline(value) { fail = value },
@@ -234,4 +296,60 @@ test('real runtime list keeps current params and creation draft uses fresh creat
     } else assert.equal(f.covered, true)
     f.close()
   }
+})
+
+
+test('actual CommunicationArea setup and EmailEditor immediate recipient watcher recover nonempty-email default activity without persistence', async () => {
+  const f = await fixture({ communication: true })
+  assert.equal(f.communication.newEmail.value, '')
+  assert.equal(f.communication.newComment.value, '')
+  assert.equal(f.communication.attachments.value.length, 0)
+  assert.deepEqual(f.storageCalls, ['communicationEditorHeight'])
+  f.hide(true); await f.resume()
+  assert.equal(f.boundary.state, 'ACTIVE'); assert.equal(f.covered, false)
+  const calls = f.requests.filter(item => item.url === 'crm.api.get_unsubscribed_emails')
+  assert.ok(calls.length >= 2)
+  assert.equal(calls.at(-1).params.emails[0], 'synthetic@example.invalid')
+  assert.equal(calls.at(-1).params.doctype, 'CRM Lead')
+  assert.equal(calls.at(-1).params.name, 'SYNTHETIC-1')
+  assert.equal(f.communication.newEmail.value, '')
+  assert.ok(f.storageCalls.every(key => key === 'communicationEditorHeight'))
+  f.close()
+})
+
+test('collapsed mail/comment/attachments register unsaved state and terminal identity clears retained refs; remount never reloads old keys', async () => {
+  for (const mode of ['email', 'comment', 'attachments']) {
+    const f = await fixture({ communication: true }), previous = f.communication
+    if (mode === 'email') previous.newEmail.value = '<p>private unsent email</p>'
+    if (mode === 'comment') previous.newComment.value = '<p>private unsent comment</p>'
+    if (mode === 'attachments') previous.attachments.value = [{ file_url: '/private/files/synthetic.pdf' }]
+    assert.equal(previous.showEmailBox.value, false); assert.equal(previous.showCommentBox.value, false)
+    f.hide(true); await f.resume()
+    assert.equal(f.boundary.state, 'RETRY_COVERED'); assert.equal(f.covered, true)
+    assert.equal(f.communication, previous)
+    if (mode === 'attachments') f.boundary.failed({ status: 403 })
+    else { f.identity(mode === 'comment' ? 'Guest' : 'Other Account'); await f.boundary.resume() }
+    assert.equal(f.boundary.state, 'IDENTITY_REQUIRED')
+    assert.equal(previous.newEmail.value, ''); assert.equal(previous.newComment.value, '')
+    assert.equal(previous.attachments.value.length, 0)
+    const remounted = await fixture({ communication: true })
+    assert.equal(remounted.communication.newEmail.value, '')
+    assert.equal(remounted.communication.newComment.value, '')
+    assert.equal(remounted.communication.attachments.value.length, 0)
+    assert.ok(remounted.storageCalls.every(key => key === 'communicationEditorHeight'))
+    remounted.close()
+  }
+})
+
+test('capture checks every contenteditable and explicit draft discard clears retained communication memory', async () => {
+  const f = await fixture({ communication: true, editors: [{ textContent: '' }, { textContent: 'second private editor' }] })
+  f.hide(true); await f.resume()
+  assert.equal(f.boundary.state, 'RETRY_COVERED'); assert.equal(f.covered, true)
+  const previous = f.communication
+  previous.newEmail.value = 'private'; previous.newComment.value = 'private'
+  previous.attachments.value = [{ name: 'synthetic' }]
+  ;(await f.namespace('safeResume')).discardResume()
+  assert.equal(previous.newEmail.value, ''); assert.equal(previous.newComment.value, '')
+  assert.equal(previous.attachments.value.length, 0)
+  f.close()
 })

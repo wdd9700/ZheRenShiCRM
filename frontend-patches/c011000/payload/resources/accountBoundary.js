@@ -76,7 +76,7 @@ export function createAccountBoundary(env) {
     'crm.domain_enrichment.api.get_enriched_fields', 'crm.integrations.api.is_call_integration_enabled',
     'crm.api.whatsapp.is_whatsapp_enabled', 'crm.api.whatsapp.is_whatsapp_installed',
     'crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_view_quotations',
-    'crm.www.crm.get_context_for_dev', 'crm.api.get_user_signature',
+    'crm.www.crm.get_context_for_dev', 'crm.api.get_user_signature', 'crm.api.get_unsubscribed_emails',
     'crm.api.whatsapp.get_whatsapp_messages',
     'crm.fcrm.doctype.crm_call_log.crm_call_log.get_call_log',
     'crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.get_deal_quotations',

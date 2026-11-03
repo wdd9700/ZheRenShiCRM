@@ -75,5 +75,9 @@ with tempfile.TemporaryDirectory(prefix='c011000-', dir=runtime) as directory:
             if entry.get('payload') or entry.get('edits'):
                 assert module.sha((root / entry['target']).read_bytes()) == entry['after']
         refused(root)
+        if os.environ.get('C011100_FRONTEND_ROOT'):
+            environment = dict(os.environ, C011100_SOURCE_ROOT=str(root / 'frontend'))
+            module.subprocess.run(['node', '--experimental-vm-modules', '--test', str(HERE / 'real-runtime.test.mjs')],
+                                  env=environment, check=True)
 print(f'PASS: {expected_count} exact source edits/payloads; dry-run, drift/missing/HEAD/hardlink/temp/reapply refusals write nothing')
 print('Evidence replay uses a mocked Git HEAD only inside this disposable fixture, not a real checkout/build.')

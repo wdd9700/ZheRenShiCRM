@@ -8,7 +8,7 @@ export function createResumeAdapter({ router, boot, stop, nextTick, read }) {
     get unsupportedEditor() { return !supported },
     stop() { if (supported) stop() },
     suspend() {
-      if (accountBoundary.state !== 'ACTIVE') { stop(); return }
+      if (accountBoundary.state !== 'ACTIVE') { if (supported) stop(); return }
       try { snapshot = captureResume(router.currentRoute.value); supported = true }
       catch { supported = false }
       if (supported) stop()

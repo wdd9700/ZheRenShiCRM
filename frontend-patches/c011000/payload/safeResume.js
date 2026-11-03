@@ -45,6 +45,16 @@ export function registerResumePage(name, getParams) {
   return () => { if (page === entry) page = null }
 }
 
+const unsavedEditors = new Set()
+export function registerUnsavedEditor(hasUnsaved, clear) {
+  const entry = { epoch: accountBoundary.epoch, hasUnsaved, clear }
+  unsavedEditors.add(entry)
+  const stop = accountBoundary.onInvalidate(() => {
+    if (accountBoundary.state === 'IDENTITY_REQUIRED') { clear(); unsavedEditors.delete(entry); stop() }
+  })
+  return () => { unsavedEditors.delete(entry); stop() }
+}
+
 const sections = new Map()
 export function registerResumeSection(name) {
   const epoch = accountBoundary.epoch
@@ -63,8 +73,9 @@ export function captureResume(route) {
   notice?.remove(); notice = null
   const allowed = ['Leads', 'Deals', 'Lead', 'Deal'].includes(route.name)
   const creating = [...documents.values()].some(entry => !entry.name && entry.epoch === accountBoundary.epoch)
-  const editor = globalThis.document?.querySelector?.('[contenteditable="true"]:not([data-crm-field])')
-  if (!allowed || page?.name !== route.name || editor?.textContent?.trim() ||
+  const editors = globalThis.document?.querySelectorAll?.('[contenteditable="true"]:not([data-crm-field])') || []
+  const hasEditorDraft = [...unsavedEditors].some(entry => entry.hasUnsaved())
+  if (!allowed || page?.name !== route.name || hasEditorDraft || [...editors].some(editor => editor.textContent?.trim()) ||
       (globalThis.document?.querySelector?.('[role="dialog"]') && !creating)) {
     throw Error('当前编辑器暂不支持安全恢复；未保存内容仍在本标签。可放弃未保存编辑并刷新，或退出登录。')
   }
@@ -96,6 +107,7 @@ export function captureResume(route) {
 
 export function discardResume() {
   drafts.clear(); pendingCreate = null; listParams = null
+  for (const entry of unsavedEditors) entry.clear()
   notice?.remove(); notice = null
 }
 

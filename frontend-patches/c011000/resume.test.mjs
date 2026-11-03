@@ -204,3 +204,17 @@ test('creation draft requires current create rights and unsupported editors fail
   assert.throws(() => f.draft.captureResume({ name: 'Note', hash: '#emails' }), /当前编辑器/)
   f.draft.discardResume(); assert.equal(f.draft.planDrafts(f.boundary.user).length, 0)
 })
+
+test('unsupported editor retains covered old runtime across repeated hide; identity terminal still discards', async () => {
+  const f = await fixture()
+  const { createResumeAdapter } = await f.namespace('resumeRuntime')
+  let stops = 0
+  f.boundary.setAdapter(createResumeAdapter({ router: { currentRoute: { value: { name: 'Note' } } },
+    boot() { throw Error('Must not boot unsupported page') }, stop() { stops++ }, nextTick: async () => {}, read() {} }))
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(f.boundary.state, 'RETRY_COVERED'); assert.equal(stops, 0)
+  assert.match(f.covers.at(-1)[0], /当前编辑器/)
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(stops, 0)
+  f.events['account-change'](); assert.equal(stops, 1)
+})
