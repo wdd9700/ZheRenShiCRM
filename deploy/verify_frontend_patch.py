@@ -14,11 +14,14 @@ PATCH_FILES = frozenset({
 })
 CONSUMER_FIXTURES = frozenset({"consumer-fixtures/router.js", "consumer-fixtures/users.js", "consumer-fixtures/views.js"})
 INITIALIZATION_TESTS = frozenset({"initialization.test.mjs", "real-runtime.test.mjs"})
+RESUME_FILES = PATCH_FILES | CONSUMER_FIXTURES | INITIALIZATION_TESTS | frozenset({
+    "resume.test.mjs", "source_edits.py", "payload/safeResume.js", "payload/resumeRuntime.js",
+})
 
 
 def patch_file_set(paths):
     actual = set(paths)
-    if actual not in (PATCH_FILES, PATCH_FILES | CONSUMER_FIXTURES, PATCH_FILES | CONSUMER_FIXTURES | INITIALIZATION_TESTS):
+    if actual not in (PATCH_FILES, PATCH_FILES | CONSUMER_FIXTURES, PATCH_FILES | CONSUMER_FIXTURES | INITIALIZATION_TESTS, RESUME_FILES):
         raise RuntimeError("Frontend patch source differs from the exact file whitelist")
     return actual
 
@@ -39,26 +42,66 @@ TARGETS = {
 }
 
 
+RESUME_EDITS = frozenset({
+    "frontend/node_modules/frappe-ui/src/utils/frappeRequest.ts",
+    "frontend/src/data/document.js", "frontend/src/data/script.js", "frontend/src/stores/meta.js",
+    "frontend/src/components/ViewControls.vue", "frontend/src/pages/Lead.vue", "frontend/src/pages/Deal.vue",
+    "frontend/src/pages/Leads.vue", "frontend/src/pages/Deals.vue", "frontend/src/stores/notifications.js",
+    "frontend/src/stores/settings.js", "frontend/src/composables/telephony.js", "frontend/src/composables/whatsapp.js",
+    "frontend/src/composables/erpnext.js", "frontend/src/composables/useCommandPalette.js",
+    "frontend/src/composables/doctypeModal.js", "frontend/src/composables/document.js", "frontend/src/composables/noteView.ts",
+    "frontend/src/utils/renderFieldLayoutDialog.js", "frontend/src/utils/dialogs.jsx", "frontend/src/composables/modals.js",
+    "frontend/src/composables/useVisitedRecords.ts", "frontend/src/components/Layouts/AppSidebar.vue",
+    "frontend/src/components/Activities/Activities.vue", "frontend/src/stores/users.js", "frontend/src/stores/views.js",
+})
+RESUME_TARGETS = dict(TARGETS, **{
+    "frontend/src/data/safeResume.js": "safeResume.js",
+    "frontend/src/resumeRuntime.js": "resumeRuntime.js",
+})
+RESUME_TARGETS.update({target: None for target in RESUME_EDITS})
+NEW_TARGETS = frozenset({
+    "frontend/node_modules/frappe-ui/src/resources/accountBoundary.js",
+    "frontend/src/data/safeResume.js", "frontend/src/resumeRuntime.js",
+})
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
 def read_manifest(patch):
     entries = json.loads((patch / "manifest.json").read_text(encoding="utf-8"))
-    if not isinstance(entries, list) or len(entries) != len(TARGETS):
+    if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+        raise RuntimeError("Frontend patch manifest must contain objects")
+    resume = (patch / "source_edits.py").is_file()
+    targets = RESUME_TARGETS if resume else TARGETS
+    edits = RESUME_EDITS if resume else frozenset()
+    if len(entries) != len(targets):
         raise RuntimeError("Frontend patch manifest has an unexpected target count")
     seen = set()
     for entry in entries:
+        if not isinstance(entry, dict):
+            raise RuntimeError("Frontend patch manifest entry must be an object")
         target = entry.get("target")
-        if target not in TARGETS or target in seen or entry.get("payload") != TARGETS[target]:
+        edited = target in edits
+        if target not in targets or target in seen or entry.get("payload") != targets[target]:
             raise RuntimeError("Frontend patch manifest targets differ from the whitelist")
+        expected_keys = {"target", "before"}
+        if targets[target]:
+            expected_keys |= {"payload", "after"}
+        elif edited:
+            expected_keys |= {"edits", "after"}
+        if set(entry) != expected_keys or (edited and entry.get("edits") is not True):
+            raise RuntimeError("Frontend patch manifest entry schema differs from the whitelist")
         seen.add(target)
-        for field in ("before", "after") if entry.get("payload") else ("before",):
+        for field in ("before", "after") if entry.get("payload") or edited else ("before",):
             value = entry.get(field)
-            if field == "before" and target.endswith("/accountBoundary.js") and value is None:
+            if field == "before" and target in NEW_TARGETS and value is None:
                 continue
             if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
                 raise RuntimeError("Frontend patch manifest contains an invalid SHA256")
+        if target in NEW_TARGETS and entry["before"] is not None:
+            raise RuntimeError("New frontend target must not exist in the baseline")
         if entry.get("payload") and digest((patch / "payload" / entry["payload"]).read_bytes()) != entry["after"]:
             raise RuntimeError("Frontend patch payload differs from its manifest")
     return entries
@@ -74,10 +117,12 @@ def verify(root, patch):
             raise RuntimeError("Patched frontend target escapes CRM or is linked")
         if target.stat().st_nlink != 1:
             raise RuntimeError("Patched frontend target is hard linked")
-        expected = entry["after"] if entry.get("payload") else entry["before"]
+        expected = entry["after"] if entry.get("payload") or entry.get("edits") else entry["before"]
         if digest(target.read_bytes()) != expected:
             raise RuntimeError("Patched frontend source or dependency guard changed: " + entry["target"])
-    print("PASS: fixed CRM HEAD, seven patched files and five dependency/source guards")
+    entries = read_manifest(patch)
+    changed = sum(bool(entry.get("payload") or entry.get("edits")) for entry in entries)
+    print(f"PASS: fixed CRM HEAD, {changed} patched files and {len(entries) - changed} dependency/source guards")
 
 
 if __name__ == "__main__":

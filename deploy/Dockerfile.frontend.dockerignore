@@ -10,6 +10,7 @@
 !frontend-patches/
 !frontend-patches/c011000/
 !frontend-patches/c011000/apply.py
+!frontend-patches/c011000/source_edits.py
 !frontend-patches/c011000/manifest.json
 !frontend-patches/c011000/payload/
 !frontend-patches/c011000/payload/**
