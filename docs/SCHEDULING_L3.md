@@ -1,6 +1,6 @@
 # L3 日程实现契约｜D010300
 
-状态：2026-11-04，**Provisional／供实现，不是功能交付**。主控于此日期暂选方案 B，理由、备选、中置信与撤销条件见下节，作为实施前即时决策证据。依据 [D-007](DECISION_LOG.md#d-007自主推进至-l3以时间段日程而非日历视图验收) 的用户授权与 M22 固定源码调查。L1/L2 团队安全、普通账号正常 CRM 初始化、业务全链及恢复仍未验收；本契约不撤销这些门槛。本文不占用新决策编号；交 tower 由既有文档 owner 补 D-008 并独审，**决策日志落地前不得启动后续产品编码**。本文件不替代决策链。
+状态：2026-11-04，**Provisional／供实现，不是功能交付**。主控于此日期暂选方案 B，理由、备选、中置信与撤销条件见下节，作为实施前即时决策证据。依据 [D-007](DECISION_LOG.md#d-007自主推进至-l3以时间段日程而非日历视图验收) 的用户授权与 M22 固定源码调查。L1/L2 团队安全、普通账号正常 CRM 初始化、业务全链及恢复仍未验收；本契约不撤销这些门槛。D-008 已由既有文档 owner 在 wt-21 的 `DECISION_LOG.md` 提交 `e8e06b1` 落盘并独审通过；此为该时点的分支证据，**不表示已合并或产品已交付**。本文件不替代决策链，本任务不启动产品实现或运行环境。
 
 ## 1. 暂选、证据与退出
 
@@ -92,21 +92,31 @@ B 同时拥有内部 `Team Schedule Request` schema：唯一 `(owner,request_id)
 - 明确拒绝 VALUE=DATE 全天、浮动时间、数字offset时间、DURATION、RRULE/RDATE/EXDATE/RECURRENCE-ID、VALARM、VTODO、ATTACH、URL、ATTENDEE、ORGANIZER、任意 VTIMEZONE、未知属性/组件/参数（允许支持属性上的合法 TZID/VALUE=DATE-TIME，以及 DESCRIPTION/SUMMARY 的 LANGUAGE）。不静默删掉重复规则、邀请或未知字段当成功；容器/编码损坏拒整文件，可定位的坏 VEVENT 逐项报安全错误，其余可预览。
 - METHOD:CANCEL 或 STATUS:CANCELLED 都只作取消；取消项允许省略时间/正文，但必须 UID+SEQUENCE，若提供时间仍须合法。新来源的未知 UID 取消建立**仅映射墓碑**（无日程/占用），结果 `unknown_cancelled`，防随后旧文件复活；不泄露其他来源同 UID 是否存在。
 
-`ics.api.create_source` POST `{label}` → `{source_id}`；owner 不可传入。`preview` POST `{source_id,file_base64}` → `{receipt,expires_in:900,items:[{index,action,code,preview?}]}`；preview 仅自身输入解析内容与有权目标，业务表零写，临时 receipt 不存原文件/正文。`apply` POST `{receipt,source_id,file_base64,confirm:true,resolutions:[]}` → `{items:[{index,result,code,schedule_name?,revision?}]}`。源仅本人可用；无权 source 返回同404。全文件哈希、用户、会话、source、规范计划、预览时目标 revision/源版本、resolutions 白名单绑定15分钟不透明 receipt；apply 再解析并重验，换文件/会话/权限/版本失败，不接受客户端替换计划。
+`ics.api.create_source` POST `{label}` → `{source_id}`；owner 不可传入。`preview` POST `{source_id,file_base64}` → `{receipt,expires_in:900,items:[{index,action,code,allowed_resolutions,expected_revision,preview?}]}`；index 为文件内 VEVENT 的零基稳定序号。preview 仅自身输入解析内容与有权目标，业务表零写，临时 receipt 不存原文件/正文。仅可覆盖的 `local_conflict` 项返回 `allowed_resolutions:["replace_from_source"]` 和目标正整数 `expected_revision`；其余项返回 `allowed_resolutions:[]`、`expected_revision:null`。
 
-版本与本地编辑规则（同源 UID；SEQUENCE 为唯一有序版本，时间戳不打破平局）：
+`apply` POST `{receipt,source_id,file_base64,confirm:true,resolutions:[{index,action:"replace_from_source",expected_revision}]}` → `{items:[{index,result,code,schedule_name?,revision?}]}`。resolutions 可为空，缺省不覆盖冲突项；不增加额外确认接口。源仅本人可用；无权 source 返回同404。15分钟不透明 receipt 绑定全文件哈希、用户、会话、source、规范计划、每项预览状态及**允许动作集合**，不预先绑定用户的最终选择。预览状态包含来源映射是否存在、若存在其 sequence/digest/tombstone/last_import_revision，以及目标是否存在、ID和revision；不存在必须用显式 absent 标记，不把 null 当通配符。
+
+UI 在预览后让 owner 逐项勾选覆盖，显示该项内容与目标 revision，再由独立确认操作发送 `confirm:true` 和精确 resolution。服务端先校验 confirm 必须为 true、resolutions 为数组且每元素只能有 index/action/expected_revision：index 必须为 receipt 中唯一合法整数，动作必须属于该项允许集合，expected_revision 必须精确等于 receipt 绑定值。重复/未知/非法索引、未知字段/动作、非冲突项的 resolution 或伪造 revision 均整请求400 `INVALID_INPUT`、业务零写，不能靠 duplicate 分支放行非法参数。未选覆盖的 local_conflict 项保持 `local_conflict` 零写，其他安全项可继续。
+
+版本与本地编辑规则（同源 UID；SEQUENCE 为唯一有序版本，时间戳不打破平局；apply 顺序以下方锁内协议为准）：
 
 | 输入与已存来源版本 | 处理 |
 |---|---|
 | 首次活动 | 创建日程，仅 owner，无外部参与者；映射唯一约束与日程同事务。 |
-| 同 sequence、同规范 digest | `duplicate` no-op，即使日程后来本地改过也不覆盖。digest 为支持字段规范 JSON 的完整 SHA256（排序、UTC、规范文本、取消态）；不含折行、PRODID、DTSTAMP/LAST-MODIFIED。 |
+| 同 sequence、同规范 digest | `duplicate`，精确匹配已提交映射的零写 no-op；即使日程后来本地改过也不覆盖。digest 为支持字段规范 JSON 的完整 SHA256（排序、UTC、规范文本、取消态）；不含折行、PRODID、DTSTAMP/LAST-MODIFIED。 |
 | 低 sequence | `stale`，不写。 |
 | 同 sequence、不同 digest | `version_conflict`，不提供强行覆盖；需修正源版本后重新预览。 |
 | 高 sequence、当前 revision=last_import_revision | 更新/取消并记录新 source sequence/digest 与新 revision。 |
-| 高 sequence、本地 revision已变 | `local_conflict`；默认不写。只允许预览中 owner 显式选择 `replace_from_source`，二次确认绑定目标 revision；覆盖源管理的时间/正文/availability/status，不改本地成员 ACL。 |
+| 高 sequence、本地 revision已变 | `local_conflict`；仅 receipt 已允许且 apply 提交合法 `replace_from_source` resolution 并二次确认时覆盖；仍须锁内比较预览状态。覆盖源管理的时间/正文/availability/status，不改本地成员 ACL。 |
 | 已有 tombstone 后任何活动项 | sequence ≤墓碑拒绝复活；更高也返回 `cancelled_source`，首版不自动恢复，需新 UID。重复取消幂等，高版本取消可前移墓碑。 |
 
-正常成员 ACL/参与状态变更也算本地 revision 变化，宁可提示冲突不静默覆盖。每项保存点、同 source+UID 事务锁及唯一约束；锁到 commit 后释放，失败回滚该项及其映射，其他成功项保留。确认前后发生竞态返回该项 `revision_conflict`，不能用旧确认覆盖；重新预览确认。receipt 有效期内可重试，同版本成功项 no-op、失败项重试；过期重新预览。来源版本和取消墓碑纳入备份恢复。响应仅 index、分类、安全 ID，不将解析器异常/源私文写日志；失败下载纯文本安全编码，不执行 HTML/表格公式。
+**apply 固定检查顺序**：
+1. 整请求重验身份、启用状态、source 权限、receipt/会话/文件哈希与规范计划绑定，再做上述 confirm/resolutions 结构和允许集合校验；失败整请求业务零写，不接受客户端替换计划。
+2. 每项在 source+UID 锁内重验权限并读取已提交映射及目标。若映射精确匹配输入 sequence+规范 digest，直接返回 `duplicate`，不修改日程、revision、映射、墓碑或操作审计；**此唯一零写分支豁免旧预览状态/revision 比较**，包括首次 apply 已成功、随后本地又编辑的同 receipt 重试。它证明输入已应用，不代表当前日程正文仍等于输入；仍不得绕过身份/权限/参数检查。
+3. 其他项必须精确比较 receipt 的预览状态与锁内状态。预览映射/目标 absent 则当前也必须 absent；若其他事务创建了不同版本映射或目标，不能据当前值擅自转成更新。预览存在则映射存在标记及 sequence/digest/tombstone/last_import_revision、目标存在标记/ID/revision 均须相同。任何差异逐项 `revision_conflict` 零写（包括更高源版本抢先提交、预览后本地改revision），不能阻断其他安全项；重新预览后才按表判 stale/version_conflict/local_conflict 等。不能将旧确认重新绑定新目标。
+4. 状态相符后才按表和已确认 resolution 执行；未选覆盖或不支持项仅返回分类。所有需写项（包括仅映射的未知取消墓碑）均不能豁免步骤3。正常成员 ACL/参与状态变更也算本地 revision 变化。
+
+每项保存点、同 source+UID 事务锁及唯一约束（absent 键同样串行保护）；锁到 commit 后释放，失败回滚该项及其映射，其他成功项保留。receipt 有效期内可原样重试：已提交精确匹配项依步骤2零写 duplicate，失败项仅在步骤3仍匹配时重试，过期重新预览。来源版本和取消墓碑纳入备份恢复。响应仅 index、分类、安全 ID，不将解析器异常/源私文写日志；失败下载纯文本安全编码，不执行 HTML/表格公式。
 
 ## 6. 文件 ownership 与实现顺序
 
@@ -130,5 +140,10 @@ B 同时拥有内部 `Team Schedule Request` schema：唯一 `(owner,request_id)
 2. 上海/Kolkata 同一UTC跨日期；纽约 `2026-03-08 02:30` 不存在拒绝、`2026-11-01 01:30` 双解要求 offset；ICS 双解拒绝。原站系统时区与旧数据不变。
 3. 共同窗口09:00–14:00：A busy 09:07–09:42、13:03–13:18；B busy09:30–10:05、13:18–13:31；min20仅得10:05–13:03和13:31–14:00。验证相邻无冲突、Free不占用、取消/移时更新、跨日裁剪、全忙/全闲、重复参与、未接受成员不占用、撤grant及扫描超限不返回假空闲。
 4. A私事标题/正文放唯一canary，B在UI/REST detail/PUT、list/reportview、搜索/link、docinfo、子表、两CSV导出、print/email/report、Version/实时及忙闲都不能拿到canary/源UID；仅授权busy时段可见。Read不能写、Edit不能改ACL/owner/source；撤成员、禁账号、并发旧revision、伪造flags/owner/source、DocShare OR路径逐项证实拒绝。管理员烟测不能替代。
-5. ICS首次、折行等价重复、高/低版本、等版异文、取消/重复取消/未知取消墓碑、旧文件不复活、不同源/用户同UID、本地改后冲突与显式覆盖；Z/TZID、坏UTF-8/缺UID/坏时间/不支持属性/超限/恶意HTML；混合好坏项、注入单项写失败、双并发、预览后换文件/会话/撤权/改revision、过期重试。成功项保留、失败不留孤儿、无邀请/提醒/外部请求。
+5. ICS首次、折行等价重复、高/低版本、等版异文、取消/重复取消/未知取消墓碑、旧文件不复活、不同源/用户同UID、本地改后冲突与显式覆盖；Z/TZID、坏UTF-8/缺UID/坏时间/不支持属性/超限/恶意HTML；混合好坏项、注入单项写失败、双并发、预览后换文件/会话/撤权/改revision、过期重试。成功项保留、失败不留孤儿、无邀请/提醒/外部请求。以下是必须逐项断言的重试/覆盖场景：
+   - 两条首次活动 A/B 预览均 absent，首次 apply A成功、B注入写失败；原 receipt/文件/确认参数重试，A为duplicate且所有业务字段/revision/映射/审计不变，B仅在仍absent时成功，最终各一条无孤儿。
+   - A成功后本地修改正文或ACL再以原 receipt 重试，A仍为duplicate零写，本地修改及当前revision完整保留；撤权/禁账号则不能借此豁免权限。
+   - 预览后另一事务先提交更高源版本（包括预览原absent、当前已存在），旧apply该项返回revision_conflict，不能创建/覆盖/降低源版本；其他未变化项仍可成功。重新预览旧输入才得stale。
+   - local_conflict预览返回唯一允许动作和目标revision；不选择（resolutions:[]）时该项零写；提交精确 `{index,action:"replace_from_source",expected_revision}` 并独立confirm:true时成功，仅覆盖源管理字段、不改成员ACL。
+   - 预览后目标revision再变，旧合法resolution仍必须revision_conflict零写；修改resolution中的revision不能重新绑定目标。重复index、未知/非整数/越界index、非法动作、非冲突项resolution、伪造revision/额外字段、confirm非true均整请求400且任何项零写。即使同请求另有已成功duplicate项也不能绕过此校验。
 6. 单一集成候选真实依赖版本/import、构建、两次迁移；重启持久化、数据库及私有文件备份到隔离站点恢复，再读详情/来源/墓碑/grant；受控导出及含app兼容回退。L1/L2安全与CRM业务全链仍须单独收敛，未通过不得称完整L3。
