@@ -44,11 +44,45 @@ class TestPermissionsCore(ScheduleCase):
         self.assertEqual(frappe.db.get_value("Team Schedule", doc.name, "revision"), 1)
 
     def test_share_denied_for_admin_and_migration_fail_closed(self):
-        doc = service.create_schedule(payload(), str(uuid4()))
+        from team_schedule.patches.v1_constraints import check_shares
+
+        owner, peer = self.users
+        request_id = str(uuid4())
+        doc = service.create_schedule(payload([{"user": peer, "access": "Read"}]), request_id)
+        source = service.create_source("synthetic share target")
+        item = service.save_source_item(source.name, "synthetic-share-UID", {"source_sequence": 1, "source_digest": "a" * 64, "tombstone": True})
+        service.set_busy_grant(peer, True)
+        targets = {
+            "Team Schedule": doc.name,
+            "Team Schedule Member": doc.members[0].name,
+            "Team Schedule Busy Grant": frappe.db.get_value("Team Schedule Busy Grant", {"subject_user": owner, "viewer_user": peer}, "name"),
+            "Team Schedule Source": source.name,
+            "Team Schedule Source Item": item.name,
+            "Team Schedule Request": frappe.db.get_value("Team Schedule Request", {"owner": owner, "request_id": request_id}, "name"),
+            "Team Schedule Audit": frappe.db.get_value("Team Schedule Audit", {"target_name": doc.name}, "name"),
+        }
+        self.assertEqual(set(targets), set(permissions.DOCTYPES))
         frappe.set_user("Administrator")
-        for doctype in permissions.DOCTYPES:
-            with self.subTest(doctype=doctype), self.assertRaises(frappe.PermissionError):
-                frappe.get_doc({"doctype": "DocShare", "share_doctype": doctype, "share_name": doc.name, "user": self.users[1], "read": 1, "flags": {"ignore_validate": True}}).insert()
+        for doctype, name in targets.items():
+            with self.subTest(doctype=doctype):
+                self.assertTrue(name)
+                self.assertTrue(frappe.db.exists(doctype, name))
+                share = {"doctype": "DocShare", "share_doctype": doctype, "share_name": name, "user": peer, "read": 1}
+                with self.assertRaises(frappe.PermissionError):
+                    frappe.get_doc({**share, "flags": {"ignore_validate": True}}).insert()
+                self.assertFalse(frappe.db.exists("DocShare", {"share_doctype": doctype, "share_name": name}))
+                frappe.db.savepoint("synthetic_anomalous_share")
+                try:
+                    anomalous = frappe.get_doc({**share, "name": uuid4().hex, "owner": "Administrator"})
+                    anomalous.db_insert()
+                    self.assert_code("FORBIDDEN", check_shares)
+                    self.assert_code("FORBIDDEN", permissions.current_user)
+                    self.assert_code("FORBIDDEN", permissions.query_conditions, peer)
+                    self.assertTrue(frappe.db.exists("DocShare", anomalous.name))
+                finally:
+                    frappe.db.rollback(save_point="synthetic_anomalous_share")
+                self.assertFalse(frappe.db.exists("DocShare", {"share_doctype": doctype, "share_name": name}))
+        check_shares()
         self.assertFalse(frappe.db.exists("DocShare", {"share_doctype": ["in", permissions.DOCTYPES]}))
 
     def test_export_print_version_and_sidecars_denied(self):
