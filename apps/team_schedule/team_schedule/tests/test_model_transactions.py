@@ -12,8 +12,11 @@ class TestModelTransactions(ScheduleCase):
         doc = service.create_schedule(payload(), request_id)
         frappe.db.commit()
         primary = frappe.local.db
-        frappe.connect()
+        self.assertEqual(frappe.session.user, self.users[0])
+        frappe.connect(set_admin_as_user=False)
+        self.assertEqual(frappe.session.user, self.users[0])
         secondary = frappe.local.db
+        self.assertIsNot(primary, secondary)
         try:
             secondary.sql("SELECT revision FROM `tabTeam Schedule` WHERE name=%s", (doc.name,))
             secondary.sql("SELECT name FROM `tabTeam Schedule Request` WHERE owner=%s AND request_id=%s", (self.users[0], request_id))
@@ -33,8 +36,11 @@ class TestModelTransactions(ScheduleCase):
         request_id = str(uuid4())
         frappe.db.commit()
         primary = frappe.local.db
-        frappe.connect()
+        self.assertEqual(frappe.session.user, self.users[0])
+        frappe.connect(set_admin_as_user=False)
+        self.assertEqual(frappe.session.user, self.users[0])
         secondary = frappe.local.db
+        self.assertIsNot(primary, secondary)
         try:
             secondary.sql("SELECT name FROM `tabTeam Schedule Request` WHERE owner=%s AND request_id=%s", (self.users[0], request_id))
             frappe.local.db = primary
@@ -54,8 +60,11 @@ class TestModelTransactions(ScheduleCase):
         source = service.create_source("synthetic transaction source")
         frappe.db.commit()
         primary = frappe.local.db
-        frappe.connect()
+        self.assertEqual(frappe.session.user, self.users[0])
+        frappe.connect(set_admin_as_user=False)
+        self.assertEqual(frappe.session.user, self.users[0])
         secondary = frappe.local.db
+        self.assertIsNot(primary, secondary)
         try:
             secondary.sql("SELECT name FROM `tabTeam Schedule Source Item` WHERE source=%s", (source.name,))
             frappe.local.db = primary
