@@ -270,6 +270,11 @@
       element.classList.toggle('error', isError);
     }
 
+    function succeeded(id, text) {
+      message(id, text);
+      message('session-status', '后续显式请求已成功；可继续操作，旧异步响应仍会按操作边界丢弃。');
+    }
+
     function makeButton(text, handler, className = '') {
       const element = document.createElement('button');
       element.type = 'button';
@@ -530,6 +535,7 @@
     }
 
     function acceptMutation(schedule) {
+      message('schedule-status', '');
       state.selected = schedule;
       const index = state.items.findIndex(item => item.name === schedule.name);
       if (index >= 0) state.items[index] = schedule;
@@ -560,7 +566,7 @@
         state.nextCursor = result.next_cursor || null;
         state.listQuery = query;
         renderSchedules();
-        message('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC offset。');
+        succeeded('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC offset。');
       } catch (error) {
         if (error instanceof StaleOperation || epoch !== state.epoch) return;
         fail(error, 'list-status');
@@ -577,7 +583,8 @@
         if (epoch !== state.epoch) return;
         state.selected = result.schedule;
         renderDetails();
-        message('list-status', '详情已按当前权限重新读取。');
+        message('detail-status', '');
+        succeeded('list-status', '详情已按当前权限重新读取。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'list-status');
       }
@@ -652,7 +659,8 @@
         resetEditor();
         state.selected = saved;
         renderDetails();
-        message('schedule-status', (editingName ? '已更新' : '已创建') + '日程，当前revision=' + saved.revision + '。');
+        message('detail-status', '');
+        succeeded('schedule-status', (editingName ? '已更新' : '已创建') + '日程，当前revision=' + saved.revision + '。');
         if (state.listQuery) await fetchList(state.listQuery, false, epoch);
       } catch (error) {
         if (epoch !== state.epoch) return;
@@ -691,7 +699,7 @@
         const result = await client.post('cancel', {name: schedule.name, expected_revision: schedule.revision});
         if (epoch !== state.epoch) return;
         acceptMutation(result.schedule);
-        message('detail-status', '日程已取消，revision=' + result.schedule.revision + '。');
+        succeeded('detail-status', '日程已取消，revision=' + result.schedule.revision + '。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'detail-status');
       }
@@ -706,7 +714,7 @@
         const result = await client.post('set_members', {name: schedule.name, expected_revision: schedule.revision, members});
         if (epoch !== state.epoch) return;
         acceptMutation(result.schedule);
-        message('detail-status', '成员权限已保存，revision=' + result.schedule.revision + '。');
+        succeeded('detail-status', '成员权限已保存，revision=' + result.schedule.revision + '。');
       } catch (error) {
         if (epoch !== state.epoch) return;
         if (error instanceof ExpectedError) message('detail-status', error.message, true);
@@ -726,7 +734,7 @@
         });
         if (epoch !== state.epoch) return;
         acceptMutation(result.schedule);
-        message('detail-status', '本人占用状态已保存，revision=' + result.schedule.revision + '。');
+        succeeded('detail-status', '本人占用状态已保存，revision=' + result.schedule.revision + '。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'detail-status');
       }
@@ -738,7 +746,7 @@
       try {
         const result = await client.post('set_busy_grant', {viewer_user: $('viewer-user').value.trim(), allow: $('grant-allow').checked});
         if (epoch !== state.epoch) return;
-        message('grant-status', '已' + (result.allow ? '授予' : '撤回') + '对该用户的本人忙闲授权。');
+        succeeded('grant-status', '已' + (result.allow ? '授予' : '撤回') + '对该用户的本人忙闲授权。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'grant-status');
       }
@@ -771,7 +779,7 @@
         cell(row, '共同空闲');
         cell(row, (result.common_free || []).map(interval => formatUtc(interval.start_utc, timezone) + ' 至 ' + formatUtc(interval.end_utc, timezone)).join('\n') || '无满足最小时长的共同空闲').className = 'detail-text';
         body.append(row);
-        message('busy-status', '查询完成；结果不含日程ID、标题、正文或成员详情。');
+        succeeded('busy-status', '查询完成；结果不含日程ID、标题、正文或成员详情。');
       } catch (error) {
         if (epoch !== state.epoch) return;
         if (error instanceof ExpectedError) message('busy-status', error.message, true);
@@ -791,7 +799,7 @@
         $('existing-source-id').value = result.source_id;
         $('ics-preview-panel').hidden = true;
         $('ics-preview').disabled = !state.ics.fileBase64;
-        message('source-status', '来源已创建，ID：' + result.source_id + '。请保存该ID；刷新后可手动输入复用。');
+        succeeded('source-status', '来源已创建，ID：' + result.source_id + '。请保存该ID；刷新后可手动输入复用。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'source-status');
       }
@@ -880,7 +888,7 @@
         state.ics.expiresIn = result.expires_in;
         state.ics.items = result.items || [];
         renderIcsPreview();
-        message('ics-status', '预览完成，receipt有效' + result.expires_in + '秒。逐项检查后再独立确认应用。');
+        succeeded('ics-status', '预览完成，receipt有效' + result.expires_in + '秒。逐项检查后再独立确认应用。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'ics-status');
       }
@@ -913,7 +921,7 @@
         state.ics.receipt = '';
         $('ics-confirm').checked = false;
         updateIcsApply();
-        message('ics-status', '服务端已返回逐项结果；未选覆盖的冲突项不会被写入。请重新预览以再次应用。');
+        succeeded('ics-status', '服务端已返回逐项结果；未选覆盖的冲突项不会被写入。请重新预览以再次应用。');
         if (state.listQuery) await fetchList(state.listQuery, false, epoch);
       } catch (error) {
         if (epoch !== state.epoch) return;

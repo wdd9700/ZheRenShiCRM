@@ -77,6 +77,32 @@ test('init invalidates between local resolutions without issuing the end request
   assert.equal(methodCalls(calls, '.list').length, 0);
 });
 
+test('stale list success cannot clear the newer session warning or restore business data', async () => {
+  const calls = [];
+  const listResponse = deferred();
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({url, payload});
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', timezone: payload.timezone, offset_minutes: 0}});
+    if (url.endsWith('.list')) return listResponse.promise;
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {
+    'list-start': '2026-11-01T09:00',
+    'list-end': '2026-11-02T09:00',
+    'list-timezone': 'UTC'
+  });
+  const pending = fire(environment.document.getElementById('list-form'), 'submit');
+  for (let attempt = 0; attempt < 5 && methodCalls(calls, '.list').length === 0; attempt += 1) await flush();
+  assert.equal(methodCalls(calls, '.list').length, 1);
+  await fire(environment.document, 'visibilitychange');
+  listResponse.resolve(jsonResponse({message: {items: [{name: 'stale-private-item'}], next_cursor: null}}));
+  await pending;
+  assert.equal(environment.document.getElementById('schedule-list').children.length, 0);
+  assert.match(environment.document.getElementById('session-status').textContent, /请刷新页面/);
+  assert.doesNotMatch(environment.document.getElementById('session-status').textContent, /后续显式请求已成功/);
+});
+
 test('Framework 403 clears sensitive edit form through actual init failure handling', async () => {
   const environment = setup(async () => jsonResponse({exc_type: 'PermissionError', _server_messages: '[]'}, false, 403));
   setValues(environment.document, {
@@ -282,4 +308,65 @@ test('init renders literal HTML in ICS text without creating executable elements
   assert.equal(globalThis.compromised, undefined);
   assert.equal(calls.length, 2);
   assert.equal(calls.filter(call => call.url.startsWith('https://')).length, 0);
+});
+
+test('successful explicit list after visibility changes the stale warning to a neutral state', async () => {
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', timezone: payload.timezone, offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items: [], next_cursor: null}});
+    throw new Error('unexpected request ' + url);
+  });
+  await fire(environment.document, 'visibilitychange');
+  assert.match(environment.document.getElementById('session-status').textContent, /请刷新页面/);
+  setValues(environment.document, {
+    'list-start': '2026-11-01T09:00',
+    'list-end': '2026-11-02T09:00',
+    'list-timezone': 'UTC'
+  });
+  await fire(environment.document.getElementById('list-form'), 'submit');
+  assert.match(environment.document.getElementById('session-status').textContent, /后续显式请求已成功/);
+  assert.doesNotMatch(environment.document.getElementById('session-status').textContent, /请刷新页面/);
+  assert.doesNotMatch(environment.document.getElementById('session-status').className, /error/);
+  assert.match(environment.document.getElementById('list-status').textContent, /已加载0条/);
+});
+
+test('cancel success clears the previous edit result while preserving revision and neutral session state', async () => {
+  const calls = [];
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({url, payload});
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', timezone: payload.timezone, offset_minutes: 0}});
+    if (url.endsWith('availability.api.query')) return jsonResponse({message: {busy: [{user: 'owner@example.test', intervals: []}], common_free: [], display_timezone: 'UTC'}});
+    if (url.endsWith('.create') || url.endsWith('.update') || url.endsWith('.cancel')) {
+      const revision = url.endsWith('.create') ? 1 : url.endsWith('.update') ? 4 : 5;
+      const source = url.endsWith('.update') ? payload.changes : payload;
+      return jsonResponse({message: {schedule: {
+        name: 'schedule-revision', owner: 'owner@example.test', title: source.title || 'revision title', description: source.description || '',
+        start_utc: source.start_utc || '2026-11-04T09:07:00Z', end_utc: source.end_utc || '2026-11-04T09:42:00Z',
+        source_timezone: source.source_timezone || 'UTC', status: url.endsWith('.cancel') ? 'Cancelled' : 'Active',
+        availability: source.availability || 'Busy', revision, members: []
+      }}});
+    }
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {
+    'schedule-title': 'revision title',
+    'schedule-description': '',
+    'schedule-start': '2026-11-04T09:07',
+    'schedule-end': '2026-11-04T09:42',
+    'schedule-timezone': 'UTC',
+    'schedule-availability': 'Busy'
+  });
+  await fire(environment.document.getElementById('schedule-form'), 'submit');
+  await environment.document.getElementById('edit-schedule').click();
+  setValues(environment.document, {'schedule-title': 'updated title'});
+  await fire(environment.document.getElementById('schedule-form'), 'submit');
+  assert.match(environment.document.getElementById('schedule-status').textContent, /已更新日程，当前revision=4/);
+  await environment.document.getElementById('cancel-schedule').click();
+  assert.equal(environment.document.getElementById('schedule-status').textContent, '');
+  assert.match(environment.document.getElementById('detail-status').textContent, /日程已取消，revision=5/);
+  assert.equal(methodCalls(calls, '.cancel')[0].payload.expected_revision, 4);
+  assert.match(environment.document.getElementById('session-status').textContent, /后续显式请求已成功/);
+  assert.doesNotMatch(environment.document.getElementById('session-status').textContent, /请刷新页面/);
 });

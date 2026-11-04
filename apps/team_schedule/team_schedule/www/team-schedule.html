@@ -14,7 +14,7 @@
   <button id="reload-page" type="button">刷新并重新核验会话</button>
   <h1>团队日程</h1>
   <p>当前用户：<strong id="current-user"></strong>。本页按具体分钟安排时间段；正文仅按纯文本显示，不关联CRM对象。</p>
-  <p id="session-status" class="status" role="status" aria-live="polite">所有数据仅在当前页面内存中处理；会话变化、撤权或请求失败会清除旧业务显示。</p>
+  <p id="session-status" class="status" role="status" aria-live="polite">所有数据仅在当前页面内存中处理；会话变化、撤权或请求失败会清除旧业务显示。后续显式请求成功后可继续操作，旧异步响应仍会被丢弃。</p>
 
   <section aria-labelledby="schedule-heading">
     <h2 id="schedule-heading">创建或编辑日程</h2>
