@@ -41,7 +41,8 @@
 
 ## 3. 明确不做的事（隔离与防越权表述）
 
-- 不修改 `frontend/src/main.js`、`session.js`、`store`/`resource`、`frappe-ui` 任何文件，也不改 `frontend-patches/c011000/**`。M19/M20/M24 的身份初始化、账号缓存隔离与安全恢复边界原样保留。
+- 不修改 `frontend/src/main.js`、`session.js`、`store`/`resource`、`frappe-ui` 任何文件，也不改 `frontend-patches/c011000/**` 的补丁文件。M19/M20/M24 的身份初始化、账号缓存隔离与安全恢复边界原样保留。
+- **注意：这不是“与 c011000 互不接触同一个上游文件”。** M24 变体的 c011000 清单本身把 `frontend/src/components/Layouts/AppSidebar.vue` 列为 `source_edits` 目标（before `940245e8…`，after `6dfc293d…`）。本补丁声明并验证这段**有序重叠**：c011000 先应用，本补丁以 M24 产物为第二基线再叠加；`check_apply.py` 直接读取 c011000 清单核验 before/after 衔接关系，而不是断言“无交集”；同一关系也写入 `manifest.json` 的 `upstream_overlap` 并在默认测试（无需另一工作树）中逐项断言。
 - 不新增/改写路由，不新增页面、组件、状态或网络请求；没有新 API 调用，因此不引入新的授权判断。
 - **菜单可见性不是授权**：`v-if="isCrmUser()"` 只用服务端返回的 CRM 用户列表决定是否显示；它既不授予也不校验 `/team-schedule` 访问权。真正授权仍在服务端：www 页面 `get_context` 的会话校验与 team_schedule app 的 ACL/接口校验（M25/M29 范围）。隐藏菜单不能替代这些检查，本补丁也不声称做到。
 - Guest 不会看到该行：CRM SPA 只在身份门禁确认后挂载，Guest 由服务端重定向登录；Website（非 CRM 用户）在 `router.beforeEach` 被判非 CRM 用户，进入 Not Permitted 而不渲染 `Layout`/侧栏。`isCrmUser()` 是同一事实的第二道显示约束。
@@ -58,34 +59,54 @@
 
 `fixtures/` 两个文件是**测试输入**（上游 AGPL-3.0 源码，仅用于重放校验，不直接部署）；`check_apply.py` 每次先校验 fixture 哈希等于声明的 before。
 
-应用顺序：**先 c011000（集成分支当时携带的身份/恢复变体），再本补丁**。若集成链中 AppSidebar 已被第三种变体改写，apply 会以“Baseline mismatch + accepted hashes”拒绝并零写；此时用 `python apply.py --derive <该文件>` 得到新的 before/after 后再钉入 manifest，不得为通过检测而放行未知内容。
+应用顺序：**先 c011000（集成分支当时携带的身份/恢复变体），再本补丁**。若集成链中 AppSidebar 已是第三种字节，apply 会以“Baseline mismatch + accepted hashes”拒绝并零写。此时：
+
+1. `python apply.py --derive <该文件>` 只读输出候选 `before`、`after_candidate`、`anchors_verified_unique`、`declared_baseline`、`writes:false`、`apply_authorized:false`；它对**未登记字节**同样工作（只验证三个锚点各出现一次），但**不写 manifest、不授权 apply**。
+2. 人工复核命中该文件的候选差异与来源。
+3. 把该文件存为 `fixtures/` 新 fixture，并在 `manifest.json` 增加基线（before/after/来源），重跑 `check_apply.py`；`apply.py` 对未登记字节始终拒绝，绝不因 derive 放行。
+4. 以上改动需新 tip 与独立复审。
+
+三种模式互斥，语义固定：
+
+| 模式 | 何时用 | 判定 |
+|---|---|---|
+| `--check` | **应用前**，且只在应用前 | 当前字节必须等于某声明 `before`；只读、零写 |
+| `apply.py`（无标志） | 应用 | 同 `--check` 的校验全部通过后才逐文件临时文件 + `os.replace` |
+| `--verify` | **应用后**，只读 | 当前字节必须等于某声明 `after`；未应用/未知/漂移都拒绝；不写文件。`--verify` 不替代 `--check`，`--check` 应用后会报 `Already applied`（重复写保护保留） |
+| `--derive <file>` | 未知字节候选 | 只读候选，不写文件、不写 manifest、不授权 apply |
 
 ```sh
 PATCH=frontend-patches/l3-scheduling
 CRM=/home/frappe/frappe-bench/apps/crm
-python "$PATCH/apply.py" "$CRM" --check   # 只校验：HEAD、基线哈希、锚点唯一性、结果哈希
-python "$PATCH/apply.py" "$CRM"           # 逐文件临时文件 + os.replace
+python "$PATCH/apply.py" "$CRM" --check   # 应用前：HEAD、基线哈希、锚点唯一性、结果哈希
+python "$PATCH/apply.py" "$CRM"           # 应用：临时文件 + os.replace
+python "$PATCH/apply.py" "$CRM" --verify  # 应用后只读：当前字节必须等于声明 after
 ```
 
-拒绝条件：CRM `HEAD` 不等于固定提交；目标缺失/为符号链接/硬链接；父路径逃出 CRM；基线哈希不属于声明集合；任一锚点出现次数不为 1；结果哈希与声明 after 不符；重复应用（当前哈希已是某基线的 after，明确报 `Already applied`）。检查全部通过前不写任何目标；不提供多文件原子事务，中途 I/O 失败必须丢弃该构建层并重建干净副本。
+拒绝条件：CRM `HEAD` 不等于固定提交；目标缺失/为符号链接/硬链接；父路径逃出 CRM；基线哈希不属于声明集合（`--check`/apply）或 after 不属于声明集合（`--verify`）；任一锚点出现次数不为 1；结果哈希与声明 after 不符；重复应用（当前哈希已是某基线的 after，明确报 `Already applied`）。检查全部通过前不写任何目标；不提供多文件原子事务，中途 I/O 失败必须丢弃该构建层并重建干净副本。
 
 ## 5. 已执行的验证
 
 环境：Windows、Python 3.14、Node（本机），未安装依赖、未构建镜像、未部署、未访问运行实例。
 
 ```sh
-python frontend-patches/l3-scheduling/check_apply.py
+python frontend-patches/l3-scheduling/check_apply.py                 # 本工作树 c011000（M19 变体，不触及 AppSidebar）
+python frontend-patches/l3-scheduling/check_apply.py --c011000 <集成分支>/frontend-patches/c011000/manifest.json
 node frontend-patches/l3-scheduling/sfc_check.mjs <fixed-crm-frontend-root>
 ```
 
-1. `check_apply.py` **PASS**：两种声明基线各自经真实 `apply()` 产出精确 after；`--check` 零写；漂移、目标缺失、错误 HEAD、重复应用全部拒绝且拒绝时零写；无残留临时文件；`c011000-resume` 结果仍保留 M24 的 `accountBoundary` 导入与 `HYDRATING` 守卫（`fixed-crm` 结果不含这些行）；输出中 `href="/team-schedule"` 与 `v-if="isCrmUser()"` 各恰好一处；manifest 只含一个目标、且不与 `c011000` 目标重叠。
+1. `check_apply.py` **PASS**（上述两种 c011000 清单都跑过）：
+   - 顺序重叠：读取 c011000 清单中的 `AppSidebar.vue` 条目，核验其 `before` 等于 `fixed-crm` before、`after` 等于 `c011000-resume` before、resume fixture 哈希等于该 `after`。对实际 M24 `1a1aa0b` 清单 PASS；对 M19 清单明确打印“该链无此目标”。不再断言“无交集”。
+   - 重放：两种基线各自经真实 `apply()` 产出精确 after；`--check` 零写；漂移、目标缺失、错误 HEAD、重复应用全部拒绝且拒绝时零写；无残留临时文件；`c011000-resume` 结果仍保留 M24 的 `accountBoundary` 导入与 `HYDRATING` 守卫（`fixed-crm` 结果不含这些行）；`href="/team-schedule"` 与 `v-if="isCrmUser()"` 各恰好一处。
+   - 文档完整顺序：`--check` → apply → `--verify` 通过且 `--verify` 零写；未应用、漂移、未知字节时 `--verify` 拒绝；应用后 `--check` 与再次 apply 仍报 `Already applied`（重复写保护未放松）。
+   - `--derive`：登记基线与未登记字节（fixture 末尾加换行）都返回只读候选，`writes:false`、`apply_authorized:false`、未登记时 `declared_baseline:null`；锚点被破坏或文件已等于声明 after 时拒绝；derive 前后 manifest 字节不变；未登记字节仍被 apply 以 `Baseline mismatch` 拒绝。
 2. `sfc_check.mjs` **PASS**：用固定前端树自带的 `vue/compiler-sfc` 对两种基线原文件与两种打补丁结果执行 `parse` + `compileScript` + `compileTemplate`，四者均无解析/模板错误；打补丁结果的 setup bindings 含 `isCrmUser`/`LucideCalendarClock`/`selectItem`，编译后模板含 `/team-schedule`。该检查使用固定导出树的编译器，不替代 Vite 构建。
 
 **未执行（仍为验收门）**：标准 `yarn build`/`bench build --app crm` 与原生 Vitest；真实浏览器从 CRM 侧栏点入 `/team-schedule`、操作后返回 `/crm` 的完整往返；双普通账号、Guest/Website 实际显示核对。语法/编译器检查不等于构建或产品入口验收。
 
 ## 6. 交 M9 的集成要求
 
-1. **顺序**：在固定 `36bd8859…` 源码上先应用集成分支的 `frontend-patches/c011000`（M19 或 M24 变体），`--check` 通过后再应用本补丁，再 `--check` 复核。
+1. **顺序与校验**：在固定 `36bd8859…` 源码上先应用集成分支的 `frontend-patches/c011000`（M19 或 M24 变体）；随后 `apply.py <CRM> --check`（应用前）→ `apply.py <CRM>` → `apply.py <CRM> --verify`（应用后只读，输出应为 `AppSidebar.vue = <fixed-crm|c011000-resume> after <hash>`）。**不要**在应用后再跑 `--check`：它只接受 before，会按设计报 `Already applied`；产物验证用 `--verify`。若集成链的 AppSidebar 是第三种字节，按 §4 的 derive → 人工复核 → 新 fixture/manifest → 复验流程处理，或直接停下交 tower 协调；`apply.py` 不会放行未登记字节。
 2. **需要前端重新 patch/build**：是。`AppSidebar.vue` 属 CRM 前端源码，必须重新执行现有前端资产构建（`bench build --app crm`，沿用既有 preseed/资产清单强断言流程），不需要 `yarn install`、不新增依赖、不改 `package.json`/`yarn.lock`。
 3. **资产要求**：`team_schedule` app 已安装且 `apps/team_schedule/team_schedule/www/team-schedule.html` 存在，`/assets/team_schedule/team-schedule.css|js` 已构建可用（M29 资产，`bench build --app team_schedule` 或等价流程）；否则入口点击会落到缺失页面/资产，不能计通过。
 4. **无新镜像层**：本补丁只多一个源文件改动，镜像需含已应用补丁的 CRM 源码与重建后的 assets；图标由 `unplugin-icons` 在构建期内联，无运行时外部图标请求。

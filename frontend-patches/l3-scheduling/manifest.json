@@ -6,6 +6,13 @@
     "frontend-patches/c011000 (whichever identity/resume variant the integrated branch carries)",
     "frontend-patches/l3-scheduling (this patch)"
   ],
+  "upstream_overlap": {
+    "note": "This patch does not edit c011000, but it does touch an upstream file that the M24 c011000 variant already edits. The ordered overlap below is declared here and cross-checked against the c011000 manifest when one is supplied.",
+    "patch": "frontend-patches/c011000",
+    "target": "frontend/src/components/Layouts/AppSidebar.vue",
+    "c011000_before": "940245e8ab6465cd1a4bf19192c95856974e733813da15d1b175f5f588e1842d",
+    "c011000_after": "6dfc293dfd44ed5b9673e8b65a019958bbc025b19abb415fa2b60d4e3561b2d0"
+  },
   "targets": [
     {
       "target": "frontend/src/components/Layouts/AppSidebar.vue",
@@ -35,7 +42,7 @@
           "name": "c011000-resume",
           "before": "6dfc293dfd44ed5b9673e8b65a019958bbc025b19abb415fa2b60d4e3561b2d0",
           "after": "e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852",
-          "provenance": "AppSidebar after the M24 c011000 identity/resume edits (accountBoundary import plus HYDRATING guard in onMounted), reproduced by running M24 frontend-patches/c011000/source_edits.py transform on the fixed-crm fixture at wt-24 commit 1a1aa0b; the result equals the after hash M24 declares for this path. Re-pin with apply.py --derive if M24 changes this file.",
+          "provenance": "AppSidebar after the M24 c011000 identity/resume edits (accountBoundary import plus HYDRATING guard in onMounted), reproduced by running M24 frontend-patches/c011000/source_edits.py transform on the fixed-crm fixture at wt-24 commit 1a1aa0b; the result equals the after hash M24 declares for this path. M24's c011000 manifest targets the same upstream file, so this baseline is the declared second step of that ordered overlap. If M24 changes the file again, apply.py --derive prints a read-only candidate (no manifest write, no apply authorization); human review, a new fixture and baseline entry, and a re-run of check_apply.py are required before a new tip, while apply.py keeps refusing unregistered bytes.",
           "fixture": "fixtures/AppSidebar.c011000-resume.vue"
         }
       ]
