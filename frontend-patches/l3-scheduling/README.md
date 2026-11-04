@@ -1,6 +1,6 @@
 # L3 日程 CRM 导航补丁（D040300 / M30）
 
-状态：导航补丁与源码级验证交付，待独立审查；**未运行 Vite/yarn 构建，未做真实浏览器往返验收**。本补丁只增加正常 CRM 侧栏中的一个同源链接行，不实现排班功能，不提前 L3.5。
+状态：导航补丁与源码级验证交付；R1 审查 P2-2/P2-3/P2-4 已修复（tip `4ff499e`）。M9 已在 full951 组合候选上完成标准生产构建与原生测试，主控/M27 报告记录了真实 CRM↔日程双向点击；本 worker 未重跑环境或构建，也不把该窗口扩大为完整 M24/M29 或 L3 通过（依赖 M24/M29 仍会阻止最终 merge），证据与边界见 §8。本补丁只增加正常 CRM 侧栏中的一个同源链接行，不实现排班功能，不提前 L3.5。
 
 ## 1. 已核事实（固定上游与补丁链）
 
@@ -11,7 +11,7 @@
 | 侧栏结构 | 顶部 `UserDropdown`；滚动列内依次 Search、Notifications、`CollapsibleSection v-for="section in allViews"`（All Views / Public Views / Pinned Views）；底部 `mt-auto` 为横幅、Help、折叠按钮 | 同上源码 |
 | 链接组件 | `frappe-ui@1.0.0-rc.2` 的 `SidebarItem` 原生支持 `href`（`v-if="route || href"`，内部渲染普通 `<a href>`，与 RouterLink 分支同一内容） | 同一固定树 `node_modules/frappe-ui/src/components/Sidebar/SidebarItem.vue`、`Sidebar/types.ts` |
 | CRM SPA 挂载 | `createWebHistory('/crm')`，全部业务路由在 `/crm` 前缀下 | 固定 `frontend/src/router.js` |
-| 日程页面 | M29 交付 `apps/team_schedule/team_schedule/www/team-schedule.html`，站点根路径 `/team-schedule`；Guest 在 `team_schedule.py` 被重定向登录；页面内含 `<a href="/crm">返回原生CRM</a>` | wt-29 `13b9842` 工作树 |
+| 日程页面 | M29 交付 `apps/team_schedule/team_schedule/www/team-schedule.html`，站点根路径 `/team-schedule`；Guest 在 `team_schedule.py` 被重定向登录；页面内含 `<a href="/crm">返回原生CRM</a>` | wt-29 tip `cb0745ba…`（本行事实在 `cb0745` 重新核对；初版为 `13b9842`） |
 
 因此入口必须是**同源整页 `<a href="/team-schedule">`**，不是 SPA 路由：`/team-schedule` 是服务端 www 页面，若写成 RouterLink 会被 `/crm` base 解析成 `/crm/team-schedule` 并落入 Invalid Page。补丁不改 `router.js`、不改 `main.js`。
 
@@ -102,19 +102,51 @@ node frontend-patches/l3-scheduling/sfc_check.mjs <fixed-crm-frontend-root>
    - `--derive`：登记基线与未登记字节（fixture 末尾加换行）都返回只读候选，`writes:false`、`apply_authorized:false`、未登记时 `declared_baseline:null`；锚点被破坏或文件已等于声明 after 时拒绝；derive 前后 manifest 字节不变；未登记字节仍被 apply 以 `Baseline mismatch` 拒绝。
 2. `sfc_check.mjs` **PASS**：用固定前端树自带的 `vue/compiler-sfc` 对两种基线原文件与两种打补丁结果执行 `parse` + `compileScript` + `compileTemplate`，四者均无解析/模板错误；打补丁结果的 setup bindings 含 `isCrmUser`/`LucideCalendarClock`/`selectItem`，编译后模板含 `/team-schedule`。该检查使用固定导出树的编译器，不替代 Vite 构建。
 
-**未执行（仍为验收门）**：标准 `yarn build`/`bench build --app crm` 与原生 Vitest；真实浏览器从 CRM 侧栏点入 `/team-schedule`、操作后返回 `/crm` 的完整往返；双普通账号、Guest/Website 实际显示核对。语法/编译器检查不等于构建或产品入口验收。
+**本 worker 未执行、但已由集成/浏览器 owner 在组合候选上执行**（本文件只引用，不重跑）：标准生产前端构建（Vite 8.2.0，3318 modules transformed，`✓ built in 7.59s`）、原生 Vitest 34 files/326 tests exit 0 与 bridge 1/1 exit 0、真实浏览器从 `/team-schedule` 返回 CRM 并实际点击侧栏再进日程。上述属于 §8 记录的组合候选验收，**不是**本 worker 自行重跑，也不等于完整 M24/M29/L3。仍未被这些证据覆盖：两名 Sales User 的完整双账号进入/操作/返回矩阵、Guest 与 Website 实际显示核对、撤权/注销后返回。语法/编译器检查不等于构建或产品入口验收；本补丁自身仍只对“入口存在且同源可达”负责。
 
 ## 6. 交 M9 的集成要求
 
 1. **顺序与校验**：在固定 `36bd8859…` 源码上先应用集成分支的 `frontend-patches/c011000`（M19 或 M24 变体）；随后 `apply.py <CRM> --check`（应用前）→ `apply.py <CRM>` → `apply.py <CRM> --verify`（应用后只读，输出应为 `AppSidebar.vue = <fixed-crm|c011000-resume> after <hash>`）。**不要**在应用后再跑 `--check`：它只接受 before，会按设计报 `Already applied`；产物验证用 `--verify`。若集成链的 AppSidebar 是第三种字节，按 §4 的 derive → 人工复核 → 新 fixture/manifest → 复验流程处理，或直接停下交 tower 协调；`apply.py` 不会放行未登记字节。
-2. **需要前端重新 patch/build**：是。`AppSidebar.vue` 属 CRM 前端源码，必须重新执行现有前端资产构建（`bench build --app crm`，沿用既有 preseed/资产清单强断言流程），不需要 `yarn install`、不新增依赖、不改 `package.json`/`yarn.lock`。
+2. **需要前端重新 patch/build**：是。`AppSidebar.vue` 属 CRM 前端源码，必须重新执行现有前端资产构建（`bench build --app crm`，沿用既有 preseed/资产清单强断言流程），不需要 `yarn install`、不新增依赖、不改 `package.json`/`yarn.lock`。该构建已在 full951 组合执行并通过（见 §8）。
 3. **资产要求**：`team_schedule` app 已安装且 `apps/team_schedule/team_schedule/www/team-schedule.html` 存在，`/assets/team_schedule/team-schedule.css|js` 已构建可用（M29 资产，`bench build --app team_schedule` 或等价流程）；否则入口点击会落到缺失页面/资产，不能计通过。
 4. **无新镜像层**：本补丁只多一个源文件改动，镜像需含已应用补丁的 CRM 源码与重建后的 assets；图标由 `unplugin-icons` 在构建期内联，无运行时外部图标请求。
-5. 记录：CRM 提交、c011000 变体与哈希、本补丁提交、manifest/after 哈希、镜像 ID、`team_schedule` 版本（13b9842）。
+5. 记录：CRM 提交、c011000 变体与哈希、本补丁提交、manifest/after 哈希、镜像 ID、`team_schedule` UI 版本（`cb0745ba24e119bf7d3e6ebe9c3d001a59ac4844`，原 13b9842 已返工）。
 
 ## 7. 保留的验收门（不得以本补丁替代）
 
-- 两名仅 Sales User 合成账号：`/login` → `/crm`（保留既有身份初始化门禁）→ 侧栏“团队日程” → `/team-schedule` 创建/修改/取消 → “返回原生CRM”回到同一 CRM，且未丢失既有 CRM 导航状态之外的可恢复内容。
-- Guest 直接访问 `/crm`、Website 用户访问 `/crm`：均不得看到业务侧栏或本入口。
-- 撤权/注销后返回 CRM：不得凭本入口绕过身份或权限校验（M19/M20/M24 边界保持）。
+- **已部分覆盖（单账号、单窗口）**：B 在 `/team-schedule` 实际返回原生 CRM，真实加载 CRM 页面并显示侧栏“团队日程”，再实际点击该侧栏回到 `/team-schedule`，未注入可见性或 JS、未以直接业务请求替代（M27 报告 tip `f4d7b0b`，见 §8）。这证明 M30 入口在真实组合候选上可达且可返回，但只覆盖一个 B 会话的一次往返。
+- **仍保留**：两名仅 Sales User 的完整链路 `/login` → `/crm`（保留既有身份初始化门禁）→ 侧栏“团队日程” → `/team-schedule` 创建/修改/取消 → “返回原生CRM”回到同一 CRM，且未丢失既有 CRM 导航状态之外的可恢复内容。
+- **仍保留**：Guest 直接访问 `/crm`、Website 用户访问 `/crm` 均不得看到业务侧栏或本入口；§8 的浏览器证据未覆盖这两种身份。
+- **仍保留**：撤权/注销后返回 CRM 不得凭本入口绕过身份或权限校验（M19/M20/M24 边界保持）。
 - 本补丁只覆盖“入口存在且同源可达”，页面内的 ACL、忙闲、ICS 等由各自 owner 的契约验收；完整 L3 不得以本补丁声称完成，L3.5 未开始。
+
+## 8. 组合候选的构建与真实 UI 证据（引用 M9/M27，本 worker 未重跑）
+
+2026-11-05 记录窗口 `full951-1e48de57805e47c889740323e8c31942`（站点 `full951-1e48de57805e.localhost:8092`）。组合 tip 取自 M9 的 source manifest；本 worker 未触碰容器、远端或数据库，也未重跑任何构建/测试。
+
+| 组件 | tip |
+|---|---|
+| frontend（M24） | `951a4b9fe4fd41bd9db571c47d99bf0d85e4389a` |
+| navigation（本补丁） | `4ff499ed5849347258b75b7daf42e349b484558b` |
+| UI（M29） | `cb0745ba24e119bf7d3e6ebe9c3d001a59ac4844` |
+| core / availability / ics | `a17401890cab85cacebbe9cd47197a9f68df0b80` / `5eae1f7c13786928ddddf515bc53825eaca94a33` / `4055de29d509e5ab4780568fc49c9b39a9fcc880` |
+| resource_import / team_access | `faa5f0330ad54bd9f4d02bb498ea305651c95ed9` / `531bbaef50b4b674e5dc450dd311e466761c52ed` |
+
+以下均为本机 ignored 运行材料（不是分发依赖），只记录核对结果：
+
+| 证据 | SHA256 | 与本补丁相关的结论 |
+|---|---|---|
+| `P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/full951-registry-1e48de57805e47c889740323e8c31942/source-manifest.json` | `298d8910f2144e8b951c9f9527fc409f21843eef1400872d306b2d02dd4df4ea` | `revisions.navigation` 恰为 `4ff499e…`，与上表一致 |
+| `…/deploy/.runtime/final-harness-1e015508-r1/runtime-evidence/l3-scheduling-4ff499e.json` 与 `…/m24-951-1e48de57805e47c889740323e8c31942/frontend-patches/c011000/runtime-evidence/l3-scheduling-4ff499e.json` | `74787afa31373457e9b91fa8ea6f53e4e3317854670656558579df0762b75670`（两者相同） | 与本仓库 `4ff499e:frontend-patches/l3-scheduling/manifest.json` **逐字节相同**：构建使用的是本文档描述的补丁，不是变体 |
+| `…/deploy/.runtime/m25-6a52b79158cb45b5b7aa4b18db67807b-m24-951-1e48de57805e47c889740323e8c31942-build.log` | `3a350ac92ac7220e25cf200d1a493514cb605275806e6b94ff8a9cfedae94818` | `bench build --app crm` 内 `vite v8.2.0 … 3318 modules transformed`、`✓ built in 7.59s`；`verify_m24_951.py` 在 before/switch/after 三阶段 PASS，断言已应用 `AppSidebar.vue` 的 SHA256 == `e169f9d1…`（本补丁 `c011000-resume` 声明的 after），并保留 `team-schedule.js|css` 与 app public 源逐字节一致 |
+| `…/deploy/.runtime/m24-951-native-r3-result-1e48de57805e47c889740323e8c31942.json` | `8aef65f7b4d2e6b295523e11d6ee0c4bcb661b807caa464d961c035b609c0583`（与主控给定一致） | 同一 exact951 基础构建：native 34 files/326 tests exit 0、bridge 1/1 exit 0、无 unhandled。注意这是 CRM 既有前端测试套件，**不是**为本导航补丁新增的用例 |
+| `…/deploy/.runtime/full951-registry-build-result-1e48de57805e47c889740323e8c31942.json` | `2e36bdfb0b7fc7cf87ed8f4e4c732d140cf514c3d1d95cead22cf7249a3df4e1` | `PASS five-app registered image …`；`fixed_image sha256:61a50c3c707ebac414dbf58d200dcb7949898c5dba930f4405ae63dda9bdbeb8`、`crm-local:full951-1e48…`，`base_image` 为受测的 `sha256:de4c74b2…`；labels 含 `crm.final.navigation=4ff499e`、`crm.final.frontend=951a4b9`、`crm.final.ui=cb0745` |
+| `…/deploy/.runtime/compose.full951-1e48de57805e47c889740323e8c31942.json` | `7d68204f05e594e6ea8b1fc577f653a4a82b11a2accc3a17a53a78b933abb89a` | backend/frontend/websocket 均使用 `sha256:61a50c3c…`，即上表镜像 |
+| `P:/CRM/.tower/worktrees/wt-27/docs/qa/browser-e7ef-d030300/full951/R1.md`（wt-27 tip `f4d7b0bd46a20d101da5c5d54c676994164293c1`，blob `519f13b9…`，内容 SHA256 `0e0add0e6b566ac27e17fc6f5872ff09dafdd0c900edca2a0013cc73e6cceb7d`） | 同左 | §“原生 CRM 双向导航与 UI 收尾”：B 从 `/team-schedule` 实际点击返回原生 CRM，加载真实 CRM 页面并显示侧栏“团队日程”（`text-7efb71fd…`）；再实际点击该侧栏（`elements-117a52de… e1`）回到 `/team-schedule`（`text-c58afc52…`）；报告注明未注入可见性或 JS、未以直接业务请求替代 |
+
+**由此可核对到的闭环**：`4ff499e` 声明的 `c011000-resume` after（`e169f9d1…`）= M9 构建容器内实际 `AppSidebar.vue` 字节（三阶段守卫 PASS）= 真实 UI 中所见“团队日程”侧栏项，且生产 `bench build --app crm` 与既有 34/326 测试在该组合上通过。
+
+**不扩大解释**：
+- 单 B 账号、单窗口、一次双向往返；不是双 Sales User 完整矩阵，也未覆盖 Guest/Website 显示、撤权/注销后返回。
+- M27 报告自身声明不等同完整 L3/M27；M24/M29 依赖仍会阻止最终 merge，这是正常状态，不绕过、不代签。
+- 本 worker 未重跑环境或构建，未访问容器/远端；本节只是证据核对与文档记录，不新增验收结论。
