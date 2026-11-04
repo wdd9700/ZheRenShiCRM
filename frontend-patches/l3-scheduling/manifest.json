@@ -1,0 +1,44 @@
+{
+  "patch": "l3-scheduling",
+  "crm_commit": "36bd8859f2a6345a620477bc708d0546e8c3f08a",
+  "purpose": "Add one sidebar entry for the same-origin /team-schedule page to the fixed CRM sidebar. It reuses the existing SidebarItem link component and changes no route, identity, resume, resource or permission behaviour.",
+  "apply_order": [
+    "frontend-patches/c011000 (whichever identity/resume variant the integrated branch carries)",
+    "frontend-patches/l3-scheduling (this patch)"
+  ],
+  "targets": [
+    {
+      "target": "frontend/src/components/Layouts/AppSidebar.vue",
+      "edits": [
+        {
+          "anchor": "import LucideSearch from '~icons/lucide/search'",
+          "replacement": "import LucideCalendarClock from '~icons/lucide/calendar-clock'\nimport LucideSearch from '~icons/lucide/search'"
+        },
+        {
+          "anchor": "const { users, isManager } = usersStore()",
+          "replacement": "const { users, isManager, isCrmUser } = usersStore()"
+        },
+        {
+          "anchor": "          <CollapsibleSection\n            v-for=\"section in allViews\"\n",
+          "replacement": "          <SidebarItem\n            v-if=\"isCrmUser()\"\n            href=\"/team-schedule\"\n            :label=\"__('团队日程')\"\n            @click=\"selectItem($event, 'TeamSchedule')\"\n          >\n            <template #prefix>\n              <LucideCalendarClock class=\"size-4 text-ink-gray-7\" />\n            </template>\n            <span class=\"truncate text-sm\">{{ __('团队日程') }}</span>\n          </SidebarItem>\n\n          <CollapsibleSection\n            v-for=\"section in allViews\"\n"
+        }
+      ],
+      "baselines": [
+        {
+          "name": "fixed-crm",
+          "before": "940245e8ab6465cd1a4bf19192c95856974e733813da15d1b175f5f588e1842d",
+          "after": "e7e29bcb3c4eef499e9c32adb976719c0c547dbe849537ad2936ba24d459e048",
+          "provenance": "Verbatim frontend/src/components/Layouts/AppSidebar.vue of frappe/crm v1.90.0 commit 36bd8859f2a6345a620477bc708d0546e8c3f08a, exported from the fixed frontend tree (M20 public-manifest.json apps/crm/frontend/src). Identical to the before hash c011000 declares for the same path.",
+          "fixture": "fixtures/AppSidebar.fixed-crm.vue"
+        },
+        {
+          "name": "c011000-resume",
+          "before": "6dfc293dfd44ed5b9673e8b65a019958bbc025b19abb415fa2b60d4e3561b2d0",
+          "after": "e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852",
+          "provenance": "AppSidebar after the M24 c011000 identity/resume edits (accountBoundary import plus HYDRATING guard in onMounted), reproduced by running M24 frontend-patches/c011000/source_edits.py transform on the fixed-crm fixture at wt-24 commit 1a1aa0b; the result equals the after hash M24 declares for this path. Re-pin with apply.py --derive if M24 changes this file.",
+          "fixture": "fixtures/AppSidebar.c011000-resume.vue"
+        }
+      ]
+    }
+  ]
+}
