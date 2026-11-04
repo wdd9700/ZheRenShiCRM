@@ -84,7 +84,9 @@ P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m20-public-frontend-evidence-3828e3
 
 Lead/Deal modal 的 QuickEntry layout 改为在对应 status resource 的 `list.fetched` 后由组件作用域 watcher 启动，避免跨资源自动请求竞态；status prefix 对空列表防护，Deal 初始默认值也使用空元素防护。watcher 随组件卸载停止；状态失败仍由原读屏障失败关闭。未新增请求允许项、未改草稿白名单、未自动保存或刷新丢草稿，也未弱化当前权限/身份/epoch 门槛。
 
-新增 D020100 安全恢复诊断，DOM 属性为 `data-crm-resume-stage` / `data-crm-resume-failure`，遮罩同时显示固定枚举；阶段仅 `NONE / IDENTITY / PERMISSION / FRESH_READ / HYDRATE / BOOT / ROUTER / PAGE_MOUNT / READ_SETTLE / ROUTE_CHECK / COMMIT_IDENTITY / COMMIT / READY`，错误仅 `NONE / TIMEOUT / READ_FAILED / IDENTITY_FAILED / UNSUPPORTED_PAGE / LOCAL_FAILURE`。不输出原异常、堆栈、URL、用户名、文档名或草稿；未知 phase 被忽略，旧 epoch 不能更新诊断，显式重试重新计类，C011100 first-failure 仍保留。timeout 分类测试使用固定 code 的合成异常，不冒充真实等待 15 秒超时实测。
+新增 D020100 安全恢复诊断，DOM 属性为 `data-crm-resume-stage` / `data-crm-resume-failure`，遮罩同时显示固定枚举；阶段仅 `NONE / IDENTITY / ADAPTER / PERMISSION / FRESH_READ / HYDRATE / BOOT / ROUTER / PAGE_MOUNT / READ_SETTLE / ROUTE_CHECK / COMMIT_IDENTITY / COMMIT / READY`，错误仅 `NONE / TIMEOUT / READ_FAILED / IDENTITY_FAILED / UNSUPPORTED_PAGE / LOCAL_FAILURE`。不输出原异常、堆栈、URL、用户名、文档名或草稿；未知 phase 被忽略，旧 epoch 不能更新诊断，显式重试重新计类，C011100 first-failure 仍保留。timeout 分类测试使用固定 code 的合成异常，不冒充真实等待 15 秒超时实测。
+
+独审对 `ff2c58f` 提出 P2-1：身份复核成功后，实际 unsupported adapter 在 permission phase 前抛错，被旧 `IDENTITY` 阶段误归为 `IDENTITY_FAILED`。先扩展实际 boundary + createResumeAdapter 的既有 unsupported 测试，修前定向 exit 1（实际阶段 `IDENTITY`，期望 `ADAPTER`）。最小回修是在身份成功后的 adapter 调用前记录固定 `ADAPTER` 阶段，catch 分类顺序和安全控制不变。回归同时验证身份成功得到 `UNSUPPORTED_PAGE`、unsupported 标记仍存在时真实身份请求拒绝仍得到 `IDENTITY_FAILED`、再次成功恢复正确类别、重复 hidden 及终锁隔离；既有迟到旧 epoch 诊断断言保留。回修后四 suite 54/54 pass，38 修改 + 5 guard 严格重放及 after fixture 14/14 pass。此增量只改 boundary、manifest 精确 hash、既有 resume 测试与本文；未改 modal 修复、权限、草稿或写请求，仍需精确新 tip 独审及 M9 构建。
 
 本轮四 suite **54/54 pass、0 fail**；新增覆盖 Lead/Deal 两种响应顺序、合法空列表、statuses 失败继续遮罩并保留草稿、成功显式恢复而无写请求、换身份不恢复、诊断拒绝任意字符串及旧 epoch、失败分类及重试清理。既有权限撤销、unsupported、通知 Promise、导航 guard 和初始后台握手回归仍通过。严格重放 **38 修改目标 + 5 guard** 通过；after fixture real-runtime **14/14 pass**。Vue 重复安装替身 plugin 警告仍存在，不是完整 SFC 运行证据。
 

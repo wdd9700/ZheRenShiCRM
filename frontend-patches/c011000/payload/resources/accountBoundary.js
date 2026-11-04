@@ -27,7 +27,7 @@ export function createAccountBoundary(env) {
   let stage = 'IDENTITY'
   let failureStage = 'NONE'
   let failure = 'NONE'
-  const resumeStages = new Set(['NONE', 'IDENTITY', 'PERMISSION', 'FRESH_READ', 'HYDRATE', 'BOOT',
+  const resumeStages = new Set(['NONE', 'IDENTITY', 'ADAPTER', 'PERMISSION', 'FRESH_READ', 'HYDRATE', 'BOOT',
     'ROUTER', 'PAGE_MOUNT', 'READ_SETTLE', 'ROUTE_CHECK', 'COMMIT_IDENTITY', 'COMMIT', 'READY'])
   let resumeStage = 'NONE', resumeFailure = 'NONE'
   const diagnostic = () => Object.freeze({ version: 'C011100', stage, failureStage, failure, resumeStage, resumeFailure })
@@ -163,6 +163,7 @@ export function createAccountBoundary(env) {
       }
       let prepared
       if (booted) {
+        recoveryStage('ADAPTER', id)
         if (!adapter) throw Error('Unsupported current page')
         state = 'HYDRATING'; hydrationError = null; pending.clear(); publish()
         let timeout
