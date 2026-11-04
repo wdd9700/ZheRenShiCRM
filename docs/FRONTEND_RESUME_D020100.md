@@ -92,6 +92,22 @@ Lead/Deal modal 的 QuickEntry layout 改为在对应 status resource 的 `list.
 
 此轮新 tip 必须重新独审，并由 M9 在全新 context/独立 manifest 中标准 build/native/bridge；旧 41 entries 采证须更新为 43 entries，新增 LeadModal/DealModal 严格目标。正常 UI 同身份创建草稿往返及显式恢复仍待下个授权窗口，不以刷新后空表单冒充通过。
 
+## da2177 正常 UI 再失败后的未修生产 SFC 采证候选
+
+主控反馈 `da2177` 标准 build/native 326/bridge 均绿，但真实 Lead 创建草稿切标签及一次显式重试仍为 `READ_SETTLE / READ_FAILED`；54 个已完成业务请求均 HTTP 200，常规 console 只有 socket/扩展噪声。该事实不被局部测试通过覆盖，M24 继续未完成。`hydrationError` 既接收恢复期未声明请求，也接收整个 resource/frappeRequest Promise 拒绝，包含成功 HTTP 后的同步 transform/callback、解析异常和同 epoch superseded；READ_SETTLE 只是最终抛出错误的阶段，不表示第一错误始于这里。auto catch 和边界 catch 可消费异常，因此无 console 业务栈不等于没有本地失败。
+
+只读源码发现一条具体候选路径：`useDocument` 每次调用实际 `getScript`；后者以不存在的 list resource 顶层 `scripts.loading` 判断进行中读取，合法空脚本列表又不创建 `doctypeScripts[doctype]`。FieldLayout/字段再次调用 useDocument 时可能重复 fetch。一次无写入内存实验执行固定 `getScript` 完整函数和实际补丁 boundary/resources/listResource，延迟两次合成成功空列表：两响应均成功，却得到 `RETRY_COVERED / READ_SETTLE / READ_FAILED`，随后进程还以未消费 `Resource request superseded` AbortError exit 1。随后以 runtime_sources 严格 SHA 校验后的 da2177 after getScript 完整函数重复实验，进程级仅收集未消费拒绝类别，断言两次成功响应、同样恢复失败及一个 AbortError 全通过，exit 0；不执行 setupScript，也不编译 SFC，未证明现场唯一根因。生产尚未修改。原 real-runtime 将 getScript 替换成 controllers stub，且只渲染 p，漏掉此真实脚本/模板链，也未执行实际 frappeRequest 转换。
+
+新增 `frontend-patches/c011000/sfc-resume.test.mjs` 是**待 M9 执行的测试候选，不是已通过证据**。它 import 实际 main/App/router，完整挂载 App 的桌面布局、AppSidebar、GlobalModals、Leads、ViewControls/Filter/SortBy/ColumnSettings、LeadModal/Dialog/FieldLayout 和实际字段控件；不替换业务组件、store 或 router.ready。仅 socket.io 外部传输受控且不发送自动事件；fetch 明确列出已读 API 返回结构，未知 method/doctype 立即失败，不兜底成功。脚本列表明确为空。测试内观察 boundary.track 但始终调用原方法，仅保存固定错误类别、源码位置和合成请求顺序；不改产品 runtime。真实 DOM 点 Create、填 First Name、受控 visibility 往返、失败时一次 retry、显式草稿恢复和零写请求均有断言。受控 hidden 只用于单测，不代替 Windows 真实 UI。标准 vitest.config 已有 framework/icon alias stub，仍是已知非业务外部边界。
+
+M9 仅在隔离的 da2177 **43 entries 已 patch 源**中，将该单文件按原字节复制为 `frontend/tests/unit/m24SafeResumeSfc.test.js`（相对 import 依赖此位置），无需改 manifest/apply，无新增依赖。frontend cwd 执行：
+
+```bash
+yarn test:run tests/unit/m24SafeResumeSfc.test.js --reporter=verbose
+```
+
+本机只通过 `node --check frontend-patches/c011000/sfc-resume.test.mjs` 与 diff 检查；无 compiler-sfc/vite/vitest，不声称 SFC 已运行或复现。先采该未修候选的退出码、第一固定错误类别/位置和未知 API 列表；若失败于 fixture/编译/DOM 能力需先明确区分，不把此类失败冒充业务根因、不添加任意成功响应。此测试增量不要求重复完整 build/native，后续生产修复仍要独审及标准门槛。
+
 ## 尚待门槛
 
 本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。
