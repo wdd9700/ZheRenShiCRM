@@ -21,6 +21,7 @@ assignable, so the fixture uses the deployment's real ordinary role.
 """
 
 import json
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -31,6 +32,7 @@ from redis.exceptions import RedisError
 
 from team_schedule import service
 from team_schedule.availability import api
+from team_schedule.timeutils import ScheduleError
 
 START = "2026-11-04T09:00:00Z"
 END = "2026-11-04T14:00:00Z"
@@ -225,6 +227,52 @@ class BusyFreeQueryTest(FrappeTestCase):
         frappe.set_user(alice)
         with patch.object(api.service, "assert_busy_access", return_value=alice):
             self.assertEqual(self.ask([alice, bob])[0].status_code, 200)
+
+    def revoke_on_new_connection(self, subject, viewer):
+        """Revoke through the standard service on a real second connection."""
+        site, sites_path = frappe.local.site, frappe.local.sites_path
+        outcome = {}
+
+        def worker():
+            try:
+                frappe.init(site=site, sites_path=sites_path)
+                frappe.connect()
+                frappe.set_user(subject)
+                service.set_busy_grant(viewer, False)
+                frappe.db.commit()
+                outcome["committed"] = True
+                outcome["absent"] = not frappe.db.exists(
+                    "Team Schedule Busy Grant", {"subject_user": subject, "viewer_user": viewer})
+            except Exception as error:
+                outcome["error"] = "%s: %s" % (type(error).__name__, error)
+            finally:
+                if getattr(frappe.local, "db", None):
+                    frappe.db.rollback()
+                frappe.destroy()
+
+        thread = threading.Thread(target=worker, name="m26-revoker", daemon=True)
+        thread.start()
+        thread.join(timeout=60)
+        self.assertFalse(thread.is_alive(), "independent revoke did not finish")
+        self.assertTrue(outcome.get("committed") and outcome.get("absent"), outcome)
+
+    def test_revocation_committed_mid_request_is_seen_by_the_post_check(self):
+        """M9 two-connection failure: the post-check must not read the old snapshot."""
+        alice, bob = self.user("alice"), self.user("bob")
+        self.grant(bob, alice)
+        frappe.set_user(alice)
+        service.assert_busy_access([alice, bob])
+        self.assertTrue(
+            frappe.db.exists("Team Schedule Busy Grant", {"subject_user": bob, "viewer_user": alice}),
+            "snapshot must be opened while the grant still exists",
+        )
+
+        self.revoke_on_new_connection(bob, alice)
+
+        with self.assertRaises(ScheduleError) as caught:
+            api._still_granted(alice, [alice, bob])
+        self.assertEqual(caught.exception.status, 403)
+        self.assertEqual(caught.exception.code, "FORBIDDEN")
 
     def test_response_carries_no_schedule_content(self):
         alice, bob = self.user("alice"), self.user("bob")

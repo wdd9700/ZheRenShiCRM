@@ -49,7 +49,21 @@ def _throttle(digest, now=None):
 
 
 def _still_granted(actor, users):
-    """Re-read grants after the scan so a revocation committed meanwhile denies the answer."""
+    """Authoritative grant check after the occupancy scan.
+
+    A plain SELECT reuses this transaction's REPEATABLE READ read view, which
+    was opened by the first consistent read at request start, so it cannot see
+    a revocation committed meanwhile (proved with two real connections).
+    LOCK IN SHARE MODE is a current read: it returns the latest committed rows
+    regardless of the snapshot, and holds the shared lock until this request
+    commits, which happens after the response is built. A concurrent revoke
+    therefore either commits before this check (row gone -> 403) or waits for
+    this request to finish (row present -> the answer stays authorized).
+
+    Lock order is the actor's User row, already held by current_user(), then
+    grant rows - the same order service.set_busy_grant takes - so no lock cycle
+    is introduced; shared locks do not conflict with concurrent queries.
+    """
     others = [user for user in users if user != actor]
     if not others:
         return
@@ -57,7 +71,9 @@ def _still_granted(actor, users):
     granted = {
         row[0]
         for row in frappe.db.sql(
-            "SELECT subject_user FROM `tabTeam Schedule Busy Grant` WHERE viewer_user=%s AND subject_user IN (" + placeholders + ")",
+            "SELECT subject_user FROM `tabTeam Schedule Busy Grant` "
+            "WHERE viewer_user=%s AND subject_user IN (" + placeholders + ") "
+            "LOCK IN SHARE MODE",
             tuple([actor] + others),
         )
     }
