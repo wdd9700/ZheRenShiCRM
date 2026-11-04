@@ -81,6 +81,41 @@ test('hide again while recovering invalidates first recovery and never commits i
   assert.equal(commits, 1); assert.equal(f.uncovered, 2)
 })
 
+test('resume diagnostics expose only fixed stages and failure classes, retaining first failure across retry', async () => {
+  for (const timeout of [false, true]) {
+    const f = await fixture()
+    adapter(f, async context => {
+      context.phase('READ_SETTLE')
+      context.phase('DO-NOT-EXPOSE-SYNTHETIC-PHASE')
+      throw Object.assign(Error('DO-NOT-EXPOSE-SYNTHETIC-RESPONSE'), { code: timeout ? 'RECOVERY_TIMEOUT' : 'DO-NOT-EXPOSE-SYNTHETIC-CODE' })
+    })
+    f.hide(true); f.hide(false); await f.boundary.resume()
+    assert.equal(f.boundary.state, 'RETRY_COVERED')
+    assert.equal(f.boundary.diagnostic.resumeStage, 'READ_SETTLE')
+    assert.equal(f.boundary.diagnostic.resumeFailure, timeout ? 'TIMEOUT' : 'LOCAL_FAILURE')
+    assert.equal(f.boundary.diagnostic.failure, 'PAGE_HIDDEN')
+    assert.doesNotMatch(JSON.stringify([f.boundary.diagnostic, f.covers]), /DO-NOT-EXPOSE/)
+    adapter(f); await f.boundary.resume()
+    assert.equal(f.boundary.diagnostic.resumeStage, 'READY')
+    assert.equal(f.boundary.diagnostic.resumeFailure, 'NONE')
+    assert.equal(f.boundary.diagnostic.failure, 'PAGE_HIDDEN')
+  }
+})
+
+test('late recovery phases from a superseded epoch cannot overwrite current diagnostics', async () => {
+  const f = await fixture(), first = deferred()
+  let calls = 0
+  adapter(f, async context => {
+    if (++calls === 1) { await first.promise; context.phase('PAGE_MOUNT'); context.assertCurrent() }
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); const old = f.boundary.resume(); await tick()
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  first.resolve(); await old
+  assert.equal(f.boundary.diagnostic.resumeStage, 'READY')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'NONE')
+})
+
 test('hidden during initial identity starts fresh on visible; old identity cannot initialize', async () => {
   const before = deferred(), after = deferred()
   const f = await fixture(async () => 'Synthetic Sales')

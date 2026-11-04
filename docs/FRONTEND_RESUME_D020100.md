@@ -36,7 +36,7 @@
 
 ## 补丁与固定证据
 
-`frontend-patches/c011000/manifest.json` 当前包含 **36 个修改目标（9 payload + 27 strict source edits）及 5 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
+`frontend-patches/c011000/manifest.json` 当前包含 **38 个修改目标（9 payload + 29 strict source edits）及 5 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
 
 只读使用两份本地证据，不修改它们：
 
@@ -74,7 +74,21 @@ P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m20-public-frontend-evidence-3828e3
 
 最终组合的四 suite 子进程曾真实 exit 1，原因是 Sidebar 已合法叠加导航，而旧 loader 仅接受 M24 before/after，并非 Vue/Pinia 行为失败。测试专用 `runtime_sources.py` 额外仅接受已审 `l3-scheduling@4ff499e` 的 Sidebar after `e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852`。随测试保存该 commit 的原始 manifest，SHA256 固定为 `74787afa31373457e9b91fa8ea6f53e4e3317854670656558579df0762b75670`；核 manifest overlap 与 M24 before/after 一致，逆序撤回其中恰好三处唯一 replacement 后，必须还原 M24 after SHA，且保留 accountBoundary import/HYDRATING 守卫。返回并解析的仍是实际组合源码，不替换为旧 Sidebar。未知 hash、manifest/变换/守卫漂移均拒绝，其余文件仍保持精确 before/after；生产 apply/payload 未改。
 
-本地四 suite 当前 46/46 pass，新增回归覆盖原 before/after、合法组合及 manifest、overlap、守卫、所有目标未知字节拒绝。M9 最终组合 native 已采证 exit 0、34 files / 326 tests pass、无 Vitest-reported unhandled；stderr 仍有 2 AbortError、16 ECONNREFUSED。实际 happy-dom Fetch.onError 会先 console.error 再 reject，Vitest teardown 调用 happyDOM.abort 会 destroy(error)，这与报告未消费 Promise 的语义不同；连接拒绝逐条 URL 不能仅由 Node 栈归因，不能宣称 stderr 全无错误。测试契约新 tip 的独审与 M9 定向 bridge 复验仍待完成；无需重 build/native。
+该轮本地四 suite 46/46 pass，新增回归覆盖原 before/after、合法组合及 manifest、overlap、守卫、所有目标未知字节拒绝。M9 当时最终组合 native 已采证 exit 0、34 files / 326 tests pass、无 Vitest-reported unhandled；stderr 仍有 2 AbortError、16 ECONNREFUSED。实际 happy-dom Fetch.onError 会先 console.error 再 reject，Vitest teardown 调用 happyDOM.abort 会 destroy(error)，这与报告未消费 Promise 的语义不同；连接拒绝逐条 URL 不能仅由 Node 栈归因，不能宣称 stderr 全无错误。后续 `951a4b9` 也已由 M9 标准 build/native/bridge 通过，但这些历史证据不覆盖下面的新生产修改。
+
+## 创建表单恢复竞态的因果复现与回修
+
+正常 Windows tab 往返实测中，同身份 Lead 创建表单未保存字段进入通用恢复失败，显式重试仍失败；原诊断 `C011100 / READY / READY / PAGE_HIDDEN` 是历史 first-failure，不能定位本次失败阶段。现场网络身份、权限和已完成业务请求均成功；没有足够证据将唯一挂起 socket 认定为原因，也没有证明现场失败恰好来自下面这一条竞态。
+
+先在未修生产源码上扩展既有 real-runtime 测试，执行固定 LeadModal 完整 script setup、实际 statusesStore、Vue 3.5.32 / Pinia 2.3.1、补丁 useDocument/resources/main。首次成功后设置未保存 first_name，真实 boundary hide/show，仅延迟新 statuses 的 get_list 成功返回，让 layout 先完成：定向测试 exit 1，恢复进入 `RETRY_COVERED`，layout transform 的 `getLeadStatus` 稳定抛出 `TypeError: Cannot read properties of null (reading '0')`。新 Pinia 的 `leadStatuses.data` 此时仍为 null。扩展 Deal setup 又复现 mounted hook 读取空 `dealStatuses.value[0].value` 的错误。测试模板、路由及业务响应仍是替身，未声称完整 SFC 或现场唯一根因已证。
+
+Lead/Deal modal 的 QuickEntry layout 改为在对应 status resource 的 `list.fetched` 后由组件作用域 watcher 启动，避免跨资源自动请求竞态；status prefix 对空列表防护，Deal 初始默认值也使用空元素防护。watcher 随组件卸载停止；状态失败仍由原读屏障失败关闭。未新增请求允许项、未改草稿白名单、未自动保存或刷新丢草稿，也未弱化当前权限/身份/epoch 门槛。
+
+新增 D020100 安全恢复诊断，DOM 属性为 `data-crm-resume-stage` / `data-crm-resume-failure`，遮罩同时显示固定枚举；阶段仅 `NONE / IDENTITY / PERMISSION / FRESH_READ / HYDRATE / BOOT / ROUTER / PAGE_MOUNT / READ_SETTLE / ROUTE_CHECK / COMMIT_IDENTITY / COMMIT / READY`，错误仅 `NONE / TIMEOUT / READ_FAILED / IDENTITY_FAILED / UNSUPPORTED_PAGE / LOCAL_FAILURE`。不输出原异常、堆栈、URL、用户名、文档名或草稿；未知 phase 被忽略，旧 epoch 不能更新诊断，显式重试重新计类，C011100 first-failure 仍保留。timeout 分类测试使用固定 code 的合成异常，不冒充真实等待 15 秒超时实测。
+
+本轮四 suite **54/54 pass、0 fail**；新增覆盖 Lead/Deal 两种响应顺序、合法空列表、statuses 失败继续遮罩并保留草稿、成功显式恢复而无写请求、换身份不恢复、诊断拒绝任意字符串及旧 epoch、失败分类及重试清理。既有权限撤销、unsupported、通知 Promise、导航 guard 和初始后台握手回归仍通过。严格重放 **38 修改目标 + 5 guard** 通过；after fixture real-runtime **14/14 pass**。Vue 重复安装替身 plugin 警告仍存在，不是完整 SFC 运行证据。
+
+此轮新 tip 必须重新独审，并由 M9 在全新 context/独立 manifest 中标准 build/native/bridge；旧 41 entries 采证须更新为 43 entries，新增 LeadModal/DealModal 严格目标。正常 UI 同身份创建草稿往返及显式恢复仍待下个授权窗口，不以刷新后空表单冒充通过。
 
 ## 尚待门槛
 

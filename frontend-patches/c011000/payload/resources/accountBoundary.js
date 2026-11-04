@@ -27,7 +27,13 @@ export function createAccountBoundary(env) {
   let stage = 'IDENTITY'
   let failureStage = 'NONE'
   let failure = 'NONE'
-  const diagnostic = () => Object.freeze({ version: 'C011100', stage, failureStage, failure })
+  const resumeStages = new Set(['NONE', 'IDENTITY', 'PERMISSION', 'FRESH_READ', 'HYDRATE', 'BOOT',
+    'ROUTER', 'PAGE_MOUNT', 'READ_SETTLE', 'ROUTE_CHECK', 'COMMIT_IDENTITY', 'COMMIT', 'READY'])
+  let resumeStage = 'NONE', resumeFailure = 'NONE'
+  const diagnostic = () => Object.freeze({ version: 'C011100', stage, failureStage, failure, resumeStage, resumeFailure })
+  function recoveryStage(value, id) {
+    if (id === epoch && resumeStages.has(value)) { resumeStage = value; publish() }
+  }
   function publish() { env.diagnose?.(diagnostic()); env.resumeState?.(state) }
   function markStage(value) {
     if (state === 'ACTIVE' && stages.has(value)) { stage = value; publish() }
@@ -142,6 +148,7 @@ export function createAccountBoundary(env) {
     const promise = Promise.resolve().then(async () => {
       assertRecovery(id, !booted)
       if (!booted) stage = 'IDENTITY'
+      resumeFailure = 'NONE'; resumeStage = 'IDENTITY'; hydrationError = null
       state = 'VERIFY_IDENTITY'; publish()
       const value = await identity(id, !booted)
       if (!booted) {
@@ -161,14 +168,16 @@ export function createAccountBoundary(env) {
         let timeout
         try {
           prepared = await Promise.race([
-            adapter.refresh({ epoch: id, user: value, assertCurrent: () => assertRecovery(id), settleReads }),
-            new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('Recovery timed out')), 15000) }),
+            adapter.refresh({ epoch: id, user: value, assertCurrent: () => assertRecovery(id), settleReads,
+              phase: value => recoveryStage(value, id) }),
+            new Promise((_, reject) => { timeout = setTimeout(() => reject(Object.assign(Error('Recovery timed out'), { code: 'RECOVERY_TIMEOUT' })), 15000) }),
           ])
         } finally { clearTimeout(timeout) }
         assertRecovery(id)
-        state = 'VERIFY_COMMIT'; publish()
+        state = 'VERIFY_COMMIT'; recoveryStage('COMMIT_IDENTITY', id)
         await identity(id)
         assertRecovery(id)
+        recoveryStage('COMMIT', id)
         prepared.commit()
         assertRecovery(id)
       }
@@ -178,9 +187,13 @@ export function createAccountBoundary(env) {
       publish()
       env.uncover()
       prepared?.afterCommit?.()
+      recoveryStage('READY', id)
       resolveReady()
     }).catch(error => {
       if (id !== epoch || state === 'IDENTITY_REQUIRED' || (booted && env.hidden())) return
+      resumeFailure = error?.code === 'RECOVERY_TIMEOUT' ? 'TIMEOUT'
+        : hydrationError ? 'READ_FAILED' : resumeStage === 'IDENTITY' || resumeStage === 'COMMIT_IDENTITY'
+          ? 'IDENTITY_FAILED' : adapter?.unsupportedEditor ? 'UNSUPPORTED_PAGE' : 'LOCAL_FAILURE'
       try { adapter?.stop?.() }
       catch { return lock('无法隔离旧运行域，请重新登录。') }
       if (error instanceof IdentityFailure && ['IDENTITY_INVALID', 'ACCOUNT_CHANGED', 'SESSION_CHANGED'].includes(error.code)) {
@@ -249,7 +262,9 @@ function browserEnvironment() {
     document.documentElement.setAttribute('data-crm-init-stage', value.stage)
     document.documentElement.setAttribute('data-crm-first-failure-stage', value.failureStage)
     document.documentElement.setAttribute('data-crm-first-failure', value.failure)
-    diagnosticText = `本地诊断 ${value.version} / ${value.stage} / ${value.failureStage} / ${value.failure}`
+    document.documentElement.setAttribute('data-crm-resume-stage', value.resumeStage)
+    document.documentElement.setAttribute('data-crm-resume-failure', value.resumeFailure)
+    diagnosticText = `本地诊断 ${value.version} / ${value.stage} / ${value.failureStage} / ${value.failure}；恢复诊断 D020100 / ${value.resumeStage} / ${value.resumeFailure}`
     const node = document.getElementById('crm-initialization-diagnostic')
     if (node) node.textContent = diagnosticText
   }

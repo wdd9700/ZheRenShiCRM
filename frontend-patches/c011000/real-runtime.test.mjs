@@ -91,8 +91,30 @@ test('all strict transformed JS/TS/JSX and Vue script blocks parse using the fix
   }
 })
 
-async function fixture({ routeName = 'Lead', create = false, communication = false, editors = [], controllers = [] } = {}) {
+function withoutImports(code) {
+  for (const node of parseScript(code, { sourceType: 'module' }).program.body.filter(node => node.type === 'ImportDeclaration').reverse()) {
+    code = code.slice(0, node.start) + code.slice(node.end)
+  }
+  return code
+}
+const modalCodes = Object.fromEntries(['Lead', 'Deal'].map(kind => [kind, `export function mount(deps) {
+const { computed, onMounted, ref, nextTick, watch, usersStore, statusesStore, sessionStore, useTelemetry,
+useCrmOnboarding, createResource, useDocument, useRouter, defineProps, defineModel } = deps
+${withoutImports(sources[`frontend/src/components/Modals/${kind}Modal.vue`].match(/<script[^>]*>([\s\S]*?)<\/script>/)[1])}
+return { document: ${kind.toLowerCase()}, tabs }
+}`]))
+const statusSource = await readFile(resolve(root, 'src/stores/statuses.js'), 'utf8')
+const statusCode = `export function store(deps) {
+const { defineStore, useTelemetry, createListResource, reactive, h, parseColor, isTranslatable } = deps
+${withoutImports(statusSource).replace('export const statusesStore', 'const statusesStore')}
+return statusesStore
+}`
+
+async function fixture({ routeName = 'Lead', create = false, communication = false, actualCreation = false, editors = [], controllers = [] } = {}) {
   const documentOptions = [], toasts = []
+  const creationKind = actualCreation === 'Deal' ? 'Deal' : 'Lead', creationDoctype = 'CRM ' + creationKind
+  let modal, statuses, statusGate = null, layoutGate = null
+  let statusRows = [{ name: 'New', color: 'gray', position: 1 }], statusFailure = null
   let writeError = null
   let hidden = false, identity = 'Synthetic Sales', covered = true, fail = false
   let readable = true, writable = true, creatable = true, current, session
@@ -136,7 +158,16 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     if (url === 'frappe.desk.form.load.getdoctype') return { docs: [{ name: params.doctype, fields }], user_settings: '{}' }
     if (url === 'crm.api.doc.get_assigned_users') return []
     if (url === 'crm.api.activities.get_activities') return [[], [], [], [], []]
-    if (url === 'crm.api.doc.get_data') return { data: [{ name: 'SYNTHETIC-1' }] }
+    if (url === 'crm.api.doc.get_data') return { data: actualCreation ? [] : [{ name: 'SYNTHETIC-1' }] }
+    if (url === 'frappe.client.get_list') {
+      if (statusGate) await statusGate
+      if (statusFailure) throw statusFailure
+      return statusRows
+    }
+    if (url === 'crm.fcrm.doctype.crm_fields_layout.crm_fields_layout.get_fields_layout') {
+      if (layoutGate) await layoutGate
+      return [{ sections: [{ columns: [{ fields: [{ fieldname: 'status' }] }] }] }]
+    }
     throw Error('Unexpected endpoint: ' + url)
   }
   config.resourceFetcher = request
@@ -163,7 +194,20 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
   }
   const App = vue.defineComponent({ setup() {
     session = modules.get('session').namespace.sessionStore()
-    current = modules.get('document').namespace.useDocument('CRM Lead', create ? '' : 'SYNTHETIC-1')
+    current = modules.get('document').namespace.useDocument(creationDoctype, create ? '' : 'SYNTHETIC-1')
+    if (actualCreation) {
+      statuses = modules.get('statuses').namespace.store({ ...vue, ...pinia,
+        useTelemetry: () => ({ capture() {} }), createListResource: modules.get('listResource').namespace.createListResource,
+        parseColor: color => color, isTranslatable: () => false,
+      })
+      modal = modules.get('leadModal').namespace.mount({ ...vue,
+        usersStore: () => ({ getUser: () => ({ name: 'Synthetic Sales' }), isManager: () => false }),
+        statusesStore: statuses, sessionStore: () => session, useTelemetry: () => ({ capture() {} }),
+        useCrmOnboarding: () => ({ completeStep() {} }), createResource: modules.get('resources').namespace.createResource,
+        useDocument: modules.get('document').namespace.useDocument, useRouter: () => router,
+        defineProps: () => ({ defaults: {} }), defineModel: () => vue.ref(true),
+      })
+    }
     const safe = modules.get('safeResume').namespace
     if (communication) {
       const model = vue.computed(() => current.document.doc || {})
@@ -189,7 +233,7 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     }
     let cleanup
     vue.onMounted(() => {
-      cleanup = safe.registerResumePage(routeName, () => ({ doctype: 'CRM Lead', filters: { status: 'New' }, page_length: 20 }))
+      cleanup = safe.registerResumePage(routeName, () => ({ doctype: creationDoctype, filters: { status: 'New' }, page_length: 20 }))
       if (!routeName.endsWith('s')) safe.registerResumeSection('activity:SYNTHETIC-1')
     })
     vue.onUnmounted(() => cleanup?.())
@@ -227,6 +271,8 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     else if (id === 'meta') code = sources['frontend/src/stores/meta.js']
     else if (id === 'communication') code = communicationCode
     else if (id === 'recipientWatch') code = recipientWatchCode
+    else if (id === 'leadModal') code = modalCodes[creationKind]
+    else if (id === 'statuses') code = statusCode
     else {
       const path = resources.has(id) ? `./payload/resources/${id}.${id === 'local' ? 'ts' : 'js'}` : `./payload/${id}.js`
       code = await readFile(new URL(path, import.meta.url), 'utf8')
@@ -261,10 +307,18 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
   await boundary.resume()
   await namespace('session'); await namespace('safeResume'); await namespace('document')
   if (communication) { await namespace('communication'); await namespace('recipientWatch') }
+  if (actualCreation) {
+    fields.push(...['first_name', 'no_of_employees', 'lead_owner', 'status'].map(fieldname => ({ fieldname, fieldtype: 'Data' })))
+    await namespace('leadModal'); await namespace('statuses'); await namespace('listResource')
+  }
   await namespace('main'); await tick(); await vue.nextTick()
   assert.equal(boundary.state, 'ACTIVE'); assert.equal(session.user, 'Synthetic Sales')
   return { boundary, requests, fields, runtimes, namespace, route, storageCalls, documentOptions, toasts,
     writeFailure(value) { writeError = value },
+    statusWait(value) { statusGate = value },
+    layoutWait(value) { layoutGate = value },
+    statusResult(rows, error = null) { statusRows = rows; statusFailure = error },
+    get modal() { return modal },
     get communication() { return communicationState },
     get current() { return current }, get session() { return session }, get covered() { return covered },
     identity(value) { identity = value }, permission(read, write = true, create = true) { readable = read; writable = write; creatable = create },
@@ -274,6 +328,59 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     close() { boundary.lock() },
   }
 }
+
+test('actual Lead/Deal modal setup waits for fresh statuses in both response orders, including an empty legal list', async () => {
+  for (const kind of ['Lead', 'Deal']) for (const order of ['layout-ready', 'statuses-ready', 'empty']) {
+    const f = await fixture({ routeName: kind + 's', create: true, actualCreation: kind })
+    await tick()
+    assert.equal(f.modal.tabs.error, null)
+    f.current.document.doc.first_name = 'SYNTHETIC-SAME-IDENTITY-DRAFT'
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    if (order === 'statuses-ready') f.layoutWait(gate)
+    else f.statusWait(gate)
+    if (order === 'empty') f.statusResult([])
+    const layouts = () => f.requests.filter(({ url }) => url.endsWith('get_fields_layout')).length
+    const before = layouts()
+    f.hide(true)
+    const resumed = f.resume()
+    await tick(); await tick()
+    assert.equal(f.covered, true)
+    if (order !== 'statuses-ready') assert.equal(layouts(), before, 'layout must not race an unresolved status resource')
+    release(); await resumed
+    assert.equal(f.modal.tabs.error, null)
+    assert.equal(f.boundary.state, 'ACTIVE')
+    const safe = await f.namespace('safeResume')
+    const [plan] = safe.planDrafts(f.boundary.user)
+    assert.equal(plan.values.first_name, 'SYNTHETIC-SAME-IDENTITY-DRAFT')
+    assert.notEqual(f.current.document.doc.first_name, 'SYNTHETIC-SAME-IDENTITY-DRAFT')
+    assert.equal(safe.restoreDraft(plan), true)
+    assert.equal(f.current.document.doc.first_name, 'SYNTHETIC-SAME-IDENTITY-DRAFT')
+    assert.ok(!f.requests.some(({ url }) => ['frappe.client.insert', 'frappe.client.set_value'].includes(url)))
+    f.close()
+  }
+})
+
+test('actual creation modal status failure retains covered draft for retry; another identity never restores it', async () => {
+  const f = await fixture({ routeName: 'Leads', create: true, actualCreation: 'Lead' })
+  f.current.document.doc.first_name = 'SYNTHETIC-RETRY-DRAFT'
+  f.hide(true); f.statusResult([], Error('DO-NOT-EXPOSE-SYNTHETIC-RESPONSE'))
+  await f.resume()
+  assert.equal(f.boundary.state, 'RETRY_COVERED'); assert.equal(f.covered, true)
+  assert.ok(!JSON.stringify(f.boundary.diagnostic).includes('DO-NOT-EXPOSE'))
+  assert.equal(f.boundary.diagnostic.resumeStage, 'READ_SETTLE')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+  f.statusResult([{ name: 'New', color: 'gray' }])
+  await f.resume(); assert.equal(f.boundary.state, 'ACTIVE', JSON.stringify(f.boundary.diagnostic))
+  assert.equal(f.boundary.diagnostic.resumeStage, 'READY')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'NONE')
+  const safe = await f.namespace('safeResume')
+  assert.equal(safe.planDrafts(f.boundary.user)[0].values.first_name, 'SYNTHETIC-RETRY-DRAFT')
+  f.hide(true); f.identity('Different synthetic identity'); await f.resume()
+  assert.equal(f.boundary.state, 'IDENTITY_REQUIRED'); assert.equal(f.covered, true)
+  assert.equal(safe.planDrafts(f.boundary.user).length, 0)
+  f.close()
+})
 
 test('real Vue/Pinia, actual main/session/useDocument rebuild default activity and restore scalar draft only explicitly', async () => {
   const f = await fixture(), old = f.current, safe = await f.namespace('safeResume')

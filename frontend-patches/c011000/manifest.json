@@ -1,5 +1,5 @@
 [
-  {"target":"frontend/node_modules/frappe-ui/src/resources/accountBoundary.js","payload":"resources/accountBoundary.js","before":null,"after":"478109fa8992b97dbd4178fe524b379581c1324048838893ce4f6aafa1f0c3a7"},
+  {"target":"frontend/node_modules/frappe-ui/src/resources/accountBoundary.js","payload":"resources/accountBoundary.js","before":null,"after":"b96b8ca86978162ace6d2d56b4fc7c5714c2d8d8efadba2816388492b120f6bf"},
   {"target":"frontend/node_modules/frappe-ui/src/resources/documentResource.js","payload":"resources/documentResource.js","before":"86730d44a02790a55dae7c98078e0c712f8cd036dcf619b9411654f1f179db8c","after":"2ad759ee1fb44154389bc2374816abe085b36ae6a6a4d11078ebbc7f40623d56"},
   {"target":"frontend/node_modules/frappe-ui/src/resources/listResource.js","payload":"resources/listResource.js","before":"3c1c1c9240917b697dbb9ac955014e956ae391da67d220191c22cb28ee7762d2","after":"14025d9b50175c341a12633ed0f1e99708a44417393da30357b7570d80d90f69"},
   {"target":"frontend/node_modules/frappe-ui/src/resources/local.ts","payload":"resources/local.ts","before":"87bdc83270d69248e002b97568402e50c16961c16f4e3f357241183a56a1f079","after":"59e5442af3e0e91f91542357c859b053b5d40106276a3e90d3cb30fc8a9f23c0"},
@@ -7,7 +7,7 @@
   {"target":"frontend/src/main.js","payload":"main.js","before":"c49ae1cc49039ded911ec6ab505afa2589f9119d4eb3376d87af9ca5b69fc609","after":"bb5c334c9ad3ad9bc4ee1e2051cbb110d42353d9af72bb86c8204729bbfaa2d5"},
   {"target":"frontend/src/stores/session.js","payload":"session.js","before":"6db0446b4fd20dae798e26cf2de5532ccbf2976430ceebea3d58a22da887afeb","after":"5d7434ff862fe08e4c1ad7f56145a95dd34c2f2263042b18e8a3f32ace1578ee"},
   {"target":"frontend/src/data/safeResume.js","payload":"safeResume.js","before":null,"after":"38be9586f54de986da9b8c4208f70ca913dc2f4c6704834bac630bd63bdbd8a6"},
-  {"target":"frontend/src/resumeRuntime.js","payload":"resumeRuntime.js","before":null,"after":"27af766c2ba49254775c726bbb85a3d2be841b8319d52044327eb74462932038"},
+  {"target":"frontend/src/resumeRuntime.js","payload":"resumeRuntime.js","before":null,"after":"e152a6daecbe90330e2c55800efb8b1c28ae56bda92272efebbb442955a638ab"},
   {"target":"frontend/package.json","before":"da762827d591e47cb42148107e00f06e8d2f2bf4159b554ca809d97a422ac4d5"},
   {"target":"frontend/yarn.lock","before":"a5fd668768d60b83c8a79e57135d9752d1b3dbdd80927426086ae7be1c9a00ef"},
   {"target":"frontend/node_modules/frappe-ui/package.json","before":"05be24caa1b3d457eb170ceed482473b1f9519e47d6653c025c61bb2239b2631"},
@@ -39,5 +39,7 @@
   {"target":"frontend/src/stores/users.js","edits":true,"before":"9e2b275acbb20a495168b3c1b22f4dbf1f48b7acb9c86f6f8b6770a96d46009d","after":"a031a4cbad685c56dc27d32e2b83da6247396560af3ffb5c74b7e92ba27ea3b8"},
   {"target":"frontend/src/stores/views.js","edits":true,"before":"cd7967d37f0e5dccab8a89019c258a5554248b33860be60708c038fb178e553a","after":"e64c90057ea591f8fb32f0ef8458ede99c7c26c35f5a9711a92de6881b718884"},
   {"target":"frontend/src/components/CommunicationArea.vue","edits":true,"before":"95ec442aad3dc4ed5b4eb8b546f36e1a69f8f9e765033c9c189fea530d4db915","after":"a1df881f7dd3d0aeb7f03a94613e2c75509bf90e8ab1c02313d454f13b0a844c"},
-  {"target":"frontend/src/components/EmailEditor.vue","before":"11f92cb1e1f4de5e92989bc79fb0d10c7422dd11f02d8b6d34c279b704d86b68"}
+  {"target":"frontend/src/components/EmailEditor.vue","before":"11f92cb1e1f4de5e92989bc79fb0d10c7422dd11f02d8b6d34c279b704d86b68"},
+  {"target":"frontend/src/components/Modals/LeadModal.vue","edits":true,"before":"fa85d95c5e2b7284e4e336b18f51712b15512c04b92ee4771f0a106438b57f6c","after":"8fb6e4327ae91dd4f1389f3f612eb79a2192cffa0ef5403b9e5952b200bfdec7"},
+  {"target":"frontend/src/components/Modals/DealModal.vue","edits":true,"before":"d59be31c2c11a9a3b7dbe9d1b6f69cb45ed837d730cacb84910fad95fc70679b","after":"7167d70476846ddbf049b66b286961a638c69e795fd16e3bec9f0ffa28aefd8a"}
 ]

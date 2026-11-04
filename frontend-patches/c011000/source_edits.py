@@ -164,6 +164,30 @@ SOURCE_EDITS['frontend/src/components/CommunicationArea.vue'] = [
 ]
 
 
+for kind in ['Lead', 'Deal']:
+    lower = kind.lower()
+    resource = lower + 'StatusResource'
+    SOURCE_EDITS[f'frontend/src/components/Modals/{kind}Modal.vue'] = [
+        (f'const {{ get{kind}Status, statusOptions }} = statusesStore()',
+         f'const {{ get{kind}Status, statusOptions, {lower}Statuses: {resource} }} = statusesStore()'),
+        ("  params: { doctype: 'CRM " + kind + "', type: 'Quick Entry' },\n  auto: true,",
+         "  params: { doctype: 'CRM " + kind + "', type: 'Quick Entry' },\n  auto: false,"),
+        (f'field.prefix = get{kind}Status({lower}.doc.status).color',
+         f'field.prefix = {resource}.data?.length ? get{kind}Status({lower}.doc.status)?.color : undefined'),
+    ]
+    if kind == 'Lead':
+        SOURCE_EDITS[f'frontend/src/components/Modals/{kind}Modal.vue'].append(
+            ("import { computed, onMounted, ref, nextTick } from 'vue'",
+             "import { computed, onMounted, ref, nextTick, watch } from 'vue'"))
+    else:
+        SOURCE_EDITS[f'frontend/src/components/Modals/{kind}Modal.vue'].append(
+            ('if (!deal.doc.status && dealStatuses.value[0].value)',
+             'if (!deal.doc.status && dealStatuses.value[0]?.value)'))
+    anchor = 'const createLead = createResource({' if kind == 'Lead' else 'async function createDeal() {'
+    SOURCE_EDITS[f'frontend/src/components/Modals/{kind}Modal.vue'].append(
+        (anchor, f"watch(() => {resource}.list.fetched, (fetched) => {{\n  if (fetched) tabs.fetch()\n}}, {{ immediate: true }})\n\n" + anchor))
+
+
 def transform(target, data):
     text = data.decode('utf-8')
     for old, new in SOURCE_EDITS[target]:
