@@ -16,9 +16,10 @@ bench --site ISOLATED_SITE set-config allow_tests true
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_time
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_service
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_permissions_core
+bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_transactions
 ```
 
-The service and permission tests use Framework's `FrappeTestCase`, real ORM/DB permissions and two newly created synthetic System Users with the existing CRM `Sales User` role. Thus the test candidate needs CRM installed, although the app itself depends only on Framework. No passwords or login sessions are printed. Welcome email is disabled. No scheduler is needed; leave it disabled. No external service calls, invitations or reminders are implemented. Test teardown rolls back each test's records; only isolated test data may be written. HTTP login/CSRF, concurrent transaction races, both CSV routes, search/docinfo/realtime and recovery still need separate integration evidence; direct Python calls are not HTTP acceptance.
+The service and permission tests use Framework's `FrappeTestCase`, real ORM/DB permissions and two newly created synthetic System Users with the existing CRM `Sales User` role. Thus the test candidate needs CRM installed, although the app itself depends only on Framework. No passwords or login sessions are printed. Welcome email is disabled. No scheduler is needed; leave it disabled. No external service calls, invitations or reminders are implemented. Service/permission test teardown rolls back each test's records. The transaction module deliberately commits synthetic fixtures so a second real connection can verify old-snapshot/current-read behavior; those synthetic records remain on the isolated site. It never deletes existing data. HTTP login/CSRF, truly simultaneous transaction races, both CSV routes, search/docinfo/realtime and recovery still need separate integration evidence; direct Python calls are not HTTP acceptance.
 
 Pure time tests may also run without Frappe:
 
@@ -28,9 +29,9 @@ PYTHONPATH=apps/team_schedule python -B -m unittest team_schedule.tests.test_mod
 
 ## Data and access
 
-Six app-owned DocTypes use the normal `team_schedule/team_schedule/doctype` module path. UTC instants are strict fixed-width minute strings, never site-timezone Datetime fields. Sources and cancellation tombstones are retained. Source UID is case-sensitive: `uid_key` is SHA256 of exact UTF-8 UID and `(source,uid_key)` is unique, avoiding MariaDB case-insensitive collation changing identity. Creation requests are unique per `(owner,request_id)` and store only the canonical payload digest and target ID.
+Seven app-owned DocTypes (including the tower-approved metadata-only internal Audit) use the normal `team_schedule/team_schedule/doctype` module path. UTC instants are strict fixed-width minute strings, never site-timezone Datetime fields. Sources and cancellation tombstones are retained. Source UID is case-sensitive: `uid_key` is SHA256 of exact UTF-8 UID and `(source,uid_key)` is unique, avoiding MariaDB case-insensitive collation changing identity. Creation requests are unique per `(owner,request_id)` and store only the canonical payload digest and target ID.
 
-App writes use Python-only ContextVar scope, live enabled-user/ACL checks and locked revision comparison. Standard ORM writes, deletions and app DocShare creation/update are rejected even when client flags are forged. Migration refuses pre-existing app DocShare rows; it never deletes them. Normal document changes do not create Version snapshots or realtime update broadcasts. Audit entries contain only actor/action/ID/revision plus logger time, not body or UID. No system timezone is changed.
+App writes use Python-only ContextVar scope, live enabled-user/ACL checks and locked revision comparison. Standard ORM writes, deletions and app DocShare creation/update are rejected even when client flags are forged. Migration refuses pre-existing app DocShare rows; it never deletes them. Normal document changes do not create Version snapshots or realtime update broadcasts. Audit rows contain only actor/action/target type/ID/revision plus Framework creation time, not body or UID, and roll back with the business transaction. No system timezone is changed.
 
 All app RPC endpoints are POST only at `team_schedule.api.*`, use the existing Frappe session/CSRF machinery, reject token Authorization and unknown parameters, and return a real HTTP `Cache-Control: no-store` response. The response envelope is `{message: ...}`. `export_owned` returns a private attachment directly, never a File record.
 
@@ -41,7 +42,7 @@ All app RPC endpoints are POST only at `team_schedule.api.*`, use the existing F
 - `service`: `detail`, `locked_schedule(name,expected_revision=None,mode='read')`, `create_schedule`, `mutate_schedule`, `assert_busy_access`.
 - ICS: `create_source(label)`, `get_source(source_id,lock=False)`, `lock_source_item(source_id,uid)`, `save_source_item(source_id,uid,values)`, `save_import_schedule(source_id,payload,schedule_name=None,expected_revision=None)`.
 
-`lock_source_item` first locks the source parent row, serializing absent as well as present UID mappings until commit. Import schedule updates preserve members. These interfaces do not commit: ICS must manage per-item savepoints, exact receipt-state checks, duplicate zero-write semantics and result classification. Frappe savepoints do not roll back Python after-commit callback registrations; callers must preserve/reset the callback queue when reverting an item. No HTTP endpoint exposes the internal write scope.
+`lock_source_item` first locks the source parent row, serializing absent as well as present UID mappings until commit. Import schedule updates preserve members. These interfaces do not commit: ICS must manage per-item savepoints, exact receipt-state checks, duplicate zero-write semantics and result classification. Metadata audit inserts occur in the same database transaction and naturally roll back with each item savepoint; callers do not manipulate Framework callback queues. No HTTP endpoint exposes the internal write scope.
 
 ## Current verification boundary
 

@@ -33,6 +33,24 @@ class ScheduleCase(FrappeTestCase):
 
 
 class TestModelService(ScheduleCase):
+    def test_audit_rolls_back_with_item_and_duplicate_does_not_audit(self):
+        before = frappe.db.count("Team Schedule Audit", {"actor": self.users[0]})
+        frappe.db.savepoint("synthetic_item")
+        failed = service.create_schedule(payload(), str(uuid4()))
+        self.assertGreater(frappe.db.count("Team Schedule Audit", {"actor": self.users[0]}), before)
+        frappe.db.rollback(save_point="synthetic_item")
+        self.assertEqual(frappe.db.count("Team Schedule Audit", {"actor": self.users[0]}), before)
+        self.assertFalse(frappe.db.exists("Team Schedule", failed.name))
+        request_id = str(uuid4())
+        doc = service.create_schedule(payload(), request_id)
+        committed_count = frappe.db.count("Team Schedule Audit", {"actor": self.users[0]})
+        service.create_schedule(payload(), request_id)
+        self.assertEqual(frappe.db.count("Team Schedule Audit", {"actor": self.users[0]}), committed_count)
+        entry = frappe.get_doc("Team Schedule Audit", {"target_name": doc.name})
+        self.assertEqual((entry.actor, entry.action, entry.revision), (self.users[0], "create", 1))
+        self.assertFalse(entry.get("title"))
+        self.assertFalse(entry.get("description"))
+
     def test_create_idempotency_and_conflict(self):
         request_id = str(uuid4())
         doc = service.create_schedule(payload(), request_id)

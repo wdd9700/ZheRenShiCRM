@@ -73,8 +73,11 @@ def detail(doc):
 
 
 def audit(doc, action):
-    entry = {"actor": frappe.session.user, "action": action, "id": doc.name, "revision": doc.get("revision")}
-    frappe.db.after_commit.add(lambda: frappe.logger("team_schedule").info(json.dumps(entry, sort_keys=True)))
+    actor = permissions.current_user()
+    with permissions.internal_write():
+        frappe.get_doc({"doctype": "Team Schedule Audit", "owner": actor, "actor": actor,
+                        "action": action, "target_doctype": doc.doctype,
+                        "target_name": doc.name, "revision": doc.get("revision") or 0}).insert()
 
 
 def lock_user(user):
@@ -212,7 +215,7 @@ def set_busy_grant(viewer_user, allow):
         insert("Team Schedule Busy Grant", {"subject_user": actor, "viewer_user": viewer_user}, "grant")
     elif not allow and name:
         frappe.db.delete("Team Schedule Busy Grant", {"name": name, "subject_user": actor})
-        audit(frappe._dict(name=name), "revoke_grant")
+        audit(frappe._dict(doctype="Team Schedule Busy Grant", name=name), "revoke_grant")
     return {"viewer_user": viewer_user, "allow": allow}
 
 

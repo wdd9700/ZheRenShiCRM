@@ -12,7 +12,7 @@ after_migrate = "team_schedule.patches.v1_constraints.execute"
 
 has_permission = {name: "team_schedule.permissions.has_permission" for name in (
     "Team Schedule", "Team Schedule Member", "Team Schedule Busy Grant",
-    "Team Schedule Source", "Team Schedule Source Item", "Team Schedule Request",
+    "Team Schedule Source", "Team Schedule Source Item", "Team Schedule Request", "Team Schedule Audit",
 )}
 permission_query_conditions = {
     "Team Schedule": "team_schedule.permissions.query_conditions",
@@ -21,6 +21,7 @@ permission_query_conditions = {
     "Team Schedule Source": "team_schedule.permissions.source_query",
     "Team Schedule Source Item": "team_schedule.permissions.source_item_query",
     "Team Schedule Request": "team_schedule.permissions.request_query",
+    "Team Schedule Audit": "team_schedule.permissions.request_query",
 }
 doc_events = {
     "DocShare": {"before_insert": "team_schedule.permissions.reject_share", "before_validate": "team_schedule.permissions.reject_share", "validate": "team_schedule.permissions.reject_share"},

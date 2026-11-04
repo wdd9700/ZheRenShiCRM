@@ -5,7 +5,7 @@ import frappe
 
 from team_schedule.timeutils import ScheduleError
 
-DOCTYPES = ("Team Schedule", "Team Schedule Member", "Team Schedule Busy Grant", "Team Schedule Source", "Team Schedule Source Item", "Team Schedule Request")
+DOCTYPES = ("Team Schedule", "Team Schedule Member", "Team Schedule Busy Grant", "Team Schedule Source", "Team Schedule Source Item", "Team Schedule Request", "Team Schedule Audit")
 _writing = ContextVar("team_schedule_writing", default=False)
 
 
@@ -26,7 +26,7 @@ def current_user():
     user = frappe.session.user
     if not user or user == "Guest":
         raise ScheduleError("AUTH_REQUIRED", 401)
-    if not frappe.db.get_value("User", user, "enabled"):
+    if not frappe.db.get_value("User", user, "enabled", for_update=True):
         raise ScheduleError("FORBIDDEN", 403)
     assert_no_shares()
     return user
@@ -50,7 +50,7 @@ def can_read(doc, user=None):
     user = user or frappe.session.user
     if not user or user == "Guest" or not frappe.db.get_value("User", user, "enabled"):
         return False
-    if doc.doctype == "Team Schedule Request":
+    if doc.doctype in ("Team Schedule Request", "Team Schedule Audit"):
         return writing() and doc.owner == user
     if doc.doctype == "Team Schedule Member":
         if doc.parenttype != "Team Schedule" or not doc.parent:
@@ -92,7 +92,7 @@ def query_conditions(user=None, doctype="Team Schedule"):
     assert_no_shares()
     if not user or user == "Guest" or not frappe.db.get_value("User", user, "enabled"):
         return "1=0"
-    if doctype == "Team Schedule Request":
+    if doctype in ("Team Schedule Request", "Team Schedule Audit"):
         return "1=0"
     if is_maintenance(user):
         return "1=1"
