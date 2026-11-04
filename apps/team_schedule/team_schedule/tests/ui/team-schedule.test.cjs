@@ -10,6 +10,8 @@ const {
   createSchedulePayload,
   collectResolutions,
   intervalsOverlap,
+  splitUtcWindow,
+  mergeUtcIntervals,
   parseUsers,
   formatUtc,
   zonedLocalInput,
@@ -141,4 +143,45 @@ test('ICS reader enforces UTF-8 and 1MiB without altering content', async () => 
   const invalid = new Uint8Array([0xff]);
   await assert.rejects(readIcsFile({size: 1, arrayBuffer: async () => invalid.buffer}), ExpectedError);
   await assert.rejects(readIcsFile({size: 1048577, arrayBuffer: async () => new ArrayBuffer(0)}), ExpectedError);
+});
+
+test('busy precheck windows cover 8 and 31 days in contiguous segments of at most 7 days', () => {
+  for (const [end, count] of [['2026-11-09T09:42:00Z', 2], ['2026-12-02T09:07:00Z', 5]]) {
+    const start = '2026-11-01T09:07:00Z';
+    const windows = splitUtcWindow(start, end);
+    assert.equal(windows.length, count);
+    assert.equal(windows[0].start_utc, start);
+    assert.equal(windows.at(-1).end_utc, end);
+    for (let index = 0; index < windows.length; index += 1) {
+      assert.ok(Date.parse(windows[index].end_utc) - Date.parse(windows[index].start_utc) <= 7 * 86400000);
+      if (index) assert.equal(windows[index].start_utc, windows[index - 1].end_utc);
+    }
+  }
+});
+
+test('busy intervals are merged across precheck segment boundaries', () => {
+  assert.deepEqual(mergeUtcIntervals([
+    {start_utc: '2026-11-08T00:00:00Z', end_utc: '2026-11-08T02:00:00Z'},
+    {start_utc: '2026-11-07T23:00:00Z', end_utc: '2026-11-08T00:00:00Z'},
+    {start_utc: '2026-11-09T00:00:00Z', end_utc: '2026-11-09T01:00:00Z'}
+  ]), [
+    {start_utc: '2026-11-07T23:00:00Z', end_utc: '2026-11-08T02:00:00Z'},
+    {start_utc: '2026-11-09T00:00:00Z', end_utc: '2026-11-09T01:00:00Z'}
+  ]);
+});
+
+test('Framework non-envelope rejections stay distinct from explicit application errors', async () => {
+  for (const [status, body] of [[403, {exc_type: 'PermissionError', _server_messages: '[]'}], [417, {exc_type: 'ValidationError'}]]) {
+    const client = createClient({csrfToken: 'token', fetchImpl: async () => response(body, false, status)});
+    await assert.rejects(client.post('get', {name: 'private'}), error => {
+      assert.equal(error.code, 'FRAMEWORK_REJECTED');
+      assert.equal(error.status, status);
+      assert.equal(error.business, false);
+      return true;
+    });
+  }
+  const invalidJson = createClient({csrfToken: 'token', fetchImpl: async () => ({ok: false, status: 403, json: async () => { throw new Error('not JSON'); }})});
+  await assert.rejects(invalidJson.post('get', {name: 'private'}), error => error.code === 'FRAMEWORK_REJECTED' && error.status === 403 && !error.business);
+  const application = createClient({csrfToken: 'token', fetchImpl: async () => response({message: {error: {code: 'INVALID_INPUT'}}}, false, 417)});
+  await assert.rejects(application.post('resolve_local', {}), error => error.code === 'INVALID_INPUT' && error.status === 417 && error.business);
 });

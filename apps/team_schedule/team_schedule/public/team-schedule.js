@@ -19,21 +19,24 @@
     DEPENDENCY_UNAVAILABLE: 'ICS解析依赖当前不可用，未预览或导入。',
     INTERNAL_ERROR: '服务端暂不可用，未显示旧业务数据。',
     INVALID_RESPONSE: '服务端未返回有效结果，未显示旧业务数据。',
+    FRAMEWORK_REJECTED: 'Framework拒绝了请求；敏感编辑已清除，请重新核验会话、权限与输入。',
     NETWORK_ERROR: '网络请求失败，结果未知；旧业务显示已清除，请重新核验。'
   };
 
   class ApiError extends Error {
-    constructor(code, status = 0, details = {}) {
+    constructor(code, status = 0, details = {}, business = false) {
       super(code);
       this.name = 'ApiError';
       this.code = code;
       this.status = status;
       this.offsetMinutes = details.offset_minutes;
+      this.business = business;
       this.field = null;
     }
   }
 
   class ExpectedError extends Error {}
+  class StaleOperation extends Error {}
 
   function safeErrorText(error) {
     return ERROR_TEXT[error && error.code] || ERROR_TEXT.INVALID_RESPONSE;
@@ -63,13 +66,14 @@
       try {
         body = await response.json();
       } catch {
-        throw new ApiError(response.status === 401 ? 'AUTH_REQUIRED' : 'INVALID_RESPONSE', response.status);
+        throw new ApiError(response.ok ? 'INVALID_RESPONSE' : 'FRAMEWORK_REJECTED', response.status);
       }
       const message = body && body.message;
+      const businessError = Boolean(message && message.error && typeof message.error === 'object' && message.error.code);
       if (!response.ok) {
-        const code = message && message.error && message.error.code;
-        const details = message && message.error && typeof message.error === 'object' ? message.error : {};
-        throw new ApiError(code || (response.status === 401 ? 'AUTH_REQUIRED' : 'INVALID_RESPONSE'), response.status, details);
+        const code = businessError ? message.error.code : 'FRAMEWORK_REJECTED';
+        const details = businessError ? message.error : {};
+        throw new ApiError(code, response.status, details, businessError);
       }
       if (!message || typeof message !== 'object') {
         throw new ApiError('INVALID_RESPONSE', response.status);
@@ -85,10 +89,12 @@
     return client.post('resolve_local', payload);
   }
 
-  async function resolveRange(client, options) {
+  async function resolveRange(client, options, checkOperation = () => {}) {
+    checkOperation();
     let start;
     try {
       start = await resolveLocal(client, options.startLocal, options.timezone, options.startOffset);
+      checkOperation();
     } catch (error) {
       error.field = 'start';
       throw error;
@@ -96,6 +102,7 @@
     let end;
     try {
       end = await resolveLocal(client, options.endLocal, options.timezone, options.endOffset);
+      checkOperation();
     } catch (error) {
       error.field = 'end';
       throw error;
@@ -141,6 +148,39 @@
 
   function intervalsOverlap(startA, endA, startB, endB) {
     return startA < endB && endA > startB;
+  }
+
+  function encodeUtcMinute(value) {
+    return value.toISOString().replace(/:\d{2}\.\d{3}Z$/, ':00Z');
+  }
+
+  function splitUtcWindow(startUtc, endUtc, maxDays = 7) {
+    const start = Date.parse(startUtc);
+    const end = Date.parse(endUtc);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new ExpectedError('窗口结束必须晚于开始。');
+    const maximum = maxDays * 86400000;
+    const windows = [];
+    for (let cursor = start; cursor < end;) {
+      const next = Math.min(cursor + maximum, end);
+      windows.push({start_utc: encodeUtcMinute(new Date(cursor)), end_utc: encodeUtcMinute(new Date(next))});
+      cursor = next;
+    }
+    return windows;
+  }
+
+  function mergeUtcIntervals(intervals) {
+    const sorted = intervals.map(interval => ({...interval})).sort((a, b) => a.start_utc.localeCompare(b.start_utc));
+    const merged = [];
+    for (const interval of sorted) {
+      const previous = merged[merged.length - 1];
+      if (previous && interval.start_utc <= previous.end_utc) previous.end_utc = previous.end_utc > interval.end_utc ? previous.end_utc : interval.end_utc;
+      else merged.push(interval);
+    }
+    return merged;
+  }
+
+  function assertOperation(state, epoch) {
+    if (state.epoch !== epoch) throw new StaleOperation();
   }
 
   function parseUsers(value, currentUser) {
@@ -306,17 +346,22 @@
       return value === '' ? null : Number(value);
     }
 
-    async function resolveFormRange(prefix) {
+    async function resolveFormRange(prefix, epoch) {
+      assertOperation(state, epoch);
       try {
-        return await resolveRange(client, {
+        const range = await resolveRange(client, {
           startLocal: $(prefix + '-start').value,
           endLocal: $(prefix + '-end').value,
           timezone: $(prefix + '-timezone').value,
           startOffset: selectedOffset(prefix, 'start'),
           endOffset: selectedOffset(prefix, 'end')
-        });
+        }, () => assertOperation(state, epoch));
+        assertOperation(state, epoch);
+        return range;
       } catch (error) {
+        if (error instanceof StaleOperation) throw error;
         if (error.code === 'AMBIGUOUS_LOCAL_TIME' && error.field) {
+          assertOperation(state, epoch);
           showOffsetChoices(prefix, error.field, error.offsetMinutes);
           throw new ExpectedError('该当地时间有双重DST解释，请选择' + (error.field === 'start' ? '开始' : '结束') + '时间的offset后重新提交。');
         }
@@ -355,20 +400,22 @@
       if (clearDrafts) {
         resetEditor();
         $('source-label').value = '';
+        $('existing-source-id').value = '';
         $('viewer-user').value = '';
         $('busy-users').value = '';
       }
     }
 
-    function identityFailure(error) {
-      return ['AUTH_REQUIRED', 'FORBIDDEN', 'NOT_FOUND', 'REVISION_CONFLICT'].includes(error.code);
+    function requiresDraftClear(error) {
+      if (error.business) return ['AUTH_REQUIRED', 'FORBIDDEN', 'NOT_FOUND', 'REVISION_CONFLICT'].includes(error.code);
+      return error.status >= 400;
     }
 
     function fail(error, statusId) {
-      const clearDrafts = identityFailure(error);
+      const clearDrafts = requiresDraftClear(error);
       clearBusiness({clearDrafts});
       message(statusId, safeErrorText(error), true);
-      message('session-status', clearDrafts ? '身份、权限或版本边界已变化；内存业务数据和草稿已清除。' : '请求失败；已清除旧业务显示，请重新加载并核验。', true);
+      message('session-status', clearDrafts ? '身份、权限、版本或Framework拒绝边界已触发；内存业务数据和敏感草稿已清除。' : '请求失败；已清除旧业务显示，请重新加载并核验。', true);
     }
 
     function addMemberRow(container, member = null) {
@@ -490,8 +537,8 @@
       renderDetails();
     }
 
-    async function fetchList(query, append = false) {
-      const epoch = state.epoch;
+    async function fetchList(query, append, epoch) {
+      assertOperation(state, epoch);
       if (!append) {
         state.items = [];
         state.selected = null;
@@ -508,14 +555,15 @@
           cursor: append ? state.nextCursor : null,
           limit: 100
         });
-        if (epoch !== state.epoch) return;
+        assertOperation(state, epoch);
         state.items = append ? state.items.concat(result.items || []) : (result.items || []);
         state.nextCursor = result.next_cursor || null;
         state.listQuery = query;
         renderSchedules();
         message('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC offset。');
       } catch (error) {
-        if (epoch === state.epoch) fail(error, 'list-status');
+        if (error instanceof StaleOperation || epoch !== state.epoch) return;
+        fail(error, 'list-status');
       }
     }
 
@@ -535,18 +583,26 @@
       }
     }
 
-    async function confirmOwnOverlap(range, timezone) {
-      const result = await client.post('query', {
-        users: [currentUser],
-        start_utc: range.start_utc,
-        end_utc: range.end_utc,
-        min_minutes: 1,
-        display_timezone: timezone
-      }, 'team_schedule.availability.api');
-      const own = (result.busy || []).find(item => item.user === currentUser);
-      const overlaps = (own ? own.intervals : []).filter(interval => intervalsOverlap(range.start_utc, range.end_utc, interval.start_utc, interval.end_utc));
+    async function confirmOwnOverlap(range, timezone, epoch) {
+      const intervals = [];
+      const windows = splitUtcWindow(range.start_utc, range.end_utc);
+      for (const window of windows) {
+        assertOperation(state, epoch);
+        const result = await client.post('query', {
+          users: [currentUser],
+          start_utc: window.start_utc,
+          end_utc: window.end_utc,
+          min_minutes: 1,
+          display_timezone: timezone
+        }, 'team_schedule.availability.api');
+        assertOperation(state, epoch);
+        const own = (result.busy || []).find(item => item.user === currentUser);
+        if (own) intervals.push(...(own.intervals || []));
+      }
+      const overlaps = mergeUtcIntervals(intervals).filter(interval => intervalsOverlap(range.start_utc, range.end_utc, interval.start_utc, interval.end_utc));
       if (!overlaps.length) return true;
       const text = overlaps.map(interval => formatUtc(interval.start_utc, timezone) + ' 至 ' + formatUtc(interval.end_utc, timezone)).join('\n');
+      assertOperation(state, epoch);
       return window.confirm('本次时间与以下本人Busy区间交叠：\n' + text + '\n这只是查询快照，不会锁定时间。仍要保存吗？');
     }
 
@@ -556,7 +612,7 @@
       $('schedule-submit').disabled = true;
       message('schedule-status', '正在解析当地时间…');
       try {
-        const range = await resolveFormRange('schedule');
+        const range = await resolveFormRange('schedule', epoch);
         const editingName = $('editing-name').value;
         const values = {
           title: $('schedule-title').value,
@@ -568,7 +624,7 @@
         if (range.start_utc >= range.end_utc) throw new ExpectedError('结束必须晚于开始。');
         const members = editingName ? [] : collectMembers($('create-member-rows'));
         message('schedule-status', '正在检查本人忙闲交叠…');
-        const confirmed = await confirmOwnOverlap(range, values.timezone);
+        const confirmed = await confirmOwnOverlap(range, values.timezone, epoch);
         if (epoch !== state.epoch) return;
         if (!confirmed) {
           message('schedule-status', '未保存；可修改时间后重试。');
@@ -597,7 +653,7 @@
         state.selected = saved;
         renderDetails();
         message('schedule-status', (editingName ? '已更新' : '已创建') + '日程，当前revision=' + saved.revision + '。');
-        if (state.listQuery) await fetchList(state.listQuery);
+        if (state.listQuery) await fetchList(state.listQuery, false, epoch);
       } catch (error) {
         if (epoch !== state.epoch) return;
         if (error instanceof ExpectedError) message('schedule-status', error.message, true);
@@ -693,7 +749,7 @@
       const epoch = state.epoch;
       $('busy-results').replaceChildren();
       try {
-        const range = await resolveFormRange('busy');
+        const range = await resolveFormRange('busy', epoch);
         const users = parseUsers($('busy-users').value, currentUser);
         const timezone = $('busy-timezone').value;
         const result = await client.post('query', {
@@ -732,12 +788,29 @@
         state.ics.sourceId = result.source_id;
         state.ics.receipt = '';
         state.ics.items = [];
+        $('existing-source-id').value = result.source_id;
         $('ics-preview-panel').hidden = true;
         $('ics-preview').disabled = !state.ics.fileBase64;
-        message('source-status', '来源已创建，ID：' + result.source_id + '。请选择文件并预览。');
+        message('source-status', '来源已创建，ID：' + result.source_id + '。请保存该ID；刷新后可手动输入复用。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'source-status');
       }
+    }
+
+    function useExistingSource(event) {
+      event.preventDefault();
+      const sourceId = $('existing-source-id').value.trim();
+      if (!sourceId) {
+        message('source-status', '请输入此前明确显示的source_id。', true);
+        return;
+      }
+      state.ics.sourceId = sourceId;
+      state.ics.receipt = '';
+      state.ics.items = [];
+      $('ics-preview-panel').hidden = true;
+      $('ics-result-table').replaceChildren();
+      $('ics-preview').disabled = !state.ics.fileBase64;
+      message('source-status', '已选择已有来源；尚未恢复业务数据，预览和应用时将由服务端重新校验归属与权限。');
     }
 
     async function fileChanged() {
@@ -841,7 +914,7 @@
         $('ics-confirm').checked = false;
         updateIcsApply();
         message('ics-status', '服务端已返回逐项结果；未选覆盖的冲突项不会被写入。请重新预览以再次应用。');
-        if (state.listQuery) await fetchList(state.listQuery);
+        if (state.listQuery) await fetchList(state.listQuery, false, epoch);
       } catch (error) {
         if (epoch !== state.epoch) return;
         if (error instanceof ExpectedError) message('ics-status', error.message, true);
@@ -877,21 +950,22 @@
       event.preventDefault();
       const epoch = state.epoch;
       try {
-        const range = await resolveFormRange('list');
+        const range = await resolveFormRange('list', epoch);
+        assertOperation(state, epoch);
         if (range.start_utc >= range.end_utc) throw new ExpectedError('窗口结束必须晚于开始。');
         await fetchList({
           startUtc: range.start_utc,
           endUtc: range.end_utc,
           includeCancelled: $('include-cancelled').checked,
           timezone: $('list-timezone').value
-        });
+        }, false, epoch);
       } catch (error) {
-        if (epoch !== state.epoch) return;
+        if (error instanceof StaleOperation || epoch !== state.epoch) return;
         if (error instanceof ExpectedError) message('list-status', error.message, true);
         else fail(error, 'list-status');
       }
     });
-    $('list-more').addEventListener('click', () => { if (state.listQuery) fetchList(state.listQuery, true); });
+    $('list-more').addEventListener('click', () => { if (state.listQuery) fetchList(state.listQuery, true, state.epoch); });
     $('edit-schedule').addEventListener('click', editSelected);
     $('cancel-schedule').addEventListener('click', cancelSelected);
     $('save-members').addEventListener('click', saveMembers);
@@ -899,6 +973,7 @@
     $('grant-form').addEventListener('submit', saveGrant);
     $('availability-form').addEventListener('submit', queryAvailability);
     $('source-form').addEventListener('submit', createSource);
+    $('existing-source-form').addEventListener('submit', useExistingSource);
     $('ics-file').addEventListener('change', fileChanged);
     $('ics-preview').addEventListener('click', previewIcs);
     $('ics-confirm').addEventListener('change', updateIcsApply);
@@ -917,6 +992,8 @@
     createSchedulePayload,
     collectResolutions,
     intervalsOverlap,
+    splitUtcWindow,
+    mergeUtcIntervals,
     parseUsers,
     formatOffset,
     formatUtc,

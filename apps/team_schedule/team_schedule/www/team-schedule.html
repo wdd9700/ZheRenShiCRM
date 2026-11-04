@@ -143,6 +143,12 @@
       <input id="source-label" maxlength="140" required>
       <button class="primary" type="submit">创建导入来源</button>
     </form>
+    <form id="existing-source-form">
+      <label for="existing-source-id">已有来源ID（刷新后可手动输入此前显示的source_id）</label>
+      <input id="existing-source-id" required>
+      <button type="submit">使用已有来源</button>
+      <p class="muted">这里不恢复任何本地业务缓存；预览和应用时仍由服务端重新校验来源归属与权限，失败不会自动新建来源。</p>
+    </form>
     <p id="source-status" class="status" role="status" aria-live="polite"></p>
     <div>
       <label for="ics-file">ICS文件</label>

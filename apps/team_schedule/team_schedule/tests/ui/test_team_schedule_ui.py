@@ -28,7 +28,8 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         for element_id in (
             "schedule-form", "list-form", "detail-panel", "member-panel",
             "participation-panel", "grant-form", "availability-form",
-            "source-form", "ics-file", "ics-preview", "ics-confirm", "ics-apply",
+            "source-form", "existing-source-form", "existing-source-id",
+            "ics-file", "ics-preview", "ics-confirm", "ics-apply",
         ):
             self.assertIn(f'id="{element_id}"', source)
         self.assertNotIn("30/60", source)
@@ -47,7 +48,11 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for UI interaction tests")
     def test_node_interaction_and_request_contracts(self):
         result = subprocess.run(
-            ["node", "--test", str(TEST_DIR / "team-schedule.test.cjs")],
+            [
+                "node", "--test",
+                str(TEST_DIR / "team-schedule.test.cjs"),
+                str(TEST_DIR / "team-schedule-dom.test.cjs"),
+            ],
             cwd=TEST_DIR,
             text=True,
             capture_output=True,
