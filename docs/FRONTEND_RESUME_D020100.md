@@ -7,7 +7,15 @@
 - foundation `36521b0`，未 revert/amend/merge/cherry-pick。M20 已审 `87386bc8493b9e0605224adfdcf3aacd42595d6f` 的初始化诊断、允许值列表、first-failure 与 DEV Promise 错误链作为前置保留，归属 M20。
 - D020100（Provisional）：采用明确页面/草稿适配器、新 Vue/Pinia/socket 运行域与模块缓存隔离。不遍历资源 reload、不自动重放写请求、不做通用 Vue 快照、不仅凭同 user 揭罩。
 - 恢复顺序：先遮罩 → 捕获允许的同标签内存草稿 → 旧 epoch 失效/停止运行域 → 服务端身份 → 当前页面 fresh read/create 权限 → fresh 只读请求和新域挂载 → mounted 页面/详情活动区登记 → 等待读请求与 Vue 更新达到稳定修订号 → 第二次服务端身份和 epoch 复核 → 揭罩。恢复最多 15 秒，失败遮罩且可显式重试；再次 hidden 使旧恢复失效。
-- 初始 hidden 不发身份请求/不挂载；BFCache 回归走相同屏障。账号广播、cookie 变化、Guest、身份变化、认证/权限拒绝终止恢复，清草稿和旧敏感引用。
+- 初始 hidden 也执行带超时的 no-store 服务端身份握手，但不挂载/不揭罩/不允许业务请求；成功进入 `BOOT_WAIT_VISIBLE`，显示“服务端身份已确认；当前标签在后台，业务读取仍暂停”。真正 visible 后重新核验身份才初始化；若握手进行中变 visible，同样补第二次身份核验。后台单独 focus 不假装可见，不重复请求；真实已 visible 的 focus 可唤起等待。后台失败保留明确允许值诊断及重试，Guest/账号/cookie/广播变化仍终锁；BFCache/epoch 使旧握手不能提交。
+
+### 初始后台握手修复与合并基线
+
+经授权将 M24 rebase 到 master `efff5469744a0808679e3edf8b3e44fad1337c84`，逐冲突保留 M20 诊断和 M24 恢复实现；rebase 后、修复前 `ffd0b26` 的 production payload/source_edits/manifest 与原 `1e01550` 完全相同。合并测试保留 M20 no-store、DEV socket、cookie 和诊断值允许列表断言；旧“hidden 永久终锁”期望由 M24 恢复契约替代。
+
+主控真实证据是部分导航链停在原始 `IDENTITY/NONE/NONE`，同样后台真实点击活动页 `/crm` 链接却可建 Lead；因此不能归因为所有后台都失败，也不能把 `panelVisible=false` 等同已测 document.hidden。源码握手不读取 pathname，`/crm` 与 `/crm/` 的真实重定向/加载生命周期差异仍需 M9 与正常 browser 定向复验，不能靠路径特判修复。此修复只消除“实际初始 hidden 时连身份握手都不开始”的确定代码路径，不声称已证明它是所有挂起的唯一根因。后台业务仍暂停是明确安全行为，不要求用户盯面板才能完成身份确认。
+
+本轮本地四 suite 50/50 pass；新增实际 boundary/main 回归覆盖后台身份成功但 ready 不解锁/零 mount/零插件、业务读写拒绝、真实 visible/focus 后再验、握手中 visible、后台 Guest/HTTP/redirect/响应错误/离线/超时及重试、账号/cookie/广播变化、BFCache 旧响应与单 flight。运行环境未触碰；新 tip 标准构建/native/bridge 和正常 UI 验收由 M9 独占，待独审后进行。
 
 ## 支持边界
 

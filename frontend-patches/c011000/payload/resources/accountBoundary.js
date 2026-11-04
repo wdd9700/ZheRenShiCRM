@@ -89,9 +89,9 @@ export function createAccountBoundary(env) {
       throw Object.assign(new Error('CRM account boundary is locked; inactive epoch'), { name: 'AbortError' })
     }
   }
-  function assertRecovery(id) {
+  function assertRecovery(id, identityOnly = false) {
     if (env.cookie() !== cookieHint) lock('检测到账号会话变化。', 'SESSION_CHANGED')
-    if (id !== epoch || env.hidden() || state === 'IDENTITY_REQUIRED') {
+    if (id !== epoch || (!identityOnly && env.hidden()) || state === 'IDENTITY_REQUIRED') {
       throw Object.assign(new Error('Recovery superseded'), { name: 'AbortError' })
     }
   }
@@ -122,25 +122,38 @@ export function createAccountBoundary(env) {
     assertRecovery(id)
     if (hydrationError) throw hydrationError
   }
-  async function identity(id) {
+  async function identity(id, identityOnly = false) {
     const value = await env.identify()
-    assertRecovery(id)
+    assertRecovery(id, identityOnly)
     if (typeof value !== 'string' || !value || value === 'Guest') throw new IdentityFailure('IDENTITY_INVALID')
     if (user && user !== value) throw new IdentityFailure('ACCOUNT_CHANGED')
     return value
   }
   function resume() {
-    if (env.hidden() || state === 'ACTIVE' || state === 'IDENTITY_REQUIRED') return Promise.resolve()
+    if (state === 'ACTIVE' || state === 'IDENTITY_REQUIRED' ||
+        (env.hidden() && (booted || state === 'BOOT_WAIT_VISIBLE'))) return Promise.resolve()
     if (flight?.epoch === epoch) return flight.promise
     if (booted) {
       try { adapter?.stop?.(); invalidate() }
       catch { lock('无法隔离旧运行域，请重新登录。'); return Promise.resolve() }
     }
     const id = epoch
+    const startedHidden = env.hidden()
     const promise = Promise.resolve().then(async () => {
-      assertRecovery(id)
+      assertRecovery(id, !booted)
+      if (!booted) stage = 'IDENTITY'
       state = 'VERIFY_IDENTITY'; publish()
-      const value = await identity(id)
+      const value = await identity(id, !booted)
+      if (!booted) {
+        user = value
+        if (env.hidden()) {
+          state = 'BOOT_WAIT_VISIBLE'; stage = 'IDENTITY_CONFIRMED'; publish()
+          env.cover('服务端身份已确认；当前标签在后台，业务读取仍暂停。标签正常可见后将再次核验身份再载入业务。', false)
+          return
+        }
+        if (startedHidden) await identity(id)
+        assertRecovery(id)
+      }
       let prepared
       if (booted) {
         if (!adapter) throw Error('Unsupported current page')
@@ -167,7 +180,7 @@ export function createAccountBoundary(env) {
       prepared?.afterCommit?.()
       resolveReady()
     }).catch(error => {
-      if (id !== epoch || state === 'IDENTITY_REQUIRED' || env.hidden()) return
+      if (id !== epoch || state === 'IDENTITY_REQUIRED' || (booted && env.hidden())) return
       try { adapter?.stop?.() }
       catch { return lock('无法隔离旧运行域，请重新登录。') }
       if (error instanceof IdentityFailure && ['IDENTITY_INVALID', 'ACCOUNT_CHANGED', 'SESSION_CHANGED'].includes(error.code)) {
@@ -206,14 +219,17 @@ export function createAccountBoundary(env) {
   }
   publish()
   env.cover('正在向服务端确认当前账号；不读取历史业务缓存。', false)
-  env.on('visibilitychange', () => { if (env.hidden()) pause(); else void resume() })
+  env.on('visibilitychange', () => {
+    if (env.hidden()) { pause(); if (!booted) void resume() }
+    else void resume()
+  })
   env.on('pageshow', event => { if (event.persisted) { pause('HISTORY_RESTORED'); void resume() } })
   env.on('focus', () => {
     if (env.cookie() !== cookieHint) lock('检测到账号会话变化。', 'SESSION_CHANGED')
-    else if (state === 'SUSPENDED') void resume()
+    else if (state === 'SUSPENDED' || state === 'BOOT_WAIT_VISIBLE') void resume()
   })
   env.on('account-change', () => lock('另一标签的账号会话发生变化。', 'ACCOUNT_CHANGED'))
-  if (!env.hidden()) void resume()
+  void resume()
   return { scope, ready, get user() { return user }, get epoch() { return epoch }, get state() { return state },
     get diagnostic() { return diagnostic() }, assertActive, failed, lock, markStage, initializationFailed,
     resume, pause, assertRequest, track, get readRevision() { return readRevision },
