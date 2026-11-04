@@ -60,7 +60,13 @@ P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m20-public-frontend-evidence-3828e3
 - `CommunicationArea` 的 email/comment/signature/attachments 原 `useStorage` 路径全部改为组件内存 ref，不读写也不删除旧持久 key；`communicationEditorHeight` 非敏感偏好保持。收起的邮箱/评论/附件及收件人/主题变化由显式 registry 识别，capture 同时检查所有 contenteditable，不只第一个。未支持编辑器重试/再次 hidden 不销毁原内存；身份/Guest/权限拒绝或显式丢弃会清除内存，新挂载/刷新不会读回旧持久草稿。旧 key 仍留在浏览器，不宣称已安全擦除；回滚到旧版可能重新读取，回滚须另行决定这四类业务 key 的定向迁移/清理，不能无差别删存储。
 - 新增 `crm.api.get_unsubscribed_emails` 恢复期只读允许项前核了固定 commit 的 [服务端函数](https://raw.githubusercontent.com/frappe/crm/36bd8859f2a6345a620477bc708d0546e8c3f08a/crm/api/__init__.py)：先 `frappe.has_permission(doctype, "read", name, throw=True)`，随后只 select Email Unsubscribe，无写操作。测试实际执行转换后的 CommunicationArea setup 与固定 EmailEditor immediate recipient watcher，带非空 email、合成 unsubscribe 列表响应走恢复链；仍不是对真实 HTTP 服务的实测。
 - 新增 3 组真实运行回归：默认活动非空 email 正常恢复；收起邮件/评论/附件检测，账号/Guest/撤权清内存、重新挂载不访问旧 key；多 contenteditable 和明确丢弃。原 unsupported 编辑器连续 hide 也有独立回归。
-- real-runtime source loader 严格接受每个 manifest before 或 after SHA：before 转换并复核 after；after 原字节执行；其余 drift 拒绝。因此 bridge 可运行已 patch cwd，不会重复套 source edit。`C011100_SOURCE_ROOT` 可分离只读源码证据，`C011100_FRONTEND_ROOT` 只为既有依赖定位；`check_apply` 在设置后者时自动再以重放后的 after fixture 运行真实测试。生产 apply 的 before 门槛没有放宽。Python 默认 Windows `python`、Linux `python3`，可 `C011100_PYTHON` 指定。
+- real-runtime source loader 默认严格接受每个 manifest before 或 after SHA：before 转换并复核 after；after 原字节执行；其余 drift 拒绝。因此 bridge 可运行已 patch cwd，不会重复套 source edit。`C011100_SOURCE_ROOT` 可分离只读源码证据，`C011100_FRONTEND_ROOT` 只为既有依赖定位；`check_apply` 在设置后者时自动再以重放后的 after fixture 运行真实测试。生产 apply 的 before 门槛没有放宽。Python 默认 Windows `python`、Linux `python3`，可 `C011100_PYTHON` 指定。
+
+## 已审导航叠加的测试采证契约
+
+最终组合的四 suite 子进程曾真实 exit 1，原因是 Sidebar 已合法叠加导航，而旧 loader 仅接受 M24 before/after，并非 Vue/Pinia 行为失败。测试专用 `runtime_sources.py` 额外仅接受已审 `l3-scheduling@4ff499e` 的 Sidebar after `e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852`。随测试保存该 commit 的原始 manifest，SHA256 固定为 `74787afa31373457e9b91fa8ea6f53e4e3317854670656558579df0762b75670`；核 manifest overlap 与 M24 before/after 一致，逆序撤回其中恰好三处唯一 replacement 后，必须还原 M24 after SHA，且保留 accountBoundary import/HYDRATING 守卫。返回并解析的仍是实际组合源码，不替换为旧 Sidebar。未知 hash、manifest/变换/守卫漂移均拒绝，其余文件仍保持精确 before/after；生产 apply/payload 未改。
+
+本地四 suite 当前 46/46 pass，新增回归覆盖原 before/after、合法组合及 manifest、overlap、守卫、所有目标未知字节拒绝。M9 最终组合 native 已采证 exit 0、34 files / 326 tests pass、无 Vitest-reported unhandled；stderr 仍有 2 AbortError、16 ECONNREFUSED。实际 happy-dom Fetch.onError 会先 console.error 再 reject，Vitest teardown 调用 happyDOM.abort 会 destroy(error)，这与报告未消费 Promise 的语义不同；连接拒绝逐条 URL 不能仅由 Node 栈归因，不能宣称 stderr 全无错误。测试契约新 tip 的独审与 M9 定向 bridge 复验仍待完成；无需重 build/native。
 
 ## 尚待门槛
 

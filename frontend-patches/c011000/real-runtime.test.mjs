@@ -17,24 +17,53 @@ const vue = require('vue'), pinia = require('pinia')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const here = fileURLToPath(new URL('.', import.meta.url))
 const python = process.env.C011100_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
-const sources = JSON.parse(execFileSync(python, ['-c',
-  `import sys,json,hashlib
+const sources = JSON.parse(execFileSync(python, [resolve(here, 'runtime_sources.py'),
+  process.env.C011100_SOURCE_ROOT || root], { encoding: 'utf8' }))
+
+test('runtime evidence accepts only the audited three navigation edits and preserves exact resume guards', () => {
+  execFileSync(python, ['-c', `import sys,json
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
+from runtime_sources import SIDEBAR,NAV_AFTER,HERE,sha,navigation_contract,normalize_source
 from source_edits import SOURCE_EDITS,transform
-p=Path(sys.argv[2]).parent
-manifest={e['target']:e for e in json.loads((Path(sys.argv[1])/'manifest.json').read_text())}
-sources={}
-for t in SOURCE_EDITS:
- data=(p/t).read_bytes()
- sha=hashlib.sha256(data).hexdigest()
- e=manifest[t]
- if sha==e['before']: data=transform(t,data)
- elif sha!=e['after']: raise ValueError('Runtime source evidence drift: '+t)
- if hashlib.sha256(data).hexdigest()!=e['after']: raise ValueError('Runtime transformed source drift: '+t)
- sources[t]=data.decode('utf-8')
-print(json.dumps(sources))`,
-  here, process.env.C011100_SOURCE_ROOT || root], { encoding: 'utf8' }))
+manifest={e['target']:e for e in json.loads((HERE/'manifest.json').read_text())}
+entry=manifest[SIDEBAR]
+edits=navigation_contract(entry)
+actual=json.loads(sys.stdin.buffer.read().decode('utf-8'))
+after=actual[SIDEBAR]
+if sha(after.encode())==NAV_AFTER:
+ for edit in reversed(edits): after=after.replace(edit['replacement'],edit['anchor'])
+assert sha(after.encode())==entry['after']
+before=after
+for anchor,replacement in reversed(SOURCE_EDITS[SIDEBAR]):
+ assert before.count(replacement)==1
+ before=before.replace(replacement,anchor)
+assert sha(before.encode())==entry['before']
+assert normalize_source(SIDEBAR,before.encode(),entry)==after.encode()
+assert normalize_source(SIDEBAR,after.encode(),entry)==after.encode()
+combined=after
+for edit in edits:
+ assert combined.count(edit['anchor'])==1
+ combined=combined.replace(edit['anchor'],edit['replacement'])
+assert sha(combined.encode())==NAV_AFTER
+assert normalize_source(SIDEBAR,combined.encode(),entry)==combined.encode()
+def refused(fn):
+ try: fn()
+ except ValueError: return
+ raise AssertionError('Expected evidence refusal')
+manifest_data=(HERE/'runtime-evidence/l3-scheduling-4ff499e.json').read_bytes()
+refused(lambda: normalize_source(SIDEBAR,combined.encode(),entry,manifest_data+b' '))
+changed=json.loads(manifest_data)
+changed['targets'][0]['edits'][0]['replacement']+='DRIFT'
+refused(lambda: navigation_contract(entry,json.dumps(changed).encode()))
+refused(lambda: navigation_contract(dict(entry,after='wrong')))
+for token in [\"import { accountBoundary }\",\"accountBoundary.state === 'HYDRATING'\"]:
+ assert token in combined
+ refused(lambda: normalize_source(SIDEBAR,combined.replace(token,'REMOVED').encode(),entry))
+for target,source in actual.items():
+ refused(lambda: normalize_source(target,(source+'\\nDRIFT').encode(),manifest[target]))
+`, here], { encoding: 'utf8', input: JSON.stringify(sources) })
+})
 const documentCode = sources['frontend/src/data/document.js']
 const communicationScript = sources['frontend/src/components/CommunicationArea.vue'].match(/<script[^>]*>([\s\S]*?)<\/script>/)[1]
 const { parse: parseScript } = require('@babel/parser')
