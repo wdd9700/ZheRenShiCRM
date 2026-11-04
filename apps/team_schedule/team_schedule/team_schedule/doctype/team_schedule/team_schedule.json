@@ -1,0 +1,16 @@
+{
+ "doctype": "DocType", "name": "Team Schedule", "module": "Team Schedule", "autoname": "hash", "engine": "InnoDB", "track_changes": 0, "allow_import": 0, "allow_rename": 0, "index_web_pages_for_search": 0,
+ "field_order": ["title", "description", "start_utc", "end_utc", "source_timezone", "status", "availability", "revision", "members"],
+ "fields": [
+  {"fieldname":"title","label":"Title","fieldtype":"Data","length":140,"reqd":1},
+  {"fieldname":"description","label":"Description","fieldtype":"Small Text"},
+  {"fieldname":"start_utc","label":"Start UTC","fieldtype":"Data","length":20,"reqd":1},
+  {"fieldname":"end_utc","label":"End UTC","fieldtype":"Data","length":20,"reqd":1},
+  {"fieldname":"source_timezone","label":"Source Timezone","fieldtype":"Data","reqd":1},
+  {"fieldname":"status","label":"Status","fieldtype":"Select","options":"Active\nCancelled","default":"Active","reqd":1},
+  {"fieldname":"availability","label":"Availability","fieldtype":"Select","options":"Busy\nFree","default":"Busy","reqd":1},
+  {"fieldname":"revision","label":"Revision","fieldtype":"Int","default":"1","reqd":1},
+  {"fieldname":"members","label":"Members","fieldtype":"Table","options":"Team Schedule Member"}
+ ],
+ "permissions": [{"role":"All","read":1,"write":1,"create":1}]
+}

@@ -1,0 +1,1 @@
+recursive-include team_schedule *.json *.txt *.html *.js *.css

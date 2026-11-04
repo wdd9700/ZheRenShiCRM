@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "team_schedule"
+version = "0.1.0"
+description = "Private minute-level team scheduling for Frappe"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0-or-later"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+team_schedule = ["modules.txt", "patches.txt", "team_schedule/doctype/*/*.json", "www/*.html", "public/**/*"]
