@@ -22,15 +22,21 @@ def writing():
     return _writing.get()
 
 
+def is_team_user(user, *, lock_mode="shared"):
+    if lock_mode not in ("exclusive", "shared"):
+        raise ValueError("Invalid internal identity lock mode")
+    if not user or user == "Guest":
+        return False
+    clause = "FOR UPDATE" if lock_mode == "exclusive" else "LOCK IN SHARE MODE"
+    rows = frappe.db.sql("SELECT enabled,user_type FROM `tabUser` WHERE name=%s " + clause, (user,))
+    return bool(rows and rows[0][0] and rows[0][1] == "System User")
+
+
 def current_user(*, lock_mode="exclusive"):
     user = frappe.session.user
     if not user or user == "Guest":
         raise ScheduleError("AUTH_REQUIRED", 401)
-    if lock_mode not in ("exclusive", "shared"):
-        raise ValueError("Invalid internal identity lock mode")
-    clause = "FOR UPDATE" if lock_mode == "exclusive" else "LOCK IN SHARE MODE"
-    rows = frappe.db.sql("SELECT enabled FROM `tabUser` WHERE name=%s " + clause, (user,))
-    if not rows or not rows[0][0]:
+    if not is_team_user(user, lock_mode=lock_mode):
         raise ScheduleError("FORBIDDEN", 403)
     assert_no_shares()
     return user
@@ -52,7 +58,7 @@ def member(doc, user):
 
 def can_read(doc, user=None):
     user = user or frappe.session.user
-    if not user or user == "Guest" or not frappe.db.get_value("User", user, "enabled"):
+    if not is_team_user(user):
         return False
     if doc.doctype in ("Team Schedule Request", "Team Schedule Audit"):
         return writing() and doc.owner == user
@@ -87,14 +93,14 @@ def has_permission(doc, user=None, permission_type=None, ptype=None):
     if operation in ("read", "select"):
         return can_read(doc, user)
     if operation in ("create", "write", "delete"):
-        return writing()
+        return writing() and is_team_user(user or frappe.session.user)
     return False
 
 
 def query_conditions(user=None, doctype="Team Schedule"):
     user = user or frappe.session.user
     assert_no_shares()
-    if not user or user == "Guest" or not frappe.db.get_value("User", user, "enabled"):
+    if not is_team_user(user):
         return "1=0"
     if doctype in ("Team Schedule Request", "Team Schedule Audit"):
         return "1=0"
