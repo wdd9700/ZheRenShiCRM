@@ -8,7 +8,7 @@
 | 团队日程→CRM→侧栏团队日程 | PASS | 正常点击返回及侧栏入口；主控 DOM `text-b32b84c7` 看到 CRM/Leads/团队日程入口。 |
 | 新建日程 | PASS | `SYNTHETIC-UI-R5-1422 <b>literal</b>`、UTC 11月5日09–10、Busy、无成员；`text-e9afdedf-252a-46c7-8f6d-69e25f1a8055` 显示创建、revision 1、标题说明。`r5-schedule-input.png` 仅为创建前输入过程，不是创建结果截图。 |
 | 编辑日程 | PASS | 修改说明并保存，接受自身Busy交叠的原生确认；`text-6b3b4773-06d1-48a7-b04a-f3f46c858c44` 显示 revision 2 和新说明。自身冲突提示是否缺陷尚未定论。 |
-| 记录系统 ID | 未显示 | 页面未显示；M9被请求按唯一标题及owner只读核实，未取得前不猜。 |
+| 记录系统 ID 与持久化旁证 | PASS（M9数据库只读核证，非 UI） | 主控 UI 写后 M9 按唯一标题和 owner 核得 ID `4d77e90b1b11f3c2c93d47932f207485`、creation `2026-11-04T14:40:44.315880Z`、revision 2、Active/Busy、UTC 11月5日09:00–10:00及标题和编辑正文原文一致；页面未显示 ID，不能以只读结果代替 UI。 |
 | owner 注销与本人标签关闭 | PASS | 返回 CRM 后正常菜单 Log out，`text-81e18965-93aa-43a3-bea7-e6ed163bc96b` 显示登录表单；关闭本人547。截图 `r5-crm-logout-menu.png` 是注销前菜单，不是注销结果。 |
 | peer 登录、私有隔离、共享协作及撤权 | NOT RUN | 未执行。 |
 | M24 旧标签隐藏返回、可见恢复或注销后清屏 | NOT RUN | 未执行，不注入 visibility。 |
