@@ -220,7 +220,7 @@ def set_busy_grant(viewer_user, allow):
 
 
 def assert_busy_access(users):
-    actor = permissions.current_user()
+    actor = permissions.current_user(lock_mode="shared")
     if not isinstance(users, list) or not users or any(not isinstance(user, str) for user in users):
         invalid()
     users = list(dict.fromkeys(users))
@@ -232,6 +232,29 @@ def assert_busy_access(users):
         if user != actor and not frappe.db.exists("Team Schedule Busy Grant", {"subject_user": user, "viewer_user": actor}):
             raise ScheduleError("FORBIDDEN", 403)
     return actor
+
+
+def confirm_busy_access(actor, users):
+    if actor != frappe.session.user or not actor or actor == "Guest":
+        raise ScheduleError("FORBIDDEN", 403)
+    if not isinstance(users, list) or any(not isinstance(user, str) for user in users):
+        raise ScheduleError("FORBIDDEN", 403)
+    subjects = sorted(set(users))
+    if not 1 <= len(subjects) <= 10 or actor not in subjects:
+        raise ScheduleError("FORBIDDEN", 403)
+    for user in subjects:
+        rows = frappe.db.sql(
+            "SELECT enabled,user_type FROM `tabUser` WHERE name=%s LOCK IN SHARE MODE", (user,))
+        if not rows or not rows[0][0] or rows[0][1] != "System User":
+            raise ScheduleError("FORBIDDEN", 403)
+    for user in subjects:
+        if user == actor:
+            continue
+        granted = frappe.db.sql(
+            "SELECT name FROM `tabTeam Schedule Busy Grant` WHERE subject_user=%s AND viewer_user=%s LOCK IN SHARE MODE",
+            (user, actor))
+        if not granted:
+            raise ScheduleError("FORBIDDEN", 403)
 
 
 def list_schedules(start_utc, end_utc, include_cancelled=False, cursor=None, limit=100):

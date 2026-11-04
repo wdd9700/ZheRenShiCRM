@@ -11,11 +11,13 @@ def json_response(result, status=200):
                     content_type="application/json; charset=utf-8", headers={"Cache-Control": "no-store"})
 
 
-def endpoint(function):
+def endpoint(function, *, identity_lock="exclusive"):
+    if identity_lock not in ("exclusive", "shared"):
+        raise ValueError("Invalid internal identity lock mode")
     def call(**kwargs):
         frappe.local.flags.disable_traceback = True
         try:
-            permissions.current_user()
+            permissions.current_user(lock_mode=identity_lock)
             request = getattr(frappe.local, "request", None)
             if request and request.headers.get("Authorization"):
                 raise ScheduleError("AUTH_REQUIRED", 401)
@@ -46,10 +48,12 @@ def endpoint(function):
     return frappe.whitelist(methods=["POST"])(call)
 
 
-def parameters(*names):
+def parameters(*names, identity_lock="exclusive"):
+    if identity_lock not in ("exclusive", "shared"):
+        raise ValueError("Invalid internal identity lock mode")
     def decorate(function):
         function.__annotations__["fields"] = set(names)
-        return endpoint(function)
+        return endpoint(function, identity_lock=identity_lock)
     return decorate
 
 

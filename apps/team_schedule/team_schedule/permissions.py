@@ -22,11 +22,15 @@ def writing():
     return _writing.get()
 
 
-def current_user():
+def current_user(*, lock_mode="exclusive"):
     user = frappe.session.user
     if not user or user == "Guest":
         raise ScheduleError("AUTH_REQUIRED", 401)
-    if not frappe.db.get_value("User", user, "enabled", for_update=True):
+    if lock_mode not in ("exclusive", "shared"):
+        raise ValueError("Invalid internal identity lock mode")
+    clause = "FOR UPDATE" if lock_mode == "exclusive" else "LOCK IN SHARE MODE"
+    rows = frappe.db.sql("SELECT enabled FROM `tabUser` WHERE name=%s " + clause, (user,))
+    if not rows or not rows[0][0]:
         raise ScheduleError("FORBIDDEN", 403)
     assert_no_shares()
     return user

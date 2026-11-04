@@ -17,6 +17,7 @@ bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_tim
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_service
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_permissions_core
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_transactions
+bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_permissions_busy_locks
 ```
 
 The service and permission tests use Framework's `FrappeTestCase`, real ORM/DB permissions and two newly created synthetic System Users with the existing CRM `Sales User` role. Thus the test candidate needs CRM installed, although the app itself depends only on Framework. No passwords or login sessions are printed. Welcome email is disabled. No scheduler is needed; leave it disabled. No external service calls, invitations or reminders are implemented. Service/permission test teardown rolls back each test's records. The transaction module deliberately commits synthetic fixtures so a second real connection can verify old-snapshot/current-read behavior; those synthetic records remain on the isolated site. It never deletes existing data. HTTP login/CSRF, truly simultaneous transaction races, both CSV routes, search/docinfo/realtime and recovery still need separate integration evidence; direct Python calls are not HTTP acceptance.
@@ -38,9 +39,13 @@ All app RPC endpoints are POST only at `team_schedule.api.*`, use the existing F
 ## Internal interfaces for availability and ICS
 
 - `timeutils`: `ScheduleError(code,status=400,details=None)`, `parse_utc`, `encode_utc`, `validate_window`, `validate_timezone`, `resolve_local`.
-- `permissions`: `current_user`, `can_read`, `can_edit`, `is_maintenance`, `internal_write`, `assert_no_shares`.
-- `service`: `detail`, `locked_schedule(name,expected_revision=None,mode='read')`, `create_schedule`, `mutate_schedule`, `assert_busy_access`.
+- `permissions`: `current_user(*,lock_mode='exclusive')`, `can_read`, `can_edit`, `is_maintenance`, `internal_write`, `assert_no_shares`.
+- `service`: `detail`, `locked_schedule(name,expected_revision=None,mode='read')`, `create_schedule`, `mutate_schedule`, `assert_busy_access(users)`, `confirm_busy_access(actor,users)`.
 - ICS: `create_source(label)`, `get_source(source_id,lock=False)`, `lock_source_item(source_id,uid)`, `save_source_item(source_id,uid,values)`, `save_import_schedule(source_id,payload,schedule_name=None,expected_revision=None)`.
+
+Busy query alone selects `parameters(...,identity_lock='shared')`; the internal enum accepts only `exclusive` and `shared`, and is not an HTTP parameter. All other endpoints and write services retain the default exclusive actor lock. Busy precheck takes only the actor's shared current-read lock; other User/grant checks there are ordinary snapshot reads. After scanning, callers must run `confirm_busy_access` before exposing results or scan-limit errors. It locks every deduplicated subject User (including actor) in sorted order with `LOCK IN SHARE MODE`, checks enabled/System User, then locks each required subject/viewer grant in sorted subject order. Invalid final identity, subject or grant produces only 403 `FORBIDDEN`. No helper commits. Shared actor locks avoid the reverse-subject reader X/S cycle; this is not a claim of global deadlock freedom. Lock failures reach the endpoint's generic 500 error and rollback path without data.
+
+Locks last until the request transaction ends. On the pinned Framework, successful HTTP requests commit through `application`/`sync_database` after Response construction and before WSGI sends it; the endpoint wrapper rolls back errors, not successful calls. A direct test that already holds an exclusive actor lock from fixture writes is not a fresh shared-query transaction. The busy-lock module commits synthetic users/grants for its two-connection tests; those records remain only on the isolated site. Its overlapping reverse-subject transactions and bounded lock-timeout checks are not a substitute for simultaneous HTTP race acceptance.
 
 `lock_source_item` first locks the source parent row, serializing absent as well as present UID mappings until commit. Import schedule updates preserve members. These interfaces do not commit: ICS must manage per-item savepoints, exact receipt-state checks, duplicate zero-write semantics and result classification. Metadata audit inserts occur in the same database transaction and naturally roll back with each item savepoint; callers do not manipulate Framework callback queues. No HTTP endpoint exposes the internal write scope.
 
