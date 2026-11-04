@@ -60,6 +60,9 @@ class TestPrintRequestBoundary(FrappeTestCase):
         for command in ("frappe.client.get", "team_schedule.api.get", "team_schedule.api.export_owned", "frappe.utils.print_format.report_to_pdf"):
             with print_request("/api/method/" + command, {"doctype": "Team Schedule"}):
                 permissions.reject_print_request()
+            for path in ("/printview", "/api/method/frappe.utils.print_format.download_pdf"):
+                with print_request(path, {"cmd": command, "doctype": "Team Schedule"}):
+                    permissions.reject_print_request()
 
 
 class TestPrintRendererBoundary(ScheduleCase):

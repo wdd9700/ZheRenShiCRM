@@ -176,12 +176,13 @@ def reject_print_request():
         return
     path = request.path.strip("/")
     command = frappe.form_dict.get("cmd")
+    print_view = not command and path in ("printview", "printview.html")
     if not command:
         for prefix in ("api/method/", "api/v1/method/", "api/v2/method/"):
             if path.startswith(prefix):
                 command = path[len(prefix):].split("/")[0]
                 break
-    if path not in ("printview", "printview.html") and (not isinstance(command, str) or command not in PRINT_METHODS):
+    if not print_view and (not isinstance(command, str) or command not in PRINT_METHODS):
         return
     if _print_target(frappe.form_dict.get("doctype")) or _print_target(frappe.form_dict.get("doc")):
         reject_print(None)
