@@ -1,3 +1,17 @@
+const stages = new Set(['IDENTITY', 'IDENTITY_CONFIRMED', 'PINIA_CREATE', 'APP_CREATE',
+  'FRAPPE_UI_PLUGIN', 'SPRITE_PLUGIN', 'PINIA_PLUGIN', 'ROUTER_PLUGIN',
+  'TRANSLATION_PLUGIN', 'COMPONENTS', 'TELEMETRY_PLUGIN', 'DIALOG',
+  'DEV_CONTEXT', 'SOCKET', 'MOUNT', 'READY'])
+const failures = new Set(['NONE', 'BOUNDARY_LOCK', 'IDENTITY_UNAVAILABLE', 'IDENTITY_TIMEOUT',
+  'IDENTITY_HTTP', 'IDENTITY_REDIRECT', 'IDENTITY_RESPONSE', 'IDENTITY_INVALID',
+  'SESSION_CHANGED', 'PAGE_HIDDEN', 'HISTORY_RESTORED', 'ACCOUNT_CHANGED',
+  'ACCESS_UNCONFIRMED', 'PLUGIN_EXCEPTION', 'ROUTER_EXCEPTION', 'CONTEXT_EXCEPTION',
+  'SOCKET_EXCEPTION', 'MOUNT_EXCEPTION', 'INITIALIZATION_EXCEPTION'])
+
+class IdentityFailure extends Error {
+  constructor(code) { super('Identity check failed'); this.code = code }
+}
+
 export function createAccountBoundary(env) {
   const scope = Array.from(env.crypto.getRandomValues(new Uint32Array(4))).join('-')
   let user = null
@@ -6,13 +20,35 @@ export function createAccountBoundary(env) {
   let resolveReady
   const ready = new Promise((resolve) => { resolveReady = resolve })
 
-  function lock(reason = '会话或权限需要重新确认。') {
+  let stage = 'IDENTITY'
+  let failureStage = 'NONE'
+  let failure = 'NONE'
+  const diagnostic = () => Object.freeze({ version: 'C011100', stage, failureStage, failure })
+  function publish() { env.diagnose?.(diagnostic()) }
+  function markStage(value) {
+    if (!locked && stages.has(value)) { stage = value; publish() }
+  }
+
+  function lock(reason = '会话或权限需要重新确认。', code = 'BOUNDARY_LOCK') {
+    if (locked) return
     locked = true
+    failureStage = stage
+    failure = failures.has(code) && code !== 'NONE' ? code : 'BOUNDARY_LOCK'
+    publish()
     env.cover(`${reason} 未保存编辑仍仅在本标签内存中，不能跨身份恢复。刷新或重新登录将放弃本标签未保存编辑。`, true)
   }
 
+  function initializationFailed() {
+    const code = stage === 'ROUTER_PLUGIN' ? 'ROUTER_EXCEPTION'
+      : stage.endsWith('_PLUGIN') ? 'PLUGIN_EXCEPTION'
+      : stage === 'DEV_CONTEXT' ? 'CONTEXT_EXCEPTION'
+      : stage === 'SOCKET' ? 'SOCKET_EXCEPTION'
+      : stage === 'MOUNT' ? 'MOUNT_EXCEPTION' : 'INITIALIZATION_EXCEPTION'
+    lock('初始化失败，请重新确认登录。', code)
+  }
+
   function assertActive() {
-    if (env.cookie() !== cookieHint) lock('检测到账号会话变化。')
+    if (env.cookie() !== cookieHint) lock('检测到账号会话变化。', 'SESSION_CHANGED')
     if (locked || !user) throw new Error('CRM account boundary is locked; reload required')
   }
 
@@ -20,41 +56,55 @@ export function createAccountBoundary(env) {
     const status = error?.status || error?.response?.status
     if ((sensitiveRead && error?.exc_type !== 'DoesNotExistError') || [401, 403].includes(status) ||
         ['PermissionError', 'AuthenticationError', 'SessionExpired'].includes(error?.exc_type)) {
-      lock('请求失败，无法确认当前数据访问权限。')
+      lock('请求失败，无法确认当前数据访问权限。', 'ACCESS_UNCONFIRMED')
     }
   }
 
+  publish()
   env.cover('正在向服务端确认当前账号；不读取历史业务缓存。', false)
   env.on('visibilitychange', () => {
-    if (env.hidden()) lock('标签曾进入后台，请刷新重新确认账号与业务权限。')
+    if (env.hidden()) lock('标签曾进入后台，请刷新重新确认账号与业务权限。', 'PAGE_HIDDEN')
   })
-  env.on('pageshow', (event) => { if (event.persisted) lock('页面从浏览器历史恢复。') })
+  env.on('pageshow', (event) => { if (event.persisted) lock('页面从浏览器历史恢复。', 'HISTORY_RESTORED') })
   env.on('focus', () => {
-    if (env.cookie() !== cookieHint) lock('检测到账号会话变化。')
+    if (env.cookie() !== cookieHint) lock('检测到账号会话变化。', 'SESSION_CHANGED')
   })
-  env.on('account-change', () => lock('另一标签的账号会话发生变化。'))
+  env.on('account-change', () => lock('另一标签的账号会话发生变化。', 'ACCOUNT_CHANGED'))
 
   Promise.resolve().then(() => env.identify()).then((identity) => {
     if (typeof identity !== 'string' || !identity || identity === 'Guest') {
-      throw new Error('Authenticated server identity required')
+      throw new IdentityFailure('IDENTITY_INVALID')
     }
-    if (env.cookie() !== cookieHint) throw new Error('Session changed during identity check')
-    if (locked || env.hidden()) throw new Error('Page is not active')
+    if (env.cookie() !== cookieHint) throw new IdentityFailure('SESSION_CHANGED')
+    if (locked || env.hidden()) throw new IdentityFailure('PAGE_HIDDEN')
     user = identity
+    markStage('IDENTITY_CONFIRMED')
     env.uncover()
     resolveReady()
-  }).catch(() => {
-    lock('无法确认服务端登录身份，请联网后刷新或重新登录。')
+  }).catch((error) => {
+    lock('无法确认服务端登录身份，请联网后刷新或重新登录。',
+      error instanceof IdentityFailure ? error.code : 'IDENTITY_UNAVAILABLE')
     resolveReady()
   })
 
-  return { scope, ready, get user() { return user }, assertActive, failed, lock,
-    changed() { env.broadcast(); lock('账号会话发生变化。') } }
+  return { scope, ready, get user() { return user }, get diagnostic() { return diagnostic() },
+    assertActive, failed, lock, markStage, initializationFailed,
+    changed() { env.broadcast(); lock('账号会话发生变化。', 'ACCOUNT_CHANGED') } }
 }
 
 function browserEnvironment() {
   const overlayId = 'crm-account-boundary'
   let channel
+  let diagnosticText = ''
+  function diagnose(value) {
+    document.documentElement.setAttribute('data-crm-diagnostic-version', value.version)
+    document.documentElement.setAttribute('data-crm-init-stage', value.stage)
+    document.documentElement.setAttribute('data-crm-first-failure-stage', value.failureStage)
+    document.documentElement.setAttribute('data-crm-first-failure', value.failure)
+    diagnosticText = `本地诊断 ${value.version} / ${value.stage} / ${value.failureStage} / ${value.failure}`
+    const node = document.getElementById('crm-initialization-diagnostic')
+    if (node) node.textContent = diagnosticText
+  }
   try { channel = new BroadcastChannel('crm-account-boundary-c011000') } catch {}
   const style = document.createElement('style')
   style.textContent = 'html[data-crm-account-blocked] body > :not(#crm-account-boundary),html[data-crm-account-blocked] body > :not(#crm-account-boundary) *{visibility:hidden!important;pointer-events:none!important}#crm-account-boundary{position:fixed;inset:0;z-index:2147483647;background:#fff;color:#111;padding:2rem;overflow:auto;font:16px/1.6 sans-serif}#crm-account-boundary button,#crm-account-boundary a{display:inline-block;margin:1rem;padding:.5rem;border:1px solid #888}'
@@ -74,7 +124,10 @@ function browserEnvironment() {
       overlay.replaceChildren()
       const text = document.createElement('p')
       text.textContent = message
-      overlay.append(text)
+      const diagnostic = document.createElement('p')
+      diagnostic.id = 'crm-initialization-diagnostic'
+      diagnostic.textContent = diagnosticText
+      overlay.append(text, diagnostic)
       if (actionable) {
         const reload = document.createElement('button')
         reload.textContent = '放弃未保存编辑并刷新'
@@ -110,6 +163,7 @@ function browserEnvironment() {
     cookie: () => document.cookie,
     hidden: () => document.visibilityState === 'hidden',
     cover,
+    diagnose,
     uncover() {
       document.documentElement.removeAttribute('data-crm-account-blocked')
       document.getElementById(overlayId)?.remove()
@@ -127,8 +181,15 @@ function browserEnvironment() {
           method: 'GET', credentials: 'same-origin', cache: 'no-store',
           headers: { Accept: 'application/json' }, signal: controller.signal,
         })
-        if (!response.ok || response.redirected) throw new Error('Identity unavailable')
-        return (await response.json()).message
+        if (response.redirected) throw new IdentityFailure('IDENTITY_REDIRECT')
+        if (!response.ok) throw new IdentityFailure('IDENTITY_HTTP')
+        let value
+        try { value = await response.json() }
+        catch { throw new IdentityFailure('IDENTITY_RESPONSE') }
+        return value?.message
+      } catch (error) {
+        if (controller.signal.aborted) throw new IdentityFailure('IDENTITY_TIMEOUT')
+        throw error
       } finally { clearTimeout(timeout) }
     },
   }

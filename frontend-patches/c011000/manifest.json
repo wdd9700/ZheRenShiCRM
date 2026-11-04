@@ -3,7 +3,7 @@
     "target": "frontend/node_modules/frappe-ui/src/resources/accountBoundary.js",
     "payload": "resources/accountBoundary.js",
     "before": null,
-    "after": "bcff5e1ccc6d40c308f03a7eea5a4f55bce53e764201dfe0a5e5221550fea4fc"
+    "after": "a3db2ba7b48f2b6581a89addb4d6ca8a089b048a81dbe5275099fa97dee54dac"
   },
   {
     "target": "frontend/node_modules/frappe-ui/src/resources/documentResource.js",
@@ -33,7 +33,7 @@
     "target": "frontend/src/main.js",
     "payload": "main.js",
     "before": "c49ae1cc49039ded911ec6ab505afa2589f9119d4eb3376d87af9ca5b69fc609",
-    "after": "82052368cffa8e56187bb6716a13f81519d1c24a113b75ad47ce0b0257995574"
+    "after": "020c49ea9c8104d2e26fbf81ab842d849b4ceec018867c59c1ee76df9dce59d1"
   },
   {
     "target": "frontend/src/stores/session.js",
