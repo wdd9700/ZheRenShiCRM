@@ -100,13 +100,22 @@ Lead/Deal modal 的 QuickEntry layout 改为在对应 status resource 的 `list.
 
 新增 `frontend-patches/c011000/sfc-resume.test.mjs` 是**待 M9 执行的测试候选，不是已通过证据**。它 import 实际 main/App/router，完整挂载 App 的桌面布局、AppSidebar、GlobalModals、Leads、ViewControls/Filter/SortBy/ColumnSettings、LeadModal/Dialog/FieldLayout 和实际字段控件；不替换业务组件、store 或 router.ready。仅 socket.io 外部传输受控且不发送自动事件；fetch 明确列出已读 API 返回结构，未知 method/doctype 立即失败，不兜底成功。脚本列表明确为空。测试内观察 boundary.track 但始终调用原方法，仅保存固定错误类别、源码位置和合成请求顺序；不改产品 runtime。真实 DOM 点 Create、填 First Name、受控 visibility 往返、失败时一次 retry、显式草稿恢复和零写请求均有断言。受控 hidden 只用于单测，不代替 Windows 真实 UI。标准 vitest.config 已有 framework/icon alias stub，仍是已知非业务外部边界。
 
-M9 仅在隔离的 da2177 **43 entries 已 patch 源**中，将该单文件按原字节复制为 `frontend/tests/unit/m24SafeResumeSfc.test.js`（相对 import 依赖此位置），无需改 manifest/apply，无新增依赖。frontend cwd 执行：
+M9 已执行 `976d220` 的单测试，run `10d7ff3463234481bfc30d9465be82d2` exit 1，源码 before/after 守卫均通过。失败在编译：`dialogs.jsx` 转换产物导入 `react/jsx-dev-runtime`，尚未到达 App 挂载或恢复业务。固定正式 `vite.config.js` 第 3/13 行已有 `@vitejs/plugin-vue-jsx` / `vueJsx()`，而 `vitest.config.js` plugins 仅 `vue()`；package.json dependencies 已声明 `@vitejs/plugin-vue-jsx: ^5.1.6`，yarn.lock 第 2411 行锁定 5.1.6，其依赖 Vue Babel JSX 2.0.1。因此是测试缺少正式 Vue JSX 变换，不应安装 React 或 mock dialogs 绕过。
+
+新增独立 `frontend-patches/c011000/vitest.sfc.config.mjs`：导入原 vitest.config 对象、保留所有 test/alias 设置，只按正式插件顺序在 vue 后追加既有 `vueJsx()`。不覆盖正式 vite/vitest 配置，不改依赖、生产 manifest/apply 或测试业务链。该新配置尚待 M9 执行验证；本机只有 Node 语法检查，不能声称编译障碍已实测通过。
+
+M9 仅在隔离的 da2177 **43 entries 已 patch 源**中，原字节复制以下两文件：
+
+- `sfc-resume.test.mjs` → `frontend/tests/unit/m24SafeResumeSfc.test.js`（相对 import 依赖此位置，测试 SHA 不变）。
+- `vitest.sfc.config.mjs` → `frontend/vitest.m24-sfc.config.mjs`（依赖同目录原始 vitest.config.js，不覆盖它）。
+
+frontend cwd 执行：
 
 ```bash
-yarn test:run tests/unit/m24SafeResumeSfc.test.js --reporter=verbose
+yarn test:run --config vitest.m24-sfc.config.mjs tests/unit/m24SafeResumeSfc.test.js --reporter=verbose
 ```
 
-本机只通过 `node --check frontend-patches/c011000/sfc-resume.test.mjs` 与 diff 检查；无 compiler-sfc/vite/vitest，不声称 SFC 已运行或复现。先采该未修候选的退出码、第一固定错误类别/位置和未知 API 列表；若失败于 fixture/编译/DOM 能力需先明确区分，不把此类失败冒充业务根因、不添加任意成功响应。此测试增量不要求重复完整 build/native，后续生产修复仍要独审及标准门槛。
+本机仅 `node --check` 两个候选文件、diff 检查及生产零差异检查通过，无 compiler-sfc/vite/vitest。下一次仍须采退出码、编译/初始挂载/恢复失败层次、第一固定错误类别/位置和未知 API 列表；若失败于 fixture/编译/DOM 能力需先明确区分，不把此类失败冒充业务根因、不添加任意成功响应。此测试增量不要求重复完整 build/native，后续生产修复仍要独审及标准门槛。
 
 ## 尚待门槛
 
