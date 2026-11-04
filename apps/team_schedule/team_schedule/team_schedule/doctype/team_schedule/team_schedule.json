@@ -2,8 +2,8 @@
  "doctype": "DocType", "name": "Team Schedule", "module": "Team Schedule", "autoname": "hash", "engine": "InnoDB", "track_changes": 0, "allow_import": 0, "allow_rename": 0, "index_web_pages_for_search": 0,
  "field_order": ["title", "description", "start_utc", "end_utc", "source_timezone", "status", "availability", "revision", "members"],
  "fields": [
-  {"fieldname":"title","label":"Title","fieldtype":"Data","length":140,"reqd":1},
-  {"fieldname":"description","label":"Description","fieldtype":"Small Text"},
+  {"fieldname":"title","label":"Title","fieldtype":"Code"},
+  {"fieldname":"description","label":"Description","fieldtype":"Code"},
   {"fieldname":"start_utc","label":"Start UTC","fieldtype":"Data","length":20,"reqd":1},
   {"fieldname":"end_utc","label":"End UTC","fieldtype":"Data","length":20,"reqd":1},
   {"fieldname":"source_timezone","label":"Source Timezone","fieldtype":"Data","reqd":1},
