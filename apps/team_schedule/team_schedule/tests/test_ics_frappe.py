@@ -136,8 +136,44 @@ class TestICSFrappe(ScheduleCase):
         title = "<script>SYNTHETIC-ICS-TITLE-CANARY</script>"
         description = '<img src="https://example.invalid/not-fetched">& literal text'
         plan, content = self.plan(event("literal-text", title=title) + "DESCRIPTION:" + description + "\r\n")
-        result = self.apply(plan, content)[0]
-        self.assertEqual(result["result"], "create")
+        diagnostic = {
+            "preview_action": plan["items"][0]["action"],
+            "preview_code": plan["items"][0]["code"],
+            "schedule_save_entered": False, "schedule_save_returned": False,
+            "mapping_save_entered": False, "mapping_save_returned": False,
+        }
+        original_schedule_save, original_mapping_save = core.save_import_schedule, core.save_source_item
+
+        def observe_schedule_save(source_id, payload, schedule_name=None, expected_revision=None):
+            diagnostic["schedule_save_entered"] = True
+            doc = original_schedule_save(source_id, payload, schedule_name, expected_revision)
+            diagnostic["schedule_save_returned"] = True
+            diagnostic["changed_text_fields"] = [field for field in ("title", "description")
+                                                  if field in payload and doc.get(field) != payload[field]]
+            return doc
+
+        def observe_mapping_save(source_id, uid, values):
+            diagnostic["mapping_save_entered"] = True
+            doc = original_mapping_save(source_id, uid, values)
+            diagnostic["mapping_save_returned"] = True
+            return doc
+
+        def business_counts():
+            return (frappe.db.count("Team Schedule", {"owner": self.users[0]}),
+                    frappe.db.count("Team Schedule Source Item", {"source": self.source}),
+                    self.audit_count())
+
+        before = business_counts()
+        with patch.object(core, "save_import_schedule", side_effect=observe_schedule_save), \
+                patch.object(core, "save_source_item", side_effect=observe_mapping_save):
+            result = self.apply(plan, content)[0]
+        diagnostic["result"] = result["result"]
+        diagnostic["code"] = result["code"]
+        diagnostic["business_count_deltas"] = [after - prior for after, prior in zip(business_counts(), before)]
+        if result["result"] == "error":
+            self.assertEqual(diagnostic["business_count_deltas"], [0, 0, 0], diagnostic)
+        self.assertEqual(result["result"], "create", diagnostic)
+        self.assertEqual(diagnostic["business_count_deltas"], [1, 1, 2], diagnostic)
         doc = frappe.get_doc("Team Schedule", result["schedule_name"])
         self.assertEqual(doc.title, title)
         self.assertEqual(doc.description, description)
