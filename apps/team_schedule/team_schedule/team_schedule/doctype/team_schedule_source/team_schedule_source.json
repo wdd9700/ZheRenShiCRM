@@ -1,0 +1,1 @@
+{"doctype":"DocType","name":"Team Schedule Source","module":"Team Schedule","autoname":"hash","engine":"InnoDB","track_changes":0,"fields":[{"fieldname":"label","label":"Label","fieldtype":"Data","length":140,"reqd":1}],"permissions":[{"role":"All","read":1,"write":1,"create":1}]}
