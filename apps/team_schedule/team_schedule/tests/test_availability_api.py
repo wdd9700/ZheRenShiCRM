@@ -13,6 +13,11 @@ so repeated runs never collide and never reuse another run's identities.
 The endpoint rolls back its transaction on every call, so fixtures must be
 committed to survive it; they are deliberately left in place afterwards and
 no test deletes users or schedules.
+
+Accounts need a stored desk role: Framework `User.set_system_user()` calls
+`has_desk_access()`, which is false without roles, and would silently demote
+`user_type="System User"` to "Website User". "Desk User" is automatic, not
+assignable, so the fixture uses the deployment's real ordinary role.
 """
 
 import json
@@ -33,6 +38,7 @@ WEEK = "2026-11-11T09:00:00Z"
 TZ = "Asia/Shanghai"
 RUN = uuid.uuid4().hex[:10]
 CANARY = "m26-%s-canary" % RUN
+ROLE = "Sales User"
 
 
 def keys_of(value):
@@ -56,6 +62,10 @@ class BusyFreeQueryTest(FrappeTestCase):
         if role not in self.accounts:
             email = "%s-%s@m26.example.invalid" % (self.namespace, role)
             frappe.set_user("Administrator")
+            self.assertEqual(
+                frappe.db.get_value("Role", ROLE, "desk_access"), 1,
+                "fixture role %r must exist with desk access" % ROLE,
+            )
             frappe.get_doc({
                 "doctype": "User",
                 "email": email,
@@ -63,8 +73,12 @@ class BusyFreeQueryTest(FrappeTestCase):
                 "user_type": "System User",
                 "enabled": 1,
                 "send_welcome_email": 0,
+                "roles": [{"role": ROLE}],
             }).insert()
             frappe.db.commit()
+            stored = frappe.db.get_value("User", email, ["enabled", "user_type"], as_dict=True)
+            self.assertEqual(stored.enabled, 1, "fixture user must stay enabled")
+            self.assertEqual(stored.user_type, "System User", "fixture user must stay a system user")
             self.accounts[role] = email
         return self.accounts[role]
 
@@ -138,7 +152,8 @@ class BusyFreeQueryTest(FrappeTestCase):
         busy = self.schedule(alice, "2026-11-04T10:00:00Z", "2026-11-04T11:00:00Z")
         self.schedule(alice, "2026-11-04T12:00:00Z", "2026-11-04T13:00:00Z", availability="Free")
         frappe.set_user(alice)
-        _, body = self.ask([alice], min_minutes=1)
+        response, body = self.ask([alice], min_minutes=1)
+        self.assertEqual(response.status_code, 200, body)
         self.assertEqual(body["message"]["busy"][0]["intervals"], [
             {"start_utc": "2026-11-04T10:00:00Z", "end_utc": "2026-11-04T11:00:00Z"},
         ])
@@ -150,7 +165,8 @@ class BusyFreeQueryTest(FrappeTestCase):
         frappe.set_user(alice)
         service.cancel(busy.name, frappe.get_doc("Team Schedule", busy.name).revision)
         frappe.db.commit()
-        _, body = self.ask([alice], min_minutes=1)
+        response, body = self.ask([alice], min_minutes=1)
+        self.assertEqual(response.status_code, 200, body)
         self.assertEqual(body["message"]["busy"][0]["intervals"], [])
         self.assertEqual(body["message"]["common_free"], [{"start_utc": START, "end_utc": END}])
 
