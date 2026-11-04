@@ -23,7 +23,10 @@ permission_query_conditions = {
     "Team Schedule Request": "team_schedule.permissions.request_query",
     "Team Schedule Audit": "team_schedule.permissions.request_query",
 }
+before_request = "team_schedule.permissions.reject_print_request"
+
 doc_events = {
+    **{name: {"before_print": "team_schedule.permissions.reject_print"} for name in has_permission},
     "DocShare": {"before_insert": "team_schedule.permissions.reject_share", "before_validate": "team_schedule.permissions.reject_share", "validate": "team_schedule.permissions.reject_share"},
     **{name: {"before_insert": "team_schedule.permissions.reject_sidecar", "before_validate": "team_schedule.permissions.reject_sidecar"} for name in ("File", "Version", "Comment", "Communication", "ToDo", "Notification Log", "Report")},
 }

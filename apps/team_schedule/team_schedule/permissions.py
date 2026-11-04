@@ -137,6 +137,56 @@ def member_query(user=None):
     return query_conditions(user, "Team Schedule Member")
 
 
+PRINT_METHODS = frozenset((
+    "frappe.utils.print_format.download_pdf",
+    "frappe.utils.print_format.download_multi_pdf",
+    "frappe.utils.print_format.download_multi_pdf_async",
+    "frappe.utils.print_format.print_by_server",
+    "frappe.utils.weasyprint.download_pdf",
+    "frappe.www.printview.get_html_and_style",
+    "frappe.www.printview.get_rendered_raw_commands",
+))
+
+
+def reject_print(doc, method=None, *args, **kwargs):
+    frappe.throw("FORBIDDEN", frappe.PermissionError)
+
+
+_PRINT_DOCTYPES = frozenset(name.casefold() for name in DOCTYPES)
+
+
+def _print_target(value):
+    if isinstance(value, str):
+        if value.casefold() in _PRINT_DOCTYPES:
+            return True
+        if not value.lstrip().startswith("{"):
+            return False
+        try:
+            value = frappe.parse_json(value)
+        except (ValueError, TypeError):
+            return False
+    if isinstance(value, dict):
+        return any(isinstance(name, str) and name.casefold() in _PRINT_DOCTYPES for name in value) or _print_target(value.get("doctype"))
+    return False
+
+
+def reject_print_request():
+    request = getattr(frappe.local, "request", None)
+    if request is None:
+        return
+    path = request.path.strip("/")
+    command = frappe.form_dict.get("cmd")
+    if not command:
+        for prefix in ("api/method/", "api/v1/method/", "api/v2/method/"):
+            if path.startswith(prefix):
+                command = path[len(prefix):].split("/")[0]
+                break
+    if path not in ("printview", "printview.html") and (not isinstance(command, str) or command not in PRINT_METHODS):
+        return
+    if _print_target(frappe.form_dict.get("doctype")) or _print_target(frappe.form_dict.get("doc")):
+        reject_print(None)
+
+
 def reject_share(doc, method=None):
     if doc.share_doctype in DOCTYPES:
         frappe.throw("FORBIDDEN", frappe.PermissionError)

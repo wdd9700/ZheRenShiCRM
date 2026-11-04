@@ -11,7 +11,7 @@ class ScheduleDocument(Document):
         self.name = secrets.token_hex(16)
 
     def check_permission(self, permtype="read", permlevel=None):
-        if permtype not in ("read", "select") and not writing():
+        if permtype == "print" or (permtype not in ("read", "select") and not writing()):
             frappe.throw("FORBIDDEN", frappe.PermissionError)
         return super().check_permission(permtype, permlevel)
 
