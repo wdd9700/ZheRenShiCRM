@@ -3,6 +3,9 @@
 D010300 §4. Reuses the backend core (timeutils validation, permissions
 session identity, service.assert_busy_access, api.parameters) so error codes,
 POST-only whitelisting and ``Cache-Control: no-store`` stay in one place.
+The session identity is taken with a shared lock (``identity_lock="shared"``)
+and the final authorization is delegated to ``service.confirm_busy_access``,
+so concurrent queries never hold each other's actor rows exclusively.
 429 RATE_LIMITED is the tower-approved extension of the frozen code table.
 """
 
@@ -27,8 +30,12 @@ def _session_digest():
     return hashlib.sha256(sid.encode("utf-8")).hexdigest()
 
 
+def _now():
+    return time.time()
+
+
 def _rate_raw_key(digest, now=None):
-    bucket = int((time.time() if now is None else now) // RATE_WINDOW_SECONDS)
+    bucket = int((_now() if now is None else now) // RATE_WINDOW_SECONDS)
     return "team_schedule:availability:rate:%s:%s" % (digest, bucket)
 
 
@@ -49,36 +56,15 @@ def _throttle(digest, now=None):
 
 
 def _still_granted(actor, users):
-    """Authoritative grant check after the occupancy scan.
+    """Post-scan authorization boundary, after the scan and before the answer.
 
-    A plain SELECT reuses this transaction's REPEATABLE READ read view, which
-    was opened by the first consistent read at request start, so it cannot see
-    a revocation committed meanwhile (proved with two real connections).
-    LOCK IN SHARE MODE is a current read: it returns the latest committed rows
-    regardless of the snapshot, and holds the shared lock until this request
-    commits, which happens after the response is built. A concurrent revoke
-    therefore either commits before this check (row gone -> 403) or waits for
-    this request to finish (row present -> the answer stays authorized).
-
-    Lock order is the actor's User row, already held by current_user(), then
-    grant rows - the same order service.set_busy_grant takes - so no lock cycle
-    is introduced; shared locks do not conflict with concurrent queries.
+    Delegates to the backend's full current-read check: every participant's
+    User row (enabled, user_type) and every directed grant are re-read with
+    LOCK IN SHARE MODE, so a disablement, type change or revocation committed
+    after the scan is seen and the request fails closed. Kept as a named step
+    because it is this request's authorization linearization point.
     """
-    others = [user for user in users if user != actor]
-    if not others:
-        return
-    placeholders = ", ".join(["%s"] * len(others))
-    granted = {
-        row[0]
-        for row in frappe.db.sql(
-            "SELECT subject_user FROM `tabTeam Schedule Busy Grant` "
-            "WHERE viewer_user=%s AND subject_user IN (" + placeholders + ") "
-            "LOCK IN SHARE MODE",
-            tuple([actor] + others),
-        )
-    }
-    if granted != set(others):
-        raise ScheduleError("FORBIDDEN", 403)
+    service.confirm_busy_access(actor, users)
 
 
 def _encode(interval):
@@ -86,7 +72,7 @@ def _encode(interval):
     return {"start_utc": timeutils.encode_utc(start), "end_utc": timeutils.encode_utc(end)}
 
 
-@parameters("users", "start_utc", "end_utc", "min_minutes", "display_timezone")
+@parameters("users", "start_utc", "end_utc", "min_minutes", "display_timezone", identity_lock="shared")
 def query(users, start_utc, end_utc, min_minutes=20, display_timezone=None):
     if not isinstance(users, list) or any(not isinstance(user, str) for user in users):
         timeutils.invalid()

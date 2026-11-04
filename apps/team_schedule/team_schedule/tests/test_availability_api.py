@@ -10,9 +10,12 @@ until that run exists.
 
 Isolation: accounts are created per run and per test under a random namespace,
 so repeated runs never collide and never reuse another run's identities.
-The endpoint rolls back its transaction on every call, so fixtures must be
-committed to survive it; they are deliberately left in place afterwards and
-no test deletes users or schedules.
+Fixtures are committed so they survive direct bench calls and the endpoint's
+error-path rollback. A successful call returns its Response without touching
+the transaction: in a real HTTP request Framework commits after the Response
+is built (sync_database), and only error paths roll back. Tests calling the
+endpoint directly therefore do not reproduce HTTP transaction end by itself.
+Nothing is deleted afterwards; no test cleans up users or schedules.
 
 Accounts need a stored desk role: Framework `User.set_system_user()` calls
 `has_desk_access()`, which is false without roles, and would silently demote
@@ -21,6 +24,7 @@ assignable, so the fixture uses the deployment's real ordinary role.
 """
 
 import json
+import sys
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -41,6 +45,7 @@ TZ = "Asia/Shanghai"
 RUN = uuid.uuid4().hex[:10]
 CANARY = "m26-%s-canary" % RUN
 ROLE = "Sales User"
+FIXED_NOW = 4000000000.0
 
 
 def keys_of(value):
@@ -228,8 +233,8 @@ class BusyFreeQueryTest(FrappeTestCase):
         with patch.object(api.service, "assert_busy_access", return_value=alice):
             self.assertEqual(self.ask([alice, bob])[0].status_code, 200)
 
-    def revoke_on_new_connection(self, subject, viewer):
-        """Revoke through the standard service on a real second connection."""
+    def in_new_connection(self, user, action):
+        """Run ``action`` on a real second Frappe connection as ``user``."""
         site, sites_path = frappe.local.site, frappe.local.sites_path
         outcome = {}
 
@@ -237,12 +242,8 @@ class BusyFreeQueryTest(FrappeTestCase):
             try:
                 frappe.init(site=site, sites_path=sites_path)
                 frappe.connect()
-                frappe.set_user(subject)
-                service.set_busy_grant(viewer, False)
-                frappe.db.commit()
-                outcome["committed"] = True
-                outcome["absent"] = not frappe.db.exists(
-                    "Team Schedule Busy Grant", {"subject_user": subject, "viewer_user": viewer})
+                frappe.set_user(user)
+                outcome["value"] = action()
             except Exception as error:
                 outcome["error"] = "%s: %s" % (type(error).__name__, error)
             finally:
@@ -250,11 +251,36 @@ class BusyFreeQueryTest(FrappeTestCase):
                     frappe.db.rollback()
                 frappe.destroy()
 
-        thread = threading.Thread(target=worker, name="m26-revoker", daemon=True)
+        thread = threading.Thread(target=worker, name="m26-second-connection", daemon=True)
         thread.start()
-        thread.join(timeout=60)
-        self.assertFalse(thread.is_alive(), "independent revoke did not finish")
-        self.assertTrue(outcome.get("committed") and outcome.get("absent"), outcome)
+        return thread, outcome
+
+    def finish(self, thread, outcome, timeout=60):
+        thread.join(timeout=timeout)
+        self.assertFalse(thread.is_alive(), "second connection did not finish")
+        self.assertNotIn("error", outcome, outcome)
+        return outcome.get("value")
+
+    def revoke_on_new_connection(self, subject, viewer):
+        """Revoke through the standard service on a real second connection."""
+        def revoke():
+            service.set_busy_grant(viewer, False)
+            frappe.db.commit()
+            return not frappe.db.exists(
+                "Team Schedule Busy Grant", {"subject_user": subject, "viewer_user": viewer})
+
+        self.assertTrue(self.finish(*self.in_new_connection(subject, revoke)))
+
+    def stop_at_post_check(self, hook):
+        """Pause the running request at its post-scan authorization boundary."""
+        code = api._still_granted.__code__
+
+        def pause(frame, event, arg):
+            if event == "call" and frame.f_code is code:
+                hook()
+            return pause
+
+        return pause
 
     def test_revocation_committed_mid_request_is_seen_by_the_post_check(self):
         """M9 two-connection failure: the post-check must not read the old snapshot."""
@@ -273,6 +299,108 @@ class BusyFreeQueryTest(FrappeTestCase):
             api._still_granted(alice, [alice, bob])
         self.assertEqual(caught.exception.status, 403)
         self.assertEqual(caught.exception.code, "FORBIDDEN")
+
+    def assert_denied_after_admin_change(self, field, value):
+        """Commit a User change from an admin connection between the scan and the check."""
+        alice, bob = self.user("alice"), self.user("bob")
+        self.grant(bob, alice)
+        frappe.set_user(alice)
+        reached, changed = threading.Event(), threading.Event()
+        site, sites_path = frappe.local.site, frappe.local.sites_path
+        outcome = {}
+
+        def admin():
+            try:
+                frappe.init(site=site, sites_path=sites_path)
+                frappe.connect()
+                frappe.set_user("Administrator")
+                if not reached.wait(30):
+                    raise AssertionError("request never reached the post-scan check")
+                frappe.db.set_value("User", bob, field, value)
+                frappe.db.commit()
+                outcome["value"] = frappe.db.get_value("User", bob, field)
+            except Exception as error:
+                outcome["error"] = "%s: %s" % (type(error).__name__, error)
+            finally:
+                if getattr(frappe.local, "db", None):
+                    frappe.db.rollback()
+                frappe.destroy()
+                changed.set()
+
+        thread = threading.Thread(target=admin, name="m26-admin", daemon=True)
+        thread.start()
+        try:
+            sys.settrace(self.stop_at_post_check(lambda: (reached.set(), changed.wait(30))))
+            response, body = self.ask([alice, bob])
+        finally:
+            sys.settrace(None)
+            thread.join(timeout=60)
+
+        self.assertFalse(thread.is_alive(), "admin connection did not finish")
+        self.assertNotIn("error", outcome, outcome)
+        self.assertEqual(outcome.get("value"), value)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(body, {"message": {"error": {"code": "FORBIDDEN"}}})
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("busy", body["message"])
+
+    def test_disabled_subject_committed_mid_request_is_rejected(self):
+        self.assert_denied_after_admin_change("enabled", 0)
+
+    def test_type_invalid_subject_committed_mid_request_is_rejected(self):
+        self.assert_denied_after_admin_change("user_type", "Website User")
+
+    def query_on_new_connection(self, user, users, barrier):
+        """Run the real endpoint on a real second connection, pausing at the post-check."""
+        site, sites_path = frappe.local.site, frappe.local.sites_path
+        outcome = {}
+
+        def worker():
+            try:
+                frappe.init(site=site, sites_path=sites_path)
+                frappe.connect()
+                frappe.set_user(user)
+
+                def pause(frame, event, arg):
+                    if event == "call" and frame.f_code is api._still_granted.__code__:
+                        barrier.wait()
+                    return pause
+
+                sys.settrace(pause)
+                try:
+                    response = api.query(users=users, start_utc=START, end_utc=END,
+                                         min_minutes=20, display_timezone=TZ)
+                    outcome["status"] = response.status_code
+                    outcome["body"] = json.loads(response.get_data())
+                    outcome["no_store"] = response.headers.get("Cache-Control")
+                finally:
+                    sys.settrace(None)
+            except Exception as error:
+                outcome["error"] = "%s: %s" % (type(error).__name__, error)
+            finally:
+                if getattr(frappe.local, "db", None):
+                    frappe.db.rollback()
+                frappe.destroy()
+
+        thread = threading.Thread(target=worker, name="m26-concurrent-query", daemon=True)
+        thread.start()
+        return thread, outcome
+
+    def test_opposite_viewers_query_concurrently_without_deadlock(self):
+        alice, bob = self.user("alice"), self.user("bob")
+        self.grant(bob, alice)
+        self.grant(alice, bob)
+        barrier = threading.Barrier(2, timeout=30)
+        attempts = [
+            self.query_on_new_connection(alice, [alice, bob], barrier),
+            self.query_on_new_connection(bob, [bob, alice], barrier),
+        ]
+        for thread, outcome in attempts:
+            thread.join(timeout=60)
+            self.assertFalse(thread.is_alive(), "concurrent query did not finish")
+            self.assertNotIn("error", outcome, outcome)
+            self.assertEqual(outcome.get("status"), 200, outcome)
+            self.assertEqual(outcome.get("no_store"), "no-store")
 
     def test_response_carries_no_schedule_content(self):
         alice, bob = self.user("alice"), self.user("bob")
@@ -336,29 +464,61 @@ class BusyFreeQueryTest(FrappeTestCase):
         self.assertEqual(self.ask([alice])[0].headers["Cache-Control"], "no-store")
         self.assertEqual(self.ask([alice], min_minutes=0)[0].headers["Cache-Control"], "no-store")
 
+    def fixed_clock(self, now):
+        return patch.object(api, "_now", return_value=now)
+
     def test_thirty_requests_per_minute_then_429(self):
         alice = self.user("alice")
         frappe.set_user(alice)
-        for _ in range(api.RATE_LIMIT):
-            self.assertEqual(self.ask([alice])[0].status_code, 200)
-        response, body = self.ask([alice])
+        with self.fixed_clock(FIXED_NOW):
+            for _ in range(api.RATE_LIMIT):
+                self.assertEqual(self.ask([alice])[0].status_code, 200)
+            response, body = self.ask([alice])
         self.assertEqual(response.status_code, 429)
         self.assertEqual(body["message"]["error"]["code"], "RATE_LIMITED")
 
     def test_another_identity_does_not_inherit_the_exhausted_budget(self):
         alice, bob = self.user("alice"), self.user("bob")
-        frappe.set_user(alice)
-        for _ in range(api.RATE_LIMIT + 1):
-            self.ask([alice])
-        self.assertEqual(self.ask([alice])[0].status_code, 429)
+        with self.fixed_clock(FIXED_NOW):
+            frappe.set_user(alice)
+            for _ in range(api.RATE_LIMIT + 1):
+                self.ask([alice])
+            self.assertEqual(self.ask([alice])[0].status_code, 429)
 
-        frappe.set_user(bob)
-        self.assertEqual(self.ask([bob])[0].status_code, 200)
+            frappe.set_user(bob)
+            self.assertEqual(self.ask([bob])[0].status_code, 200)
+
+    def test_bucket_boundary_closes_the_old_budget(self):
+        alice = self.user("alice")
+        frappe.set_user(alice)
+        bucket = int(FIXED_NOW // api.RATE_WINDOW_SECONDS)
+        last_moment = bucket * api.RATE_WINDOW_SECONDS + api.RATE_WINDOW_SECONDS - 0.001
+        next_moment = (bucket + 1) * api.RATE_WINDOW_SECONDS
+        self.assertNotEqual(
+            api._rate_raw_key(api._session_digest(), last_moment),
+            api._rate_raw_key(api._session_digest(), next_moment),
+        )
+        with self.fixed_clock(last_moment):
+            for _ in range(api.RATE_LIMIT):
+                self.assertEqual(self.ask([alice])[0].status_code, 200)
+            self.assertEqual(self.ask([alice])[0].status_code, 429)
+        with self.fixed_clock(next_moment):
+            self.assertEqual(self.ask([alice])[0].status_code, 200)
+
+    def test_counter_key_expires(self):
+        alice = self.user("alice")
+        frappe.set_user(alice)
+        with self.fixed_clock(FIXED_NOW):
+            self.assertEqual(self.ask([alice])[0].status_code, 200)
+        key = frappe.cache.make_key(api._rate_raw_key(api._session_digest(), FIXED_NOW))
+        ttl = frappe.cache.ttl(key)
+        self.assertGreater(ttl, 0)
+        self.assertLessEqual(ttl, api.RATE_WINDOW_SECONDS * 2)
 
     def test_counter_is_atomic_under_parallel_calls(self):
         alice = self.user("alice")
         frappe.set_user(alice)
-        key = frappe.cache.make_key(api._rate_raw_key(api._session_digest(), 4000000000))
+        key = frappe.cache.make_key(api._rate_raw_key(api._session_digest(), FIXED_NOW))
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             counts = sorted(pool.map(lambda _: api._bump(key), range(40)))
