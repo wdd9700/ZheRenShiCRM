@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token | e }}">
+  <title>团队日程</title>
+  <link rel="stylesheet" href="/assets/team_schedule/team-schedule.css">
+  <script defer src="/assets/team_schedule/team-schedule.js"></script>
+</head>
+<body data-current-user="{{ session_user | e }}">
+<main>
+  <a href="/crm">返回原生CRM</a>
+  <button id="reload-page" type="button">刷新并重新核验会话</button>
+  <h1>团队日程</h1>
+  <p>当前用户：<strong id="current-user"></strong>。本页按具体分钟安排时间段；正文仅按纯文本显示，不关联CRM对象。</p>
+  <p id="session-status" class="status" role="status" aria-live="polite">所有数据仅在当前页面内存中处理；会话变化、撤权或请求失败会清除旧业务显示。后续显式请求成功后可继续操作，旧异步响应仍会被丢弃。</p>
+
+  <section aria-labelledby="schedule-heading">
+    <h2 id="schedule-heading">创建或编辑日程</h2>
+    <form id="schedule-form">
+      <input id="editing-name" type="hidden">
+      <input id="editing-revision" type="hidden">
+      <div class="grid">
+        <div>
+          <label for="schedule-title">标题（必填，最多140字）</label>
+          <input id="schedule-title" maxlength="140" required>
+        </div>
+        <div>
+          <label for="schedule-timezone">输入时区（IANA）</label>
+          <select id="schedule-timezone" class="timezone-select" required></select>
+        </div>
+        <div>
+          <label for="schedule-start">开始（当地日期与分钟）</label>
+          <input id="schedule-start" type="datetime-local" step="60" required>
+        </div>
+        <div>
+          <label for="schedule-end">结束（当地日期与分钟）</label>
+          <input id="schedule-end" type="datetime-local" step="60" required>
+        </div>
+        <div>
+          <label for="schedule-availability">占用状态</label>
+          <select id="schedule-availability"><option value="Busy">Busy（占用）</option><option value="Free">Free（空闲）</option></select>
+        </div>
+      </div>
+      <div id="schedule-start-offset-row" class="offset-choice" hidden>
+        <label for="schedule-start-offset">开始时间存在两个DST解释，请明确选择当地减UTC的offset</label>
+        <select id="schedule-start-offset"></select>
+      </div>
+      <div id="schedule-end-offset-row" class="offset-choice" hidden>
+        <label for="schedule-end-offset">结束时间存在两个DST解释，请明确选择当地减UTC的offset</label>
+        <select id="schedule-end-offset"></select>
+      </div>
+      <label for="schedule-description">说明（纯文本，最多4000字）</label>
+      <textarea id="schedule-description" rows="3" maxlength="4000"></textarea>
+      <fieldset id="create-members">
+        <legend>创建时共享成员（加入不会自动占用他人时间）</legend>
+        <div id="create-member-rows"></div>
+        <button id="add-create-member" type="button">添加成员</button>
+      </fieldset>
+      <button id="schedule-submit" class="primary" type="submit">创建日程</button>
+      <button id="schedule-reset" type="button">清空／停止编辑</button>
+    </form>
+    <p id="schedule-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section aria-labelledby="list-heading">
+    <h2 id="list-heading">有权查看的时间段列表</h2>
+    <form id="list-form">
+      <div class="grid">
+        <div><label for="list-start">窗口开始</label><input id="list-start" type="datetime-local" step="60" required></div>
+        <div><label for="list-end">窗口结束</label><input id="list-end" type="datetime-local" step="60" required></div>
+        <div><label for="list-timezone">输入与显示时区</label><select id="list-timezone" class="timezone-select" required></select></div>
+      </div>
+      <div id="list-start-offset-row" class="offset-choice" hidden><label for="list-start-offset">窗口开始的DST offset</label><select id="list-start-offset"></select></div>
+      <div id="list-end-offset-row" class="offset-choice" hidden><label for="list-end-offset">窗口结束的DST offset</label><select id="list-end-offset"></select></div>
+      <label class="inline"><input id="include-cancelled" type="checkbox"> 包含已取消日程</label>
+      <button class="primary" type="submit">加载列表</button>
+    </form>
+    <p id="list-status" class="status" role="status" aria-live="polite"></p>
+    <div id="schedule-list" class="scroll"></div>
+    <button id="list-more" type="button" hidden>加载更多</button>
+  </section>
+
+  <section id="detail-panel" aria-labelledby="detail-heading" hidden>
+    <h2 id="detail-heading">日程详情与成员</h2>
+    <div id="detail-content"></div>
+    <div id="participation-panel" hidden>
+      <h3>本人占用</h3>
+      <p>只有你本人能接受或撤回占用；Read/Edit详情权限不等于忙闲授权。</p>
+      <label class="inline"><input id="occupies" type="checkbox"> 我将接受该日程占用我的时间</label>
+      <button id="save-participation" type="button">保存本人占用</button>
+    </div>
+    <div id="member-panel" hidden>
+      <h3>成员Read/Edit权限</h3>
+      <p>仅owner可保存成员。移除成员会立即撤销详情及占用权限；这里不能替成员接受占用。</p>
+      <div id="member-rows"></div>
+      <button id="add-member" type="button">添加成员</button>
+      <button id="save-members" class="primary" type="button">保存成员权限</button>
+    </div>
+    <button id="edit-schedule" type="button">编辑正文与时间</button>
+    <button id="cancel-schedule" class="danger" type="button">取消日程</button>
+    <p id="detail-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section aria-labelledby="grant-heading">
+    <h2 id="grant-heading">独立忙闲授权</h2>
+    <p>仅授权对方查看自己的脱敏占用区间，不开放日程标题、正文、成员或编辑权限。</p>
+    <form id="grant-form">
+      <label for="viewer-user">对方站内用户ID</label>
+      <input id="viewer-user" required>
+      <label class="inline"><input id="grant-allow" type="checkbox"> 允许；取消勾选后保存即撤回</label>
+      <button class="primary" type="submit">保存忙闲授权</button>
+    </form>
+    <p id="grant-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section aria-labelledby="busy-heading">
+    <h2 id="busy-heading">脱敏忙闲与共同空闲</h2>
+    <p>查询必须包含本人；其他每位成员都必须已向你授权。任一未授权即整请求失败，不显示其详情。</p>
+    <form id="availability-form">
+      <label for="busy-users">其他用户ID（逗号或空白分隔，不含本人）</label>
+      <input id="busy-users">
+      <div class="grid">
+        <div><label for="busy-start">窗口开始</label><input id="busy-start" type="datetime-local" step="60" required></div>
+        <div><label for="busy-end">窗口结束</label><input id="busy-end" type="datetime-local" step="60" required></div>
+        <div><label for="busy-timezone">显示时区</label><select id="busy-timezone" class="timezone-select" required></select></div>
+        <div><label for="min-minutes">共同空闲最短分钟数</label><input id="min-minutes" type="number" min="1" max="10080" step="1" value="20" required></div>
+      </div>
+      <div id="busy-start-offset-row" class="offset-choice" hidden><label for="busy-start-offset">忙闲窗口开始的DST offset</label><select id="busy-start-offset"></select></div>
+      <div id="busy-end-offset-row" class="offset-choice" hidden><label for="busy-end-offset">忙闲窗口结束的DST offset</label><select id="busy-end-offset"></select></div>
+      <button class="primary" type="submit">查询忙闲与共同空闲</button>
+    </form>
+    <p id="busy-status" class="status" role="status" aria-live="polite"></p>
+    <div id="busy-results"></div>
+  </section>
+
+  <section aria-labelledby="ics-heading">
+    <h2 id="ics-heading">受限ICS单向导入</h2>
+    <p>仅本地UTF-8 ICS，最大1MiB／200个VEVENT；不抓URL、不处理邀请或提醒。先创建来源，再预览；预览不写入。活动项必须有非空标题。</p>
+    <form id="source-form">
+      <label for="source-label">来源本地标签</label>
+      <input id="source-label" maxlength="140" required>
+      <button class="primary" type="submit">创建导入来源</button>
+    </form>
+    <form id="existing-source-form">
+      <label for="existing-source-id">已有来源ID（刷新后可手动输入此前显示的source_id）</label>
+      <input id="existing-source-id" required>
+      <button type="submit">使用已有来源</button>
+      <p class="muted">这里不恢复任何本地业务缓存；预览和应用时仍由服务端重新校验来源归属与权限，失败不会自动新建来源。</p>
+    </form>
+    <p id="source-status" class="status" role="status" aria-live="polite"></p>
+    <div>
+      <label for="ics-file">ICS文件</label>
+      <input id="ics-file" type="file" accept=".ics,text/calendar">
+      <button id="ics-preview" type="button" disabled>预览（不写入）</button>
+    </div>
+    <p id="ics-status" class="status" role="status" aria-live="polite"></p>
+    <div id="ics-preview-panel" hidden>
+      <h3>逐项预览</h3>
+      <p>仅标记为local_conflict且服务端允许的项目可选择覆盖。勾选只组成resolution，不会自动写入。</p>
+      <div id="ics-preview-table" class="scroll"></div>
+      <label class="inline"><input id="ics-confirm" type="checkbox"> 我已逐项检查，独立确认应用安全项及已勾选的覆盖项</label>
+      <button id="ics-apply" class="primary" type="button" disabled>确认应用导入</button>
+    </div>
+    <div id="ics-result-table" class="scroll"></div>
+  </section>
+</main>
+</body>
+</html>
