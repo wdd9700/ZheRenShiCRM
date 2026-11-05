@@ -3,9 +3,9 @@
     Windows 试用客户端：启动到 CRM 服务器的 SSH 回环隧道。
 
 .DESCRIPTION
-    把本机 http://127.0.0.1:18088 固定转发到服务器的 127.0.0.1:8088。
-    18088 是 Edge 安装的 Web 应用的固定 origin，脚本不提供改端口参数；
-    端口被占用即明确失败，不会静默换端口。
+    把本机 http://127.0.0.1:18088 固定转发到服务器的回环端口（默认 127.0.0.1:8088）。
+    18088 是 Edge 安装的 Web 应用的固定 origin，脚本不提供改本地端口参数；
+    端口被占用即明确失败，不会静默换端口。服务器地址与远端回环端口可由参数指定。
 
     私钥与 known_hosts 只作为外部参数路径传入：脚本不读取、不打印、不复制私钥内容，
     不修改全局 SSH 配置，也不自动接受未知主机密钥（StrictHostKeyChecking=yes）。
@@ -28,7 +28,10 @@
     服务器登录用户，默认 dev。
 
 .PARAMETER HostName
-    服务器地址，默认 8.133.190.46。
+    服务器地址，默认当前试用服务器 8.133.190.46。正式发布地址由主控提供后用此参数传入。
+
+.PARAMETER RemotePort
+    服务器回环上 CRM 监听的端口，默认 8088（当前服务端约定）。如正式发布使用其他端口，由此参数传入；本地入口端口始终固定为 18088。
 
 .EXAMPLE
     .\start-tunnel.ps1 -IdentityFile "$env:USERPROFILE\.ssh\crm_trial_ed25519" `
@@ -48,14 +51,16 @@ param(
 
     [string]$User = 'dev',
 
-    [string]$HostName = '8.133.190.46'
+    [string]$HostName = '8.133.190.46',
+
+    [ValidateRange(1, 65535)]
+    [int]$RemotePort = 8088
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $LocalPort = 18088
-$RemotePort = 8088
 $LocalOrigin = "http://127.0.0.1:$LocalPort"
 
 function Resolve-RequiredFile {
@@ -115,7 +120,8 @@ try {
     if (Test-LoopbackPortBusy -Port $LocalPort) {
         throw @"
 本机 127.0.0.1:$LocalPort 已被占用，拒绝启动。
-客户端固定 origin 是 $LocalOrigin；换端口等于换应用身份（要重装、丢登录态），脚本不会静默改端口。
+客户端固定 origin 是 $LocalOrigin；换端口等于换应用身份（需要重新安装应用），脚本不会静默改端口。
+注意 Cookie 按主机而非端口匹配，换端口也不会隔离会话。
 请自行确认占用者，例如：Get-NetTCPConnection -LocalPort $LocalPort -State Listen
 脚本不会替你结束任何进程。
 "@

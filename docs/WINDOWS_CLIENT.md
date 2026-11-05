@@ -3,6 +3,7 @@
 **状态：实现候选；真实隧道、浏览器登录、Edge「安装为应用」与独立窗口启动已实测通过，卸载与离线仍未验证。** 2026-11-02 用本机 Edge 以真实表单登录 Administrator，通过 Edge 的「安装此站点为应用」生成 Windows 应用条目（AppsFolder `frappe crm`），关闭后从安装入口重新启动为无地址栏独立窗口，登录态保持（详见 §10）。仍是单人合成数据试用，不是生产/团队上线；团队权限未验收，本文不声称原生安装包。
 
 - 启动脚本：`deploy/windows/start-tunnel.ps1`
+- 启动快捷方式（可选）：`deploy/windows/new-shortcut.ps1`（只创建 .lnk，不安装应用）
 - 客户端形态：Edge 安装的 **Web 应用**（不是 exe / MSIX / 原生安装包）
 - 固定 origin：`http://127.0.0.1:18088`
 - 远端：`dev@8.133.190.46` → 服务器回环 `127.0.0.1:8088`
@@ -35,7 +36,7 @@ Edge 应用窗口（http://127.0.0.1:18088/crm）
 | 操作系统 | Windows 10/11 | — |
 | 浏览器 | Microsoft Edge（任意近版） | 打开 `edge://version` |
 | SSH 客户端 | **Windows 内置 OpenSSH**（`%SystemRoot%\System32\OpenSSH\ssh.exe`）。脚本只支持内置客户端，不回退到 PATH 上的其他 ssh（如 Git 自带的 ssh） | 确认该路径存在；脚本用它并显式传 `-F NUL` |
-| 服务器连通性 | `8.133.190.46:22` 可达 | `Test-NetConnection 8.133.190.46 -Port 22` |
+| 服务器连通性 | 当前试用服务器 `8.133.190.46:22` 可达；正式发布地址由主控提供，用参数传入，不要写死临时地址 | `Test-NetConnection <地址> -Port 22` |
 | 服务器 SSH 配置 | 允许密钥登录、`AllowTcpForwarding yes` | 由服务端部署任务确认，本文不假设已就绪 |
 | 私钥文件 | 使用者自行准备，只以路径传入；文件 ACL 必须仅本人（及 SYSTEM、Administrators）可读，否则 Windows OpenSSH 会拒绝加载 | 见 §4、§5；脚本不改 ACL |
 | known_hosts 文件 | 使用者自行准备，路径显式传入且文件须存在 | 见 §4 |
@@ -81,7 +82,7 @@ cd P:\CRM   # 换成你的 checkout 路径
 运行后：
 
 - 脚本先做本地预检（两个文件是否存在、18088 是否空闲、内置 ssh 是否存在），打印将要执行的完整 ssh 命令（以 `-F NUL` 开头，只有**路径**，没有私钥内容），然后在前台启动 `ssh -N -T`。
-- 本地端口固定 18088、服务器回环端口固定 8088，脚本不提供改端口的参数；`-User`/`-HostName` 默认就是 `dev` / `8.133.190.46`，仅排障时才改，改动后即不对应本文的试用约定。
+- 本地端口固定 18088；服务器地址默认 `8.133.190.46`、远端回环端口默认 `8088`（当前服务端约定），可用 `-HostName` / `-RemotePort` 指定。正式发布地址由主控提供后再填入，不在脚本或快捷方式里写死临时地址或凭据。
 - **退出**：在这个控制台按 Ctrl+C；关闭窗口同样会断开。ssh 会收到中断退出，若控制台直接回到提示符而没有结尾摘要，属正常。
 - **重连**：用同一命令再运行一次。脚本不重试、不换端口、不杀无关进程。
 - **只做预检**：加 `-WhatIf`，只检查参数与端口并打印命令，不启动 ssh、不连接服务器。
@@ -89,6 +90,23 @@ cd P:\CRM   # 换成你的 checkout 路径
 - **私钥有口令**：ssh 会在同一控制台自行提示，口令只交给 ssh；脚本不读取、不保存、不打印口令或私钥。
 - 脚本只尝试公钥认证（`PreferredAuthentications=publickey`），不会退回密码登录；服务端只允许密码登录时会直接失败，这是安全边界，不在客户端放宽。
 - 如果脚本被 PowerShell 执行策略拦截，可仅对当前窗口临时放宽：`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`（关闭窗口即失效，不改机器级策略）。
+
+### 5.1 创建启动快捷方式（可选）
+
+想让试用更像“点一下就启动”，可用 `deploy/windows/new-shortcut.ps1` 在桌面生成一个**启动器快捷方式**：
+
+```powershell
+cd P:\CRM
+.\deploy\windows\new-shortcut.ps1 `
+  -IdentityFile "$env:USERPROFILE\.ssh\crm_trial_ed25519" `
+  -KnownHostsFile "$env:USERPROFILE\.ssh\crm_trial_known_hosts" `
+  -ServerAddress 8.133.190.46 -RemotePort 8088
+```
+
+- 快捷方式只调用 `start-tunnel.ps1`（前台隧道），**不等于** Edge 的「安装此站点为应用」，也不代表离线客户端；Edge 安装仍需按 §7 手动完成。
+- 不创建计划任务或开机自启；默认拒绝覆盖同名快捷方式（需要覆盖时加 `-Force`）。
+- 只记录路径、服务器地址与端口，不记录密码或密钥内容；快捷方式可随时删除。
+- 正式发布地址由主控提供后用 `-ServerAddress` / `-RemotePort` 传入，不要写死临时端口或凭据。
 
 退出码约定：
 
@@ -136,6 +154,7 @@ curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:18088/crm
 ## 9. 卸载与清理
 
 - **卸载应用**：`edge://apps` → 应用卡片 → `Uninstall`（或右键卸载）。开始菜单/任务栏项应随之移除。Windows「设置 → 应用」是否出现条目未验证，出现与否如实记录。（卸载行为本身未实测。）
+- **启动快捷方式**：删除 `new-shortcut.ps1` 创建的 `.lnk` 即可；它不注册服务、不写注册表、不设自启，删除不影响已安装的 Edge 应用。
 - **断开隧道**：脚本进程结束即释放 18088；确认 `Get-NetTCPConnection -LocalPort 18088 -State Listen` 为空。
 - **私钥与 known_hosts**：使用者自己的文件，脚本既不创建也不删除；是否移除由你决定（可能还用于其他 SSH 用途）。
 - **没有计划任务、服务或注册表自启项**需要清理。
@@ -214,6 +233,12 @@ dev@8.133.190.46: Permission denied (publickey,...)
 - 结果：`edge://apps` 的「已安装的应用」出现 Frappe CRM 卡片（含描述与「打开」按钮）；Windows AppsFolder 存在条目 `127.0.0.1-D0C192E1_79zy1vv1ew6qc!App`。
 - 独立窗口：关闭应用窗口后从该安装入口重新启动，得到标题 `Frappe CRM`、无地址栏/无标签页的独立窗口，仍是 Administrator 登录态（Cookie 按主机 `127.0.0.1` 匹配，不按端口）。
 - 未做：卸载、固定到任务栏/开始屏幕、登录时自动启动、离线与断线负例、非管理员账户；不声称生产或团队权限可用。
+
+### 2026-11-05 v1.0 入口补齐（本地验证，无 GUI/服务端操作）
+
+- `start-tunnel.ps1` 新增 `-RemotePort`（默认 8088，范围 1–65535）；本地入口仍固定 18088。`-WhatIf` 显示 `-L 127.0.0.1:18088:127.0.0.1:9000`（测试值），非法 70000 被参数校验拒绝；18088 被占用时仍退出 1。
+- 新增 `new-shortcut.ps1`：仅在指定路径创建 `.lnk`（目标为 powershell.exe 运行 start-tunnel.ps1，参数含私钥/known_hosts 路径、地址与端口），默认拒绝覆盖，`-WhatIf` 不写文件。
+- 本地测试均写入 `%TEMP%` 后删除：快捷方式目标/工作目录/参数回读正确（含 `-HostName`、`-RemotePort`）；重复创建被拒（exit 1）；缺失私钥被拒（exit 1）。未在桌面/开始菜单创建任何快捷方式，未改动浏览器或服务端。
 
 复现本地检查（可选）：
 
