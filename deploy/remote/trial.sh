@@ -25,11 +25,15 @@ if [ "$ACTION" = load-image ]; then
     shift
 fi
 UPDATE_RELEASE_DIR=
-if [ "$ACTION" = update-site-image ]; then
-    [ "$#" -ge 2 ] || { printf 'update-site-image requires a reviewed release directory and image archive\n' >&2; exit 2; }
+UPGRADE_APPS=0
+if [ "$ACTION" = update-site-image ] || [ "$ACTION" = upgrade-site-apps ]; then
+    [ "$#" -ge 2 ] || { printf '%s requires a reviewed release directory and image archive\n' "$ACTION" >&2; exit 2; }
     UPDATE_RELEASE_DIR=$1
     IMAGE_ARCHIVE=$2
     shift 2
+    if [ "$ACTION" = upgrade-site-apps ]; then
+        UPGRADE_APPS=1
+    fi
 fi
 CONFIRM=0
 if [ "${1:-}" = "--confirm-synthetic-only" ]; then
@@ -46,17 +50,23 @@ if [ "${1:-}" = "--confirm-site-image-update" ]; then
     CONFIRM_SITE_UPDATE=1
     shift
 fi
+CONFIRM_SITE_APP_UPGRADE=0
+if [ "${1:-}" = "--confirm-site-app-upgrade" ]; then
+    CONFIRM_SITE_APP_UPGRADE=1
+    shift
+fi
 
 usage() {
     cat <<'EOF'
-Usage: trial.sh ACTION [ARGS] [--confirm-synthetic-only] [--confirm-classic-image-lock-migration] [--confirm-site-image-update]
+Usage: trial.sh ACTION [ARGS] [--confirm-synthetic-only] [--confirm-classic-image-lock-migration] [--confirm-site-image-update] [--confirm-site-app-upgrade]
 Actions:
   verify-source                 Verify the 53 exact app/build source files
   init-env                     Generate new 0600 credentials; never overwrite
   load-image ARCHIVE           Load a verified image archive through the selected Docker mode
   check                        Check Compose, locked image identity, platform, labels and RootFS
   migrate-image-lock-to-config One-time exact index-to-config lock migration; requires classic confirmation
-  update-site-image DIR TAR    One-time reviewed image update with backup and rollback; requires confirmation
+  update-site-image DIR TAR    Image-only reviewed update with backup and rollback; requires confirmation
+  upgrade-site-apps DIR TAR    Controlled update to the approved five apps; requires app upgrade confirmation
   create-site                  One-time new site; requires synthetic confirmation
   up                           Start/wait all trial services
   install-extensions           One-time resource_import then team_access install; requires confirmation
@@ -380,7 +390,7 @@ fail_update() {
         restore_previous_metadata || true
     fi
     write_state "maintenance reason=$REASON image=$NEW_CONFIG stop=$STOP_RESULT lock=$LOCK_RESULT metadata=$META_RESULT"
-    printf 'ERROR: site update failed (%s); stop=%s lock=%s metadata=%s; do not resume the known-broken permission version\n' "$REASON" "$STOP_RESULT" "$LOCK_RESULT" "$META_RESULT" >&2
+    printf 'ERROR: site update failed (%s); stop=%s lock=%s metadata=%s; maintenance retained, no service is restarted and any app/schema changes are preserved\n' "$REASON" "$STOP_RESULT" "$LOCK_RESULT" "$META_RESULT" >&2
     exit 1
 }
 update_exit() {
@@ -398,8 +408,22 @@ verify_running_app_images() {
     ACTUAL=$(docker_cli container inspect "$PROJECT-configurator-1" --format '{{.Image}} {{.State.Status}} {{.State.ExitCode}}')
     [ "$ACTUAL" = "$EXPECTED exited 0" ]
 }
+verify_service_readiness() {
+    compose exec -T db healthcheck.sh --connect --innodb_initialized >/dev/null &&
+      compose exec -T redis-cache redis-cli ping >/dev/null &&
+      compose exec -T redis-queue redis-cli ping >/dev/null &&
+      compose exec -T backend /home/frappe/frappe-bench/env/bin/python -c 'import json,sys,urllib.request; response=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8000/api/method/ping",headers={"Host":sys.argv[1]}),timeout=5); raise SystemExit(0 if json.loads(response.read()).get("message") == "pong" else 1)' "$SITE" &&
+      compose exec -T frontend /home/frappe/frappe-bench/env/bin/python -c 'import json,sys,urllib.request; response=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8080/api/method/ping",headers={"Host":sys.argv[1]}),timeout=5); raise SystemExit(0 if json.loads(response.read()).get("message") == "pong" else 1)' "$SITE"
+}
+candidate_apps() {
+    compose run --no-deps -T --entrypoint /home/frappe/frappe-bench/env/bin/python backend - "$1" < "$REMOTE/verify_upgrade.py"
+}
 update_site_image() {
-    [ "$CONFIRM_SITE_UPDATE" -eq 1 ] || fail 'site image update requires --confirm-site-image-update'
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        [ "$CONFIRM_SITE_APP_UPGRADE" -eq 1 ] || fail 'site app upgrade requires --confirm-site-app-upgrade'
+    else
+        [ "$CONFIRM_SITE_UPDATE" -eq 1 ] || fail 'site image update requires --confirm-site-image-update'
+    fi
     case "$UPDATE_RELEASE_DIR" in /*) ;; *) fail 'reviewed release directory must be absolute' ;; esac
     case "$IMAGE_ARCHIVE" in /*) ;; *) fail 'reviewed image archive must be absolute' ;; esac
     [ -d "$UPDATE_RELEASE_DIR" ] && [ ! -L "$UPDATE_RELEASE_DIR" ] || fail 'reviewed release directory must be real and non-symlink'
@@ -455,6 +479,9 @@ update_site_image() {
     require_marker migrated-twice
     require_docker
     verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        verify_service_readiness || fail 'current DB/Redis/backend/frontend are not all healthy; refuse app upgrade before stopping writers'
+    fi
     if [ -e "$RUNTIME/release.env" ]; then
         (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
     fi
@@ -471,20 +498,46 @@ update_site_image() {
     CACHE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
     QUEUE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')
     SITE_CONFIG_BEFORE=$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
+        (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+        write_state "updating image=$NEW_CONFIG mode=apps" || fail 'unable to record app upgrade start; no runtime action was taken'
+        UPDATE_ACTIVE=1
+        trap update_exit EXIT
+        trap 'fail_update signal-hup' HUP
+        trap 'fail_update signal-int' INT
+        trap 'fail_update signal-term' TERM
+        compose stop frontend websocket queue-short queue-long scheduler || fail_update stop-writers-failed
+    fi
     backup
-    (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
-    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
-    write_state "updating image=$NEW_CONFIG" || fail 'unable to record update start; no runtime action was taken'
-    UPDATE_ACTIVE=1
-    trap update_exit EXIT
-    trap 'fail_update signal-hup' HUP
-    trap 'fail_update signal-int' INT
-    trap 'fail_update signal-term' TERM
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        compose stop backend || fail_update stop-backend-failed
+    else
+        (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
+        (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+        write_state "updating image=$NEW_CONFIG" || fail 'unable to record update start; no runtime action was taken'
+        UPDATE_ACTIVE=1
+        trap update_exit EXIT
+        trap 'fail_update signal-hup' HUP
+        trap 'fail_update signal-int' INT
+        trap 'fail_update signal-term' TERM
+    fi
     docker_cli load -i "$IMAGE_ARCHIVE"
     verify_image_identity "$NEW_CONFIG" "$NEW_CONFIG" "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM" "$NEW_LAYERS"
     mv "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" "$IMAGE_FILE" || fail_update lock-rename-failed
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        compose run --no-deps -T configurator || fail_update candidate-configurator-failed
+        MISSING_JSON=$(candidate_apps missing) || fail_update candidate-app-query-failed
+        MISSING_APPS=$(printf '%s' "$MISSING_JSON" | python3 -c 'import json,sys; value=json.load(sys.stdin); missing=value.get("missing"); assert set(value)=={"missing"} and isinstance(missing,list); assert all(app in ("resource_import","team_access","team_schedule") for app in missing); print(" ".join(missing))') || fail_update candidate-app-list-invalid
+        for APP in $MISSING_APPS; do
+            compose run --no-deps -T backend bench --site "$SITE" install-app "$APP" || fail_update "install-$APP-failed"
+        done
+        compose run --no-deps -T backend bench --site "$SITE" migrate || fail_update migrate-failed
+        candidate_apps verify || fail_update schema-verification-failed
+    fi
     compose up -d --wait || fail_update recreate-failed
     verify_running_app_images "$NEW_CONFIG" || fail_update application-image-mismatch
+    verify_service_readiness || fail_update application-readiness-failed
     [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail_update db-container-changed
     [ "$CACHE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')" ] || fail_update redis-cache-container-changed
     [ "$QUEUE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')" ] || fail_update redis-queue-container-changed
@@ -495,7 +548,11 @@ update_site_image() {
     write_state "ready image=$NEW_CONFIG" || fail_update ready-state-write-failed
     UPDATE_ACTIVE=0
     trap - EXIT HUP INT TERM
-    printf 'PASS: reviewed image loaded, all application services recreated consistently, backup/old image/old lock retained; run check and business regression\n'
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        printf 'PASS: approved five apps, schema and service readiness verified; backup/old image/old lock retained; run check and business regression\n'
+    else
+        printf 'PASS: reviewed image loaded, all application services recreated consistently, backup/old image/old lock retained; run check and business regression\n'
+    fi
 }
 maintenance_status() {
     if [ -f "$RUNTIME/site-update.state" ]; then
@@ -571,6 +628,7 @@ case "$ACTION" in
     check) check ;;
     migrate-image-lock-to-config) migrate_image_lock_to_config ;;
     update-site-image) update_site_image ;;
+    upgrade-site-apps) update_site_image ;;
     create-site) create_site ;;
     up) up ;;
     install-extensions) install_extensions ;;

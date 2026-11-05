@@ -23,7 +23,7 @@
 
 M9 构建日志逐项证明 config `129b0357…` → linux/amd64 manifest `6014c9df…` → manifest list/index `cae67cc3…` 的导出关系；M15 交付 tar 进一步证明 manifest 指向 config 和 24 层，经典 overlay2 加载后 `.Id=config`。containerd image store 的 `.Id` 则是 index。四种摘要用途不同：tar SHA 只证明交付字节，index/manifest 只证明 OCI 出处，config+RootFS diff_ids 才是经典 store 可运行内容锁；三个 revision label 只作附加断言，不能反推身份。
 
-`deploy/remote/preflight.sh` 是只读预检；`trial.sh` 是后续运维入口；`compose.yml` 保留 DB、双 Redis、backend、websocket、frontend、双队列和 scheduler，不靠关闭重要服务凑启动。backend 仅按 M9 隔离恢复拓扑降为 1 worker / 2 threads，**这不是低内存可用性保证**。
+`deploy/remote/preflight.sh` 是只读预检；`trial.sh` 是后续运维入口；`compose.yml` 保留 DB、双 Redis、backend、websocket、frontend、双队列和 scheduler，不靠关闭重要服务凑启动。DB 与双 Redis 有健康检查，configurator 等待 DB/双 Redis healthy；backend/frontend 分别以真实 `/api/method/ping` 做应用 readiness，frontend 等待 backend healthy。`up --wait` 因此不只证明进程创建成功，但队列、websocket、scheduler 仍须另核 running 和业务验收。所有长驻服务保留 `restart: unless-stopped`；健康检查只报告状态，**不等于 unhealthy 自动重启或健康自愈**。backend 仅按 M9 隔离恢复拓扑降为 1 worker / 2 threads，**这不是低内存可用性保证**。
 
 M10 已知主机为 2 CPU / 1.8 GiB RAM / 无 swap。该栈同时运行 9 个长驻服务，可能 OOM、重启或无法完成迁移；33 GiB 磁盘也只表示当前空间，不代表持续备份容量。预检要求 home 和 Docker 文件系统各有至少 8 GiB 可用空间，作为镜像导入、数据库和短期备份的保守门槛，不是生产容量建议。不得擅自加 swap、停安全服务、清其他项目资源或降低权限来释放资源。
 
@@ -173,7 +173,7 @@ git archive --format=tar --output="$UPDATE_DIR/crm-c010400-tools-update.tar" "$U
   deploy/remote/image-rootfs-layers.txt deploy/remote/preflight.sh \
   deploy/remote/release.env deploy/remote/trial.sh \
   deploy/remote/update-from-240b9a8.sha256 deploy/remote/verify_backup.py \
-  deploy/remote/verify_image_archive.py docs/REMOTE_TRIAL.md
+  deploy/remote/verify_upgrade.py deploy/remote/verify_image_archive.py docs/REMOTE_TRIAL.md
 (
   cd "$UPDATE_DIR"
   sha256sum crm-c010400-tools-update.tar > crm-c010400-tools-update.sha256
@@ -224,6 +224,27 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
 ```
 
 该动作先离线核验 tar SHA、index→amd64 manifest→config 及逐层 diff_ids，再完成四件备份可读检查后加载并验证新镜像，保留 `.env`、站点配置、数据库/卷、原镜像和 `image.env.pre-site-update`，以 Compose 原生重建。六个长驻应用服务须全部运行新 config，configurator 须同 config 且 exit 0；DB/Redis 容器 ID、`.env` 和站点配置哈希不得改变。全部目标、备份和临时路径冲突在运行态变化前预检，完整元数据先写入临时文件。切换后任何退出、写入/rename失败或可捕获信号都会先独立尽力 `compose stop`，再分别尝试锁恢复和元数据隔离，并把 stop/lock/metadata 结果写入 `site-update.state`；任何失败均不自动重启已知权限缺陷版本。成功后才提交新 manifest/层清单供后续 `check`。后续权限复验失败同样立即停写/维护，不以旧版回退冒充健康。不 `down -v`/prune、不 init、不重复旧 load 迁移、不改公开范围/SSH/firewall，也不解除 M8/M9 门禁。
+
+`update-site-image` 保持 **image-only** 语义：不查询或安装 app、不执行 migrate，只适用于候选与现站 app 集合和 schema 兼容的已审镜像。含新增 app 的候选不得走此捷径。
+
+### 受控五 app 扩展升级（最终 digest 待 M9 提供）
+
+最终候选的精确 app 集合为 `frappe`、`crm`、`resource_import`、`team_access`、`team_schedule`。本包不硬编码当前本地 `8c5` 或任何过期 digest；仍只接受上述独立 release/layers/tar 身份材料，日程 JS 修正由 M29 另行收口。
+
+```sh
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" upgrade-site-apps \
+  /已审release目录 /已核验镜像.tar --confirm-site-app-upgrade
+```
+
+该动作复用同代次冲突、备份和恢复保护，并额外执行以下顺序：
+
+1. 以 active probe 要求当前 DB、双 Redis、backend、frontend 全部 healthy（兼容尚未配置 Docker healthcheck 的现站），先写 `updating` 维护状态，停止 frontend、websocket、双队列和 scheduler，以阻断外部及后台写入；backend 暂留仅用于原生四件备份，备份可读后停止 backend。DB/Redis 不停，供 one-shot 使用。
+2. 加载并核验候选后，先以候选 **one-shot configurator** 更新 `sites/apps.txt` 和既有连接配置，再以候选 one-shot 查询实际 `frappe.get_installed_apps`。基线必须已含 `frappe`/`crm` 且不超出批准五 app；只对缺失的 `resource_import`、`team_access`、`team_schedule` 依次执行标准 `bench install-app`，已存在者绝不重复安装。随后执行一次标准 `bench migrate`，不是初装的两次 migrate，也不读取/删除 `migrated-twice` 来重跑初装。
+3. 另一个 one-shot 校验精确五 app 集合、七个 `team_schedule` 自有表，以及 `Team Schedule.title/description` 均为 `longtext`。只有这些检查成功才执行 `compose up -d --wait` 开放服务；随后再核全部应用镜像、DB/Redis/backend/frontend active readiness、基础设施容器 ID、`.env` 和站点配置哈希，最后才写 ready。
+4. 查询、安装、migrate 或 schema/readiness 任一步失败都保留维护态、四件备份、one-shot 和已发生的 app/schema 现场，不写 ready，也不自动重试。恢复旧锁只是保留本轮起点元数据，**不会启动旧镜像**。同代冲突和维护态仍须人工审查，不能删状态/初装 marker 改跑 `create-site`、`install-extensions` 或初装 `migrate`；后续已审执行仍按实际 installed apps 只安装缺失项。
+
+兼容回退必须使用能加载**当前已安装全部 app 及现有 schema** 的镜像。安装 `team_schedule` 后，旧四 app 镜像不再满足该条件；禁止自动切回、uninstall、删表/Custom Field 或把 `longtext` 缩回旧类型。停写保留现场与经 M9 在独立环境验证的备份恢复是两条独立路径，backup readability 仍不等于恢复通过。
 
 维护/恢复入口不依赖新元数据有效。每条命令都独立使用**同一已审 staging 脚本和原 runtime 绝对路径**，不覆盖旧工具，也不继承前一条命令的局部变量：
 
@@ -352,6 +373,8 @@ sh deploy/remote/trial.sh inspect-volumes
 
 - `bash -n deploy/remote/preflight.sh deploy/remote/trial.sh`、Python AST 和 `git diff --check` 通过。
 - 第一 Ubuntu 的既有 Docker Compose 只做 `config` 渲染，未连接 daemon 创建资源：11 个服务（含 setup profile）、仅 frontend 发布 `127.0.0.1:8088`、4 个固定独立卷、backend 1 worker、未确认时合成标记为 `not-confirmed`，断言通过。
+- 本轮另以本机 standalone Compose v5.1.1 对更新后文件做真实 `config` 渲染，11 服务、双 Redis health、configurator 对双 Redis `service_healthy`、frontend 对 backend `service_healthy` 均通过；未连接 daemon，不把这当作应用健康或升级演练。
+- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready 且不二次启动、旧 image-only 不安装不迁移，以及显式确认。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext 和异常基线。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
 - 53 个 app/build 源文件与 M9 `source-manifest.json` 全部一致；在合成副本中篡改 `team_access/install.py` 后 `verify-source` 拒绝。
 - `init-env` 防覆盖、三个显式合成确认拒绝路径及阶段顺序门禁通过；mock Docker 完整演练确认 create-site → up → 两个 install-app → 恰好两次 migrate → clear-cache → enable-import，重复 create/migrate 拒绝。mock 只验证编排，不是真实安装证据。
 - 合成四件备份夹具通过 gzip/tar/config 完整性验证；stub 预检在本地非 Alibaba OS 上明确失败且未创建目标目录。

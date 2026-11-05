@@ -29,6 +29,7 @@ deploy/remote/release.env
 deploy/remote/trial.sh
 deploy/remote/update-from-240b9a8.sha256
 deploy/remote/verify_backup.py
+deploy/remote/verify_upgrade.py
 deploy/remote/verify_image_archive.py
 docs/REMOTE_TRIAL.md
 '
