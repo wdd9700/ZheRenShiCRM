@@ -189,6 +189,17 @@ class Window extends EventTarget {
     };
     this.reloadCount = 0;
     this.location = {reload: () => { this.reloadCount += 1; }};
+    const channels = this.broadcastChannels = [];
+    this.BroadcastChannel = class {
+      constructor(name) {
+        this.name = name;
+        this.onmessage = null;
+        channels.push(this);
+      }
+      postMessage(data) {
+        for (const channel of channels) if (channel !== this) channel.onmessage?.({data});
+      }
+    };
     let sequence = 0;
     this.crypto = {randomUUID: () => '00000000-0000-4000-8000-' + String(++sequence).padStart(12, '0')};
   }

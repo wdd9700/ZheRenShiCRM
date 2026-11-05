@@ -370,3 +370,68 @@ test('cancel success clears the previous edit result while preserving revision a
   assert.match(environment.document.getElementById('session-status').textContent, /后续显式请求已成功/);
   assert.doesNotMatch(environment.document.getElementById('session-status').textContent, /请刷新页面/);
 });
+
+test('CRM changed message clears Cancelled detail and drafts and rejects late list data', async () => {
+  const calls = [];
+  const lateResponse = deferred();
+  const cancelled = {
+    name: 'cancelled-private', owner: 'owner@example.test', title: 'private cancelled title', description: 'private cancelled description',
+    start_utc: '2026-11-04T09:07:00Z', end_utc: '2026-11-04T09:42:00Z', source_timezone: 'UTC',
+    status: 'Cancelled', availability: 'Busy', revision: 5, members: []
+  };
+  let listCount = 0;
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({url, payload});
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', timezone: payload.timezone, offset_minutes: 0}});
+    if (url.endsWith('.get')) return jsonResponse({message: {schedule: cancelled}});
+    if (url.endsWith('.list')) {
+      listCount += 1;
+      if (listCount === 2) return lateResponse.promise;
+      return jsonResponse({message: {items: [cancelled], next_cursor: 'next-page'}});
+    }
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {
+    'list-start': '2026-11-01T09:00',
+    'list-end': '2026-11-08T09:00',
+    'list-timezone': 'UTC'
+  });
+  await fire(environment.document.getElementById('list-form'), 'submit');
+  await environment.document.getElementById('schedule-list').querySelectorAll('button')[0].click();
+  assert.equal(environment.document.getElementById('detail-panel').hidden, false);
+  assert.match(environment.document.getElementById('detail-content').textContent, /private cancelled title/);
+  assert.match(environment.document.getElementById('detail-content').textContent, /Cancelled/);
+  setValues(environment.document, {
+    'editing-name': 'private-draft-id',
+    'editing-revision': '5',
+    'schedule-title': 'private draft title',
+    'schedule-description': 'private draft description'
+  });
+  const sender = new environment.window.BroadcastChannel('crm-account-boundary-c011000');
+  sender.postMessage('unrelated-message');
+  assert.equal(environment.document.getElementById('detail-panel').hidden, false);
+  await environment.document.getElementById('list-more').click();
+  for (let attempt = 0; attempt < 5 && methodCalls(calls, '.list').length < 2; attempt += 1) await flush();
+  assert.equal(methodCalls(calls, '.list').length, 2);
+  sender.postMessage('changed');
+  assert.equal(environment.document.getElementById('detail-panel').hidden, true);
+  assert.equal(environment.document.getElementById('detail-content').textContent, '');
+  assert.equal(environment.document.getElementById('editing-name').value, '');
+  assert.equal(environment.document.getElementById('schedule-title').value, '');
+  assert.equal(environment.document.getElementById('schedule-description').value, '');
+  assert.match(environment.document.getElementById('session-status').textContent, /另一标签的账号会话发生变化/);
+  lateResponse.resolve(jsonResponse({message: {items: [{...cancelled, name: 'late-private', title: 'late private title'}], next_cursor: null}}));
+  await flush();
+  assert.equal(environment.document.getElementById('schedule-list').children.length, 0);
+  assert.doesNotMatch(environment.document.getElementById('schedule-list').textContent, /late private title/);
+  assert.doesNotMatch(environment.document.getElementById('session-status').textContent, /后续显式请求已成功/);
+});
+
+test('init without BroadcastChannel keeps the existing visibility fallback', async () => {
+  const environment = createDom(html, async () => { throw new Error('unexpected request'); });
+  environment.window.BroadcastChannel = undefined;
+  init(environment.document, environment.window);
+  await fire(environment.document, 'visibilitychange');
+  assert.match(environment.document.getElementById('session-status').textContent, /页面重新可见/);
+});

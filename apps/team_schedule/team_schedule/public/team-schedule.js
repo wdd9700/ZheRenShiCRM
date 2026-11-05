@@ -989,6 +989,15 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) sessionInvalidated('页面重新可见，会话可能已变化。'); });
     window.addEventListener('pageshow', event => { if (event.persisted) sessionInvalidated('浏览器恢复了历史页面。'); });
     window.addEventListener('storage', () => sessionInvalidated('同源浏览器存储发生变化。'));
+    let accountChannel = null;
+    try {
+      if (typeof window.BroadcastChannel === 'function') {
+        accountChannel = new window.BroadcastChannel('crm-account-boundary-c011000');
+        accountChannel.onmessage = event => {
+          if (event.data === 'changed') sessionInvalidated('另一标签的账号会话发生变化。');
+        };
+      }
+    } catch {}
   }
 
   const exported = {
