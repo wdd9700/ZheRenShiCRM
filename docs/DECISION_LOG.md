@@ -135,6 +135,8 @@
 
 - **242161跨候选本地partial恢复实证（2026-11-05）**：tower明确M13精确242161c独审clean/merge并授权同r6现场→已fresh验证24e；只用原from-maintenance显式确认入口，不改工具/guard、不重build/save/restore/fresh测试或基线双migrate。先核原B完整非.env文件布局/SHA与冻结相等并保存原state/锁等副本，再必要原infra及兼容24e只读查得实际team_schedule已注册、七表与metadata全缺/DocShare0，拒绝预设未注册而forceinstall。原工具依真实missing空集合不重复安装，新四件backup201546全可读→一次标准migrate→精确五app/七表/五完整索引/无DocShare/longtext→readiness/check/versions真实通过。唯一383.522秒exit0，report60cbdb415332fa5046e907a367191e0c6e08d40266f8ec6325e6ed8ef334f0c7；12类103refs缺0/用户/公私2物理文件/mail全保持，Settings摘要变化明确单列。120原卷与其他容器/daemon/mainlock保持，M7精确finally恢复，原trial全停；原B context/proof/reviewed临时文件/原锁/markers不变，工具preC state/lock精确等原B/A，原失败不擦除。暂选原生维护恢复而非手建表/卸载/覆盖restore，隔离和本地恢复置信度高，未外推正式权限/Windows/服务开机自启；无新增用户价值取舍。随后tower要求最小精确24e标准up/stop差集，不重恢复矩阵；另一次只读旧/新备份留存补核在daemon active/PID前提即红、尚未创建probe/读取备份或启动任何服务，报告d527b19c19c36893c57cfd3ada65b1001a5cc9893d36d09ea89c811705623ffd，不能把此helper未等systemd就绪当已证服务可靠性失败或备份丢失。后继仅等待实际daemon就绪，不自行restart daemon，具体结果另加。
 
+- **精确24e本地标准重启差集（2026-11-05）**：按tower后继要求先提交r7证据fd8e381，再同trial一次原242161标准up/stop，拒绝重复恢复矩阵或重启daemon。实际同PID360由activating九次自然到active后才操作；197.237秒exit0、reportd069d13084af7bf81138f37c96c81024cd498dedc68dfb537d6fd8368b61af1b。重启后五app/原七表五完整索引/无DocShare/longtext通过，12类103refs/用户/公私2files/mail/settings全等r7，原B/新C八件backup当前完整可读（不造升级前SHA比较）；真实backend/front pong和nginx转发Engine.IO polling open/close、WebSocket101/Accept/frame0/正常close通过，未登录/业务room/通知测试。8ops/18guards全绿、148容器120卷/C runtime原字节保持，trial最终全停、M7精确恢复，原r1前检红/12历史生命周期变化保留。最小正常stop/up与传输恢复现置信度高；服务器daemon enabled/开机自启、长期可靠性、非计划Redis单独断连恢复与Windows/正式权限仍未验证，任务4不勾整项。原备份及B证据不删，manifest绑定真实r7/r8且not-release-approved；此是已授权可逆本地验收，不新增用户价值取舍，后续远端/真实资料/正式上线范围仍由主控协调。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]
