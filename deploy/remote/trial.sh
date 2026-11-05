@@ -747,32 +747,36 @@ cross_preflight() {
     PREVIOUS_CONFIG=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$RUNTIME/site-update.state")
     valid_sha256 "$PREVIOUS_CONFIG" || fail 'maintenance generation has no valid source config'
     CROSS_RETRY=0
+    SOURCE_CONFIG=$PREVIOUS_CONFIG
     if [ "$NEW_CONFIG" = "$PREVIOUS_CONFIG" ]; then
         CROSS_RETRY=1
         [ ! -e "$BACKUP_PROOF" ] || fail 'candidate backup proof already exists; use same-generation resume'
         [ -f "$UPDATE_BACKUP" ] && [ ! -L "$UPDATE_BACKUP" ] || fail 'early candidate continuation requires its retained previous lock'
         [ "$(cat "$UPDATE_BACKUP")" = "$(cat "$IMAGE_FILE")" ] || fail 'early candidate lock differs from current lock'
-    else
-        PREVIOUS_CONTEXT="$RUNTIME/app-upgrade-context-$PREVIOUS_CONFIG"
-        PREVIOUS_PROOF="$RUNTIME/backup-ready-$PREVIOUS_CONFIG"
-        PREVIOUS_LOCK="$RUNTIME/image.env.pre-site-update-$PREVIOUS_CONFIG"
-        for REQUIRED in "$PREVIOUS_CONTEXT" "$PREVIOUS_PROOF" "$PREVIOUS_LOCK"; do
-            [ -f "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "previous generation proof is missing or unsafe: $REQUIRED"
-        done
-        [ "$(cat "$PREVIOUS_LOCK")" = "$(cat "$IMAGE_FILE")" ] || fail 'current lock differs from the retained maintenance source lock'
-        [ "$(cat "$PREVIOUS_PROOF")" = "backup-four-readable image=$PREVIOUS_CONFIG" ] || fail 'previous generation backup proof mismatch'
+        [ -f "$UPDATE_STATE_BACKUP" ] && [ ! -L "$UPDATE_STATE_BACKUP" ] || fail 'early candidate continuation requires the retained previous source state'
+        SOURCE_CONFIG=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$UPDATE_STATE_BACKUP")
+        valid_sha256 "$SOURCE_CONFIG" || fail 'early candidate source state has no valid original config'
+        [ "$SOURCE_CONFIG" != "$NEW_CONFIG" ] || fail 'early candidate source must be the previous generation, not a self-reference'
     fi
-    PREVIOUS_RELEASE_BACKUP="$RUNTIME/release.pre-$PREVIOUS_CONFIG.env"
-    PREVIOUS_LAYERS_BACKUP="$RUNTIME/image-rootfs-layers.pre-$PREVIOUS_CONFIG.txt"
-    PREVIOUS_FAILED_RELEASE="$RUNTIME/failed-release-$PREVIOUS_CONFIG.env"
-    PREVIOUS_FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers-$PREVIOUS_CONFIG.txt"
-    TRUSTED_PREVIOUS_RELEASE="$RUNTIME/reviewed-release-$PREVIOUS_CONFIG.env"
-    TRUSTED_PREVIOUS_LAYERS="$RUNTIME/reviewed-image-rootfs-layers-$PREVIOUS_CONFIG.txt"
+    PREVIOUS_CONTEXT="$RUNTIME/app-upgrade-context-$SOURCE_CONFIG"
+    PREVIOUS_PROOF="$RUNTIME/backup-ready-$SOURCE_CONFIG"
+    PREVIOUS_LOCK="$RUNTIME/image.env.pre-site-update-$SOURCE_CONFIG"
+    for REQUIRED in "$PREVIOUS_CONTEXT" "$PREVIOUS_PROOF" "$PREVIOUS_LOCK"; do
+        [ -f "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "previous generation proof is missing or unsafe: $REQUIRED"
+    done
+    [ "$(cat "$PREVIOUS_LOCK")" = "$(cat "$IMAGE_FILE")" ] || fail 'current lock differs from the retained maintenance source lock'
+    [ "$(cat "$PREVIOUS_PROOF")" = "backup-four-readable image=$SOURCE_CONFIG" ] || fail 'previous generation backup proof mismatch'
+    PREVIOUS_RELEASE_BACKUP="$RUNTIME/release.pre-$SOURCE_CONFIG.env"
+    PREVIOUS_LAYERS_BACKUP="$RUNTIME/image-rootfs-layers.pre-$SOURCE_CONFIG.txt"
+    PREVIOUS_FAILED_RELEASE="$RUNTIME/failed-release-$SOURCE_CONFIG.env"
+    PREVIOUS_FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers-$SOURCE_CONFIG.txt"
+    TRUSTED_PREVIOUS_RELEASE="$RUNTIME/reviewed-release-$SOURCE_CONFIG.env"
+    TRUSTED_PREVIOUS_LAYERS="$RUNTIME/reviewed-image-rootfs-layers-$SOURCE_CONFIG.txt"
     if [ ! -e "$TRUSTED_PREVIOUS_RELEASE" ]; then
-        TRUSTED_PREVIOUS_RELEASE="$RUNTIME/.release.env.site-update-$PREVIOUS_CONFIG.tmp"
+        TRUSTED_PREVIOUS_RELEASE="$RUNTIME/.release.env.site-update-$SOURCE_CONFIG.tmp"
     fi
     if [ ! -e "$TRUSTED_PREVIOUS_LAYERS" ]; then
-        TRUSTED_PREVIOUS_LAYERS="$RUNTIME/.image-rootfs-layers.site-update-$PREVIOUS_CONFIG.tmp"
+        TRUSTED_PREVIOUS_LAYERS="$RUNTIME/.image-rootfs-layers.site-update-$SOURCE_CONFIG.tmp"
     fi
     if [ -e "$PREVIOUS_FAILED_RELEASE" ] || [ -L "$PREVIOUS_FAILED_RELEASE" ]; then
         [ -f "$PREVIOUS_FAILED_RELEASE" ] && [ ! -L "$PREVIOUS_FAILED_RELEASE" ] || fail 'previous failed release is not an ordinary file'
