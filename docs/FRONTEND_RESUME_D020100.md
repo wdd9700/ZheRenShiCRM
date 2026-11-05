@@ -166,6 +166,16 @@ M9 run `fdeef6ea73c745d8a01fb8e2defd289c` 使用 b2 两生产 delta 和冻结原
 
 新增当前epoch受控延迟读回归验证：合法读让settle等待到响应；AbortError/网络/权限/未声明请求继续遮罩；已track后再隐藏失效，迟到成功不提交、不回调。四 suite **65/65 pass**，严格重放 **38 修改 + 5 guard**、after fixture **15/15 pass**。新tip仍需独审和M9原SFC修后实测，不能以本地通过称实际恢复闭环。
 
+## b638 原 oracle 仍红后的独立 assertRequest 诊断副本
+
+M9 run `d831f1be38284723af754b951817e79f` 的原字节 oracle 仍 READ_SETTLE/READ_FAILED，但 rejected=[]、unknown=[]、unhandled0，原四条 Link tracked 拒绝已消失；日志 SHA `9ae5e515e18e134eb87514b6b9c73810946cfc42c450ebad5ec88a0c31c46b59`。这不能证明读取屏障无错误。源码 hydrationError 仅由 assertRequest108 的未声明直接拒绝和 track120 的Promise拒绝赋值；frappeRequest 在创建/track Promise前先assertResume，故直接抛错可不经过原track观察。settleReads129闭包仅重抛；boundary内部没有assertRequest调用，外部均通过导出属性，包装该属性可覆盖直接入口，不能用对象spy替换不存在的内部settleReads入口。
+
+新增独立 `sfc-resume-diagnostic.test.mjs`（SHA `affb298977934ae96f72d9c1e83ee10dea327768878cbfe910733f704f059ab9`），原a8 SFC/config不动。副本与oracle仅相差helper import、安装/清理透明wrapper和diagnostics附加assertionThrows；所有fixture、真实流程及断言保持。helper `sfc-request-diagnostics.mjs`（SHA `b619bd76d46f2010163ebc6ce7c3a02e70b0e3b3d34205ed4074f73d7830776d`）保存首次抛错、首次当前epoch HYDRATING抛错和首次RECOVERY_UNDECLARED，记录expected/current epoch、固定state/RPC method/错误类及无根路径源码位置；未知endpoint归OTHER_ENDPOINT，不输出参数、任意URL或原始异常文本。method是RPC endpoint枚举，assertRequest接口不提供HTTP方法，不能伪造GET/POST。原方法使用相同this/args调用、成功返回值原样返回、错误原对象重抛；诊断采集异常也不能吞掉原错误。
+
+本地实际boundary回归确认直接poison在track调用数0时仍由原闭包settleReads抛同一Error对象、保持READ_FAILED；包装同时记录先前退休Abort和真正当前poison，不让首个旧异常遮盖后者。另核未知URL脱敏、源码路径无本机根目录、restore及原异常identity。四suite **66/66 pass**，相关语法/diff检查通过，生产payload/source_edits/manifest/apply和原oracle/config相对b638零差异；本机未执行新完整SFC，不重跑无生产变化的严格重放。
+
+M9仅一次必要诊断执行：原字节复制诊断副本到 `frontend/tests/unit/m24SafeResumeSfcDiagnostic.test.js`，helper到同目录 `sfc-request-diagnostics.mjs`，独立原配置仍为 `frontend/vitest.m24-sfc.config.mjs`；执行 `yarn test:run --config vitest.m24-sfc.config.mjs tests/unit/m24SafeResumeSfcDiagnostic.test.js --reporter=verbose`。不要覆盖原 `m24SafeResumeSfc.test.js`，不要同时运行两个case或改生产诊断，不把诊断候选当修复。
+
 ## 尚待门槛
 
 本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。

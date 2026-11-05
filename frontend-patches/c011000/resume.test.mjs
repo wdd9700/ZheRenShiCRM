@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 import { webcrypto } from 'node:crypto'
+import { installRequestDiagnostics } from './sfc-request-diagnostics.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
 function deferred() {
@@ -61,6 +62,49 @@ function adapter(f, refresh = async () => ({ commit() {} })) {
   f.boundary.setAdapter({ suspend() { captures++ }, discard() { discards++ }, refresh })
   return { get captures() { return captures }, get discards() { return discards } }
 }
+
+test('diagnostic assertRequest wrapper records direct poison without changing closure barrier or thrown identity', async () => {
+  const f = await fixture()
+  const original = f.boundary.assertRequest
+  const observer = installRequestDiagnostics(f.boundary)
+  const previous = f.boundary.epoch
+  let thrown, tracks = 0
+  const originalTrack = f.boundary.track
+  f.boundary.track = (...args) => { tracks++; return originalTrack(...args) }
+  adapter(f, async context => {
+    assert.throws(() => f.boundary.assertRequest(previous, 'frappe.desk.search.search_link'), { name: 'AbortError' })
+    assert.equal(f.boundary.assertRequest(f.boundary.epoch, 'frappe.desk.search.search_link'), undefined)
+    try { f.boundary.assertRequest(f.boundary.epoch, 'frappe.client.insert') }
+    catch (error) { thrown = error }
+    assert.ok(thrown)
+    await assert.rejects(context.settleReads(), error => error === thrown)
+    await context.settleReads()
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(tracks, 0)
+  assert.equal(f.boundary.state, 'RETRY_COVERED')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+  assert.equal(observer.evidence.firstThrow.kind, 'AbortError')
+  assert.equal(observer.evidence.firstThrow.expected, previous)
+  const poison = observer.evidence.firstCurrentHydratingThrow
+  assert.equal(poison.method, 'frappe.client.insert')
+  assert.equal(poison.expected, poison.current)
+  assert.equal(poison.state, 'HYDRATING')
+  assert.equal(poison.kind, 'RECOVERY_UNDECLARED')
+  assert.equal(observer.evidence.firstUndeclared, poison)
+  observer.restore()
+  assert.equal(f.boundary.assertRequest, original)
+
+  const failure = Object.assign(Error('PRIVATE MESSAGE'), { stack: 'PRIVATE ROOT/src/example.vue:12:3\nPRIVATE USER' })
+  const fake = { epoch: 7, state: 'HYDRATING', assertRequest() { throw failure } }
+  const sanitized = installRequestDiagnostics(fake)
+  assert.throws(() => fake.assertRequest(7, '/private/customer-document?secret=value'), error => error === failure)
+  assert.equal(sanitized.evidence.firstThrow.method, 'OTHER_ENDPOINT')
+  assert.deepEqual(sanitized.evidence.firstThrow.locations, ['src/example.vue:12:3'])
+  assert.doesNotMatch(JSON.stringify(sanitized.evidence), /PRIVATE|secret|customer-document/)
+  sanitized.restore()
+})
 
 for (const legacyTracking of [true, false]) test(`retired Link 300ms callbacks: ${legacyTracking ? 'pre-fix barrier contamination' : 'current barrier stays isolated'}`, async () => {
   const f = await fixture(undefined, legacyTracking)
