@@ -170,7 +170,7 @@ return statusesStore
 }`
 
 async function fixture({ routeName = 'Lead', create = false, communication = false, actualCreation = false, editors = [], controllers = [] } = {}) {
-  const documentOptions = [], toasts = []
+  const documentOptions = [], toasts = [], telemetryInstalls = []
   const creationKind = actualCreation === 'Deal' ? 'Deal' : 'Lead', creationDoctype = 'CRM ' + creationKind
   let modal, statuses, statusGate = null, layoutGate = null
   let statusRows = [{ name: 'New', color: 'gray', position: 1 }], statusFailure = null
@@ -351,7 +351,9 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
       const socket = { disconnected: false, removeAllListeners() {}, disconnect() { this.disconnected = true } }
       runtimes.push({ socket }); return socket
     } })
-    if (specifier === '@framework/ui/telemetry') return synthetic(specifier, { telemetryPlugin: plugin })
+    if (specifier === '@framework/ui/telemetry') return synthetic(specifier, { telemetryPlugin: {
+      install() { telemetryInstalls.push({ epoch: boundary.epoch, state: boundary.state }) },
+    } })
     if (specifier === 'frappe-ui/experimental') return synthetic(specifier, { spritePlugin: plugin })
     if (business[specifier] || ['vue', 'pinia', 'frappe-ui'].includes(specifier)) return load(specifier)
     return load(specifier.split('/').at(-1))
@@ -372,7 +374,7 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
   }
   await namespace('main'); await tick(); await vue.nextTick()
   assert.equal(boundary.state, 'ACTIVE'); assert.equal(session.user, 'Synthetic Sales')
-  return { boundary, requests, fields, runtimes, namespace, route, storageCalls, documentOptions, toasts,
+  return { boundary, requests, fields, runtimes, namespace, route, storageCalls, documentOptions, toasts, telemetryInstalls,
     writeFailure(value) { writeError = value },
     statusWait(value) { statusGate = value },
     layoutWait(value) { layoutGate = value },
@@ -387,6 +389,26 @@ async function fixture({ routeName = 'Lead', create = false, communication = fal
     close() { boundary.lock() },
   }
 }
+
+test('actual main never installs optional telemetry at startup or recovery while business permissions remain enforced', async () => {
+  const f = await fixture()
+  assert.deepEqual(f.telemetryInstalls, [])
+  assert.equal(f.boundary.state, 'ACTIVE')
+  f.hide(true)
+  await f.resume()
+  assert.equal(f.boundary.state, 'ACTIVE')
+  assert.equal(f.covered, false)
+  assert.deepEqual(f.telemetryInstalls, [])
+  assert.ok(f.requests.some(({ url }) => url === 'frappe.client.get_doc_permissions'))
+  assert.ok(f.requests.some(({ url }) => url === 'frappe.client.get'))
+  assert.equal(f.requests.some(({ url }) => /telemetry|pulse|insert|set_value/.test(url)), false)
+  f.hide(true)
+  f.permission(false)
+  await f.resume()
+  assert.equal(f.boundary.state, 'IDENTITY_REQUIRED')
+  assert.equal(f.covered, true)
+  assert.deepEqual(f.telemetryInstalls, [])
+})
 
 test('actual Lead/Deal modal setup waits for fresh statuses in both response orders, including an empty legal list', async () => {
   for (const kind of ['Lead', 'Deal']) for (const order of ['layout-ready', 'statuses-ready', 'empty']) {

@@ -81,11 +81,11 @@ function diagnostic(f, stage, failure) {
 
 test('M20 actual main stage diagnostics remain successful in production and DEV', async () => {
   for (const dev of [false, true]) {
-    const f = await bootstrap({ dev }); diagnostic(f, 'READY', 'NONE')
+    const f = await bootstrap({ dev, fail: 'TELEMETRY_PLUGIN' }); diagnostic(f, 'READY', 'NONE')
     assert.equal(f.mounts, 1); assert.equal(f.checks, 1)
     assert.equal(f.requests[0].request.cache, 'no-store')
     assert.equal(f.attributes.has('data-crm-account-blocked'), false)
-    assert.deepEqual(f.installed, ['FRAPPE_UI_PLUGIN', 'SPRITE_PLUGIN', 'PINIA_PLUGIN', 'ROUTER_PLUGIN', 'TRANSLATION_PLUGIN', 'TELEMETRY_PLUGIN'])
+    assert.deepEqual(f.installed, ['FRAPPE_UI_PLUGIN', 'SPRITE_PLUGIN', 'PINIA_PLUGIN', 'ROUTER_PLUGIN', 'TRANSLATION_PLUGIN'])
   }
 })
 
@@ -95,7 +95,7 @@ test('M20 initialization failures retain allowlisted first-stage diagnostics, no
     ['FRAPPE_UI_PLUGIN', 'PLUGIN_EXCEPTION'], ['SPRITE_PLUGIN', 'PLUGIN_EXCEPTION'],
     ['PINIA_PLUGIN', 'PLUGIN_EXCEPTION'], ['ROUTER_PLUGIN', 'ROUTER_EXCEPTION'],
     ['TRANSLATION_PLUGIN', 'PLUGIN_EXCEPTION'], ['COMPONENTS', 'INITIALIZATION_EXCEPTION'],
-    ['TELEMETRY_PLUGIN', 'PLUGIN_EXCEPTION'], ['SOCKET', 'SOCKET_EXCEPTION'], ['MOUNT', 'MOUNT_EXCEPTION'],
+    ['SOCKET', 'SOCKET_EXCEPTION'], ['MOUNT', 'MOUNT_EXCEPTION'],
   ]) {
     const f = await bootstrap({ fail: stage }); diagnostic(f, stage, failure)
     assert.equal(f.mounts, 0); assert.equal(f.attributes.has('data-crm-account-blocked'), true)

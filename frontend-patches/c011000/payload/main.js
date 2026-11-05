@@ -12,7 +12,6 @@ import {
   FrappeUI, Button, TextInput, FormControl, ErrorMessage, Dialog, Alert, Badge,
   setConfig, frappeRequest,
 } from 'frappe-ui'
-import { telemetryPlugin } from '@framework/ui/telemetry'
 import { spritePlugin } from 'frappe-ui/experimental'
 import { accountBoundary } from '../node_modules/frappe-ui/src/resources/accountBoundary'
 
@@ -59,8 +58,6 @@ async function boot() {
   app.use(translationPlugin)
   accountBoundary.markStage('COMPONENTS')
   for (const key in globalComponents) app.component(key, globalComponents[key])
-  accountBoundary.markStage('TELEMETRY_PLUGIN')
-  app.use(telemetryPlugin, { app_name: 'crm' })
   accountBoundary.markStage('DIALOG')
   app.config.globalProperties.$dialog = createDialog
 

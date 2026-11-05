@@ -176,6 +176,18 @@ M9 run `d831f1be38284723af754b951817e79f` 的原字节 oracle 仍 READ_SETTLE/RE
 
 M9仅一次必要诊断执行：原字节复制诊断副本到 `frontend/tests/unit/m24SafeResumeSfcDiagnostic.test.js`，helper到同目录 `sfc-request-diagnostics.mjs`，独立原配置仍为 `frontend/vitest.m24-sfc.config.mjs`；执行 `yarn test:run --config vitest.m24-sfc.config.mjs tests/unit/m24SafeResumeSfcDiagnostic.test.js --reporter=verbose`。不要覆盖原 `m24SafeResumeSfc.test.js`，不要同时运行两个case或改生产诊断，不把诊断候选当修复。
 
+## 2d1d978 诊断后的最小遥测集成修复
+
+M9 诊断 run `f112128d5dd24dba92b0c4a84c172f9`（日志 SHA `232b4fa64a526f33dc7f82ddc5d4b236328a8a2697e9b638d13ec5f20c2aa525`）仍 exit1、READ_SETTLE/READ_FAILED。firstThrow、firstCurrentHydratingThrow、firstUndeclared 三槽一致：expected/current epoch2、HYDRATING，`frappe.utils.telemetry.pulse.client.boot_config` 被 RECOVERY_UNDECLARED 直接拒绝；栈为 accountBoundary108→frappeRequest94/95→frappe-ui call29→Framework pulse59→telemetry72。tracked rejected/unknown/write 均为空、unhandled0；epoch0 曾有 Pulse 网络请求，恢复 epoch2/4 则在网络前被拒。这明确定位本轮直接 poison，不把诊断运行冒充原 oracle 通过。
+
+固定 Framework 936 源码确认 install 在取得 enabled:false 前已调用 fetchBootConfig；其 catch 会返回空配置，但不能撤销边界的 hydrationError，之后仍可能动态导入 CDN client。应用集成层采取一致策略：此 CRM SPA 正常启动及所有恢复重建均不安装可选 telemetryPlugin。相对 2d1d978 的全部生产代码 delta 仅为 main.js 删除 import、TELEMETRY_PLUGIN stage 和 app.use 三行，manifest 只更新该 payload after SHA；不修改 Framework、边界/reads、权限、资源归属、草稿或 getScript，不 catch 吞拒绝、不移到 ACTIVE 补发、不伪造 host/key。
+
+Framework 模块默认 client=null、appName 未设、isEnabled=false，现有 useTelemetry.capture 在未启用/无 appName 时直接返回，getDistinctId 返回空值；保留组件调用为兼容 no-op。因此该 CRM 入口不再采集 Pulse 事件、ID/pageview，也不因安装启动 boot_config、CDN client 及其后续外发/计时器，降低可选外发和恢复耦合。此决策仅针对该 SPA 入口，不宣称全站遥测被关闭；已经运行旧 bundle 的旧页 client 不会因删除新代码停止，最终 UI 必须用新 bundle 的新页验收。不得为应用此变更而强刷丢失未提交草稿，应在安全的全页加载/受控换版后生效。
+
+新增实际 main + Vue/Pinia + adapter/resources 回归：安装探针在修前记录 epoch0 ACTIVE 安装而红，修后正常启动及恢复均零安装、恢复 ACTIVE/uncovered，必要 get_doc_permissions/get 仍发起、无遥测或业务写请求；撤 read 权限后仍 IDENTITY_REQUIRED/covered。探针仅验证集成入口，不冒充实际 Framework client 执行。初始化 PROD/DEV 将可选插件设为“若安装即失败”仍 READY，安装序列不含遥测；仅删除生产已不可达的 TELEMETRY_PLUGIN 失败行，其余必要插件、router/socket/mount 等失败仍保留遮罩断言，并非降低业务门槛。
+
+四 suite **67/67 pass**；严格重放 **38 修改 + 5 guard**、after fixture **16/16 pass**（证据 fixture 仅模拟 Git HEAD，不是真实构建）。main before SHA 仍 `c49ae1cc49039ded911ec6ab505afa2589f9119d4eb3376d87af9ca5b69fc609`，after 为 `504432dc1a9177f4987bc98a84c39859eadf4181e760841941bf78bb5996612d`；manifest 仍43 entries，所有 before/source_edits/apply 守卫不变。原 a8 oracle SHA `9a7443fe5c155b87f8b9a497f7aab0265ed306eddc2a59ca67c3449b3312341b`、config SHA `ad10e49f7ee3be2d9103dbe2f65a3ad2baed89c14c9407ae2f2a9b89c4f3b711` 及诊断副本/helper 原字节不变。仍须新 tip 独审、M9 原 oracle、标准 build/native/bridge 和真实新页 UI 验收；本机不启动共享环境，不宣称现场已闭环。
+
 ## 尚待门槛
 
 本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。
