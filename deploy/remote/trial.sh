@@ -27,16 +27,20 @@ fi
 UPDATE_RELEASE_DIR=
 UPGRADE_APPS=0
 RESUME_APPS=0
-if [ "$ACTION" = update-site-image ] || [ "$ACTION" = upgrade-site-apps ] || [ "$ACTION" = resume-site-apps ]; then
+CROSS_APPS=0
+if [ "$ACTION" = update-site-image ] || [ "$ACTION" = upgrade-site-apps ] || [ "$ACTION" = resume-site-apps ] || [ "$ACTION" = upgrade-site-apps-from-maintenance ]; then
     [ "$#" -ge 2 ] || { printf '%s requires a reviewed release directory and image archive\n' "$ACTION" >&2; exit 2; }
     UPDATE_RELEASE_DIR=$1
     IMAGE_ARCHIVE=$2
     shift 2
-    if [ "$ACTION" = upgrade-site-apps ] || [ "$ACTION" = resume-site-apps ]; then
+    if [ "$ACTION" = upgrade-site-apps ] || [ "$ACTION" = resume-site-apps ] || [ "$ACTION" = upgrade-site-apps-from-maintenance ]; then
         UPGRADE_APPS=1
     fi
     if [ "$ACTION" = resume-site-apps ]; then
         RESUME_APPS=1
+    fi
+    if [ "$ACTION" = upgrade-site-apps-from-maintenance ]; then
+        CROSS_APPS=1
     fi
 fi
 CONFIRM=0
@@ -72,6 +76,7 @@ Actions:
   update-site-image DIR TAR    Image-only reviewed update with backup and rollback; requires confirmation
   upgrade-site-apps DIR TAR    Controlled update to the approved five apps; requires app upgrade confirmation
   resume-site-apps DIR TAR     Resume the same failed app generation without repeating backup/init
+  upgrade-site-apps-from-maintenance DIR TAR Upgrade a retained maintenance generation to a new candidate
   create-site                  One-time new site; requires synthetic confirmation
   up                           Start/wait all trial services
   install-extensions           One-time resource_import then team_access install; requires confirmation
@@ -435,6 +440,11 @@ verify_service_readiness() {
 candidate_apps() {
     compose run --no-deps -T --entrypoint /home/frappe/frappe-bench/env/bin/python backend - "$1" < "$REMOTE/verify_upgrade.py"
 }
+candidate_backup() {
+    BACKUP_STARTED=$(date +%s)
+    compose run --no-deps -T backend bench --site "$SITE" backup --with-files || return 1
+    compose run --no-deps -T backend /home/frappe/frappe-bench/env/bin/python - "$BACKUP_STARTED" < "$REMOTE/verify_backup.py"
+}
 query_maintenance() {
     RAW=$(candidate_apps maintenance) || return 1
     printf '%s' "$RAW" | python3 -c 'import json,sys; value=json.load(sys.stdin); assert set(value)=={"maintenance_mode"} and type(value["maintenance_mode"]) is bool; print("1" if value["maintenance_mode"] else "0")'
@@ -557,6 +567,50 @@ resume_preflight() {
         [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "app resume temporary conflict: $CONFLICT"
     done
 }
+cross_preflight() {
+    [ -f "$RUNTIME/site-update.state" ] && [ ! -L "$RUNTIME/site-update.state" ] || fail 'cross-candidate upgrade requires retained maintenance state'
+    STATE=$(cat "$RUNTIME/site-update.state")
+    case "$STATE" in
+        maintenance\ reason=*) ;;
+        *) fail 'cross-candidate upgrade only accepts a retained maintenance generation' ;;
+    esac
+    PREVIOUS_CONFIG=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$RUNTIME/site-update.state")
+    valid_sha256 "$PREVIOUS_CONFIG" || fail 'maintenance generation has no valid source config'
+    [ "$NEW_CONFIG" != "$PREVIOUS_CONFIG" ] || fail 'cross-candidate upgrade requires a new config; use same-generation resume instead'
+    PREVIOUS_CONTEXT="$RUNTIME/app-upgrade-context-$PREVIOUS_CONFIG"
+    PREVIOUS_PROOF="$RUNTIME/backup-ready-$PREVIOUS_CONFIG"
+    PREVIOUS_LOCK="$RUNTIME/image.env.pre-site-update-$PREVIOUS_CONFIG"
+    for REQUIRED in "$PREVIOUS_CONTEXT" "$PREVIOUS_PROOF" "$PREVIOUS_LOCK"; do
+        [ -f "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "previous generation proof is missing or unsafe: $REQUIRED"
+    done
+    [ "$(cat "$PREVIOUS_LOCK")" = "$(cat "$IMAGE_FILE")" ] || fail 'current lock differs from the retained maintenance source lock'
+    [ "$(cat "$PREVIOUS_PROOF")" = "backup-four-readable image=$PREVIOUS_CONFIG" ] || fail 'previous generation backup proof mismatch'
+    PREVIOUS_RELEASE_BACKUP="$RUNTIME/release.pre-$PREVIOUS_CONFIG.env"
+    PREVIOUS_LAYERS_BACKUP="$RUNTIME/image-rootfs-layers.pre-$PREVIOUS_CONFIG.txt"
+    PREVIOUS_FAILED_RELEASE="$RUNTIME/failed-release-$PREVIOUS_CONFIG.env"
+    PREVIOUS_FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers-$PREVIOUS_CONFIG.txt"
+    if [ -e "$PREVIOUS_FAILED_RELEASE" ] || [ -L "$PREVIOUS_FAILED_RELEASE" ]; then
+        [ -f "$PREVIOUS_FAILED_RELEASE" ] && [ ! -L "$PREVIOUS_FAILED_RELEASE" ] || fail 'previous failed release is not an ordinary file'
+        if [ ! -f "$PREVIOUS_RELEASE_BACKUP" ] || [ -L "$PREVIOUS_RELEASE_BACKUP" ] || ! cmp -s "$PREVIOUS_FAILED_RELEASE" "$PREVIOUS_RELEASE_BACKUP"; then
+            [ "$(release_value CRM_IMAGE_CONFIG "$PREVIOUS_FAILED_RELEASE")" = "$PREVIOUS_CONFIG" ] || fail 'previous failed release has unknown provenance'
+        fi
+    fi
+    if [ -e "$PREVIOUS_FAILED_LAYERS" ] || [ -L "$PREVIOUS_FAILED_LAYERS" ]; then
+        [ -f "$PREVIOUS_FAILED_LAYERS" ] && [ ! -L "$PREVIOUS_FAILED_LAYERS" ] || fail 'previous failed layers are not an ordinary file'
+        if [ ! -f "$PREVIOUS_LAYERS_BACKUP" ] || [ -L "$PREVIOUS_LAYERS_BACKUP" ] || ! cmp -s "$PREVIOUS_FAILED_LAYERS" "$PREVIOUS_LAYERS_BACKUP"; then
+            awk 'substr($0, 1, 7) != "sha256:" || length($0) != 71 || substr($0, 8) !~ /^[0-9a-f]+$/ {bad=1} {count++} END {exit bad || count < 1}' "$PREVIOUS_FAILED_LAYERS" || fail 'previous failed layers are invalid'
+        fi
+    fi
+    for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
+      "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
+      "$UPDATE_CONTEXT" "$UPDATE_CONTEXT_TEMP" "$BACKUP_PROOF" "$BACKUP_PROOF_TEMP" "$REDIS_EVIDENCE" "$REDIS_EVIDENCE_TEMP" \
+      "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" \
+      "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" \
+      "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp" \
+      "$RUNTIME/.site-update.state.$NEW_CONFIG.tmp"; do
+        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "cross-candidate target/evidence conflict: $CONFLICT"
+    done
+}
 update_site_image() {
     if [ "$UPGRADE_APPS" -eq 1 ]; then
         [ "$CONFIRM_SITE_APP_UPGRADE" -eq 1 ] || fail 'site app upgrade requires --confirm-site-app-upgrade'
@@ -597,6 +651,8 @@ update_site_image() {
     [ ! -L "$RUNTIME/site-update.state" ] || fail 'site-update.state must not be a symlink; refuse any update write'
     if [ "$RESUME_APPS" -eq 1 ]; then
         resume_preflight
+    elif [ "$CROSS_APPS" -eq 1 ]; then
+        cross_preflight
     else
         if [ -e "$RUNTIME/site-update.state" ]; then
             CURRENT_RELEASE=$REMOTE/release.env
@@ -631,6 +687,20 @@ update_site_image() {
         [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail 'credentials changed since the retained app upgrade context'
         [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail 'DB identity changed since the retained app upgrade context'
         resume_infrastructure || fail 'unable to restore only DB/Redis for app resume; no old application service or configurator was started'
+    elif [ "$CROSS_APPS" -eq 1 ]; then
+        CANDIDATE_CONTEXT=$UPDATE_CONTEXT
+        UPDATE_CONTEXT=$RUNTIME/app-upgrade-context-$PREVIOUS_CONFIG
+        load_app_context || fail 'previous generation context is invalid'
+        UPDATE_CONTEXT=$CANDIDATE_CONTEXT
+        [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail 'credentials changed since the previous maintenance generation'
+        [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail 'DB identity changed since the previous maintenance generation'
+        if [ -e "$RUNTIME/release.env" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
+        fi
+        if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/image-rootfs-layers.txt" > "$UPDATE_LAYERS_BACKUP")
+        fi
+        (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
     else
         verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
         verify_infrastructure || fail 'current DB/Redis are not healthy; refuse update before stopping writers'
@@ -679,6 +749,7 @@ update_site_image() {
     UPDATE_MODE=image-only
     [ "$UPGRADE_APPS" -eq 0 ] || UPDATE_MODE=apps
     [ "$RESUME_APPS" -eq 0 ] || UPDATE_MODE=apps-resume
+    [ "$CROSS_APPS" -eq 0 ] || UPDATE_MODE=apps-from-maintenance
     write_state "updating image=$NEW_CONFIG mode=$UPDATE_MODE" || fail 'unable to record update start; no runtime action was taken'
     UPDATE_ACTIVE=1
     trap update_exit EXIT
@@ -688,8 +759,11 @@ update_site_image() {
     if [ "$UPGRADE_APPS" -eq 1 ] && [ "$RESUME_APPS" -eq 0 ]; then
         write_app_context || fail_update context-write-failed
     fi
+    if [ "$CROSS_APPS" -eq 1 ]; then
+        resume_infrastructure || fail_update infrastructure-resume-failed
+    fi
     compose stop frontend websocket queue-short queue-long scheduler || fail_update stop-writers-failed
-    if [ "$RESUME_APPS" -eq 0 ]; then
+    if [ "$RESUME_APPS" -eq 0 ] && [ "$CROSS_APPS" -eq 0 ]; then
         backup
         if [ "$UPGRADE_APPS" -eq 1 ]; then
             (umask 077 && set -C && printf 'backup-four-readable image=%s\n' "$NEW_CONFIG" > "$BACKUP_PROOF_TEMP") && mv "$BACKUP_PROOF_TEMP" "$BACKUP_PROOF" || fail_update backup-proof-write-failed
@@ -701,6 +775,10 @@ update_site_image() {
     mv "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" "$IMAGE_FILE" || fail_update lock-rename-failed
     if [ "$UPGRADE_APPS" -eq 1 ]; then
         compose run --no-deps -T configurator || fail_update candidate-configurator-failed
+        if [ "$CROSS_APPS" -eq 1 ]; then
+            candidate_backup || fail_update candidate-backup-failed
+            (umask 077 && set -C && printf 'backup-four-readable image=%s\n' "$NEW_CONFIG" > "$BACKUP_PROOF_TEMP") && mv "$BACKUP_PROOF_TEMP" "$BACKUP_PROOF" || fail_update backup-proof-write-failed
+        fi
         MISSING_JSON=$(candidate_apps missing) || fail_update candidate-app-query-failed
         MISSING_APPS=$(printf '%s' "$MISSING_JSON" | python3 -c 'import json,sys; value=json.load(sys.stdin); missing=value.get("missing"); assert set(value)=={"missing"} and isinstance(missing,list); assert all(app in ("resource_import","team_access","team_schedule") for app in missing); print(" ".join(missing))') || fail_update candidate-app-list-invalid
         for APP in $MISSING_APPS; do
@@ -819,6 +897,7 @@ case "$ACTION" in
     update-site-image) update_site_image ;;
     upgrade-site-apps) update_site_image ;;
     resume-site-apps) update_site_image ;;
+    upgrade-site-apps-from-maintenance) update_site_image ;;
     create-site) create_site ;;
     up) up ;;
     install-extensions) install_extensions ;;

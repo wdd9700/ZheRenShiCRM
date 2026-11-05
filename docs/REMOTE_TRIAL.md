@@ -243,7 +243,7 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
 
 1. 只以 DB 原生检查、双 Redis PING 和当前镜像 one-shot 的内部 installed-apps/maintenance 查询验证起点，**不要求维护站点先返回 HTTP pong，也不先解除维护模式**。随后写 `updating` 维护状态，停止 frontend、websocket、双队列和 scheduler，以阻断外部及后台写入；backend 暂留仅用于原生四件备份，备份可读后停止 backend。DB/Redis 不停，供 one-shot 使用。
 2. 加载并核验候选后，先以候选 **one-shot configurator** 更新 `sites/apps.txt` 和既有连接配置，再以候选 one-shot 查询实际 `frappe.get_installed_apps`。基线必须已含 `frappe`/`crm` 且不超出批准五 app；只对缺失的 `resource_import`、`team_access`、`team_schedule` 依次执行标准 `bench install-app`，已存在者绝不重复安装。随后执行一次标准 `bench migrate`，不是初装的两次 migrate，也不读取/删除 `migrated-twice` 来重跑初装。
-3. 另一个 one-shot 校验精确五 app 集合、七个 `team_schedule` 自有表，以及 `Team Schedule.title/description` 均为 `longtext`。schema 通过后，若原维护模式为 1，才由候选 one-shot 执行标准 `set-config maintenance_mode 0`；若续作前已经关闭，则只接受原值为 1 的情况，其他漂移均失败。随后才执行 `compose up -d --wait` 并要求 HTTP readiness。除 `maintenance_mode` 外，站点配置规范化哈希必须不变；原本非维护站点还须保持完整配置哈希不变。
+3. 另一个 one-shot 校验精确五 app 集合、七 DocType 的 `module=Team Schedule` 和自有表、五个索引的精确列序/唯一性（`ts_member_user`、`ts_busy_pair`、`ts_source_uid`、`ts_request_owner` 唯一，`ts_start_name` 普通索引）、`title/description=longtext`，并要求七类型 DocShare 行数为零；不以 installed_apps 或 Patch Log 替代实际 schema/约束。schema 通过后，若原维护模式为 1，才由候选 one-shot 执行标准 `set-config maintenance_mode 0`；若续作前已经关闭，则只接受原值为 1 的情况，其他漂移均失败。随后才执行 `compose up -d --wait` 并要求 HTTP readiness。除 `maintenance_mode` 外，站点配置规范化哈希必须不变；原本非维护站点还须保持完整配置哈希不变。
 4. 查询、安装、migrate 或 schema/readiness 任一步失败都保留维护态、四件备份、one-shot 和已发生的 app/schema 现场，不写 ready，也不自动重试。恢复旧锁只是保留本轮起点元数据，**不会启动旧镜像**。同代冲突和维护态仍须人工审查，不能删状态/初装 marker 改跑 `create-site`、`install-extensions` 或初装 `migrate`；后续已审执行仍按实际 installed apps 只安装缺失项。
 
 安装或 migrate 已发生后，经人工审查可用同一 release/tar 做同代续作：
@@ -257,6 +257,20 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
 `resume-site-apps` 仅接受同代维护状态、原始上下文、原锁备份和 `backup-four-readable` 证明，复用四件备份而不重复初装备份。失败清理可能已停止全栈，因此先严格核对 DB 身份、Redis 镜像/config-hash 和 queue 卷，再只执行 `compose up -d --wait db redis-cache redis-queue` 恢复并等待必要基础设施；**不得用全栈 up 恢复，也不启动旧 backend/frontend/worker/configurator**。随后加载候选并仅运行候选 one-shot。已安装 app 不重复安装，已有 Redis 证据逐字保持；状态、marker 和失败现场均不靠删除绕过。
 
 隔离的 `failed-release-<B>` / `failed-image-rootfs-layers-<B>` 按各自提交阶段允许两种已证明来源：本轮候选 B，或与本轮备份逐字一致的旧代 A。release 与 layers 可分别为 A/B（分步提交失败的正常现场），未知内容仍拒绝；这些证据只读核对，绝不覆盖或删除。缺少上述证明、代次不同、临时文件/证据内容不符或基础设施漂移均 fail-closed，必须先走人工维护评估。
+
+### 失败代次到新候选的维护续作
+
+当 M32 等修复产生新的 config，不能按同代 resume 处理，使用独立动作：
+
+```sh
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" upgrade-site-apps-from-maintenance \
+  /已审release目录 /已核验镜像.tar --confirm-site-app-upgrade
+```
+
+该入口只接受有来源证明的维护现场：旧 B 的 maintenance state、`app-upgrade-context-B`、`backup-ready-B` 和原锁备份必须存在且与当前锁一致，B 的 failed release/layers 若存在则只能是可证明的 A 备份内容或与 B config 相符的内容；C 必须与 A、B 都不同。普通 ready 升级和同代 resume 契约不变。
+
+执行顺序为：保存 B state/lock/backup/failed 证据并建立 C 独立代次；仅恢复 DB/Redis，不运行旧 app；核验 C archive/store 后以 C one-shot configurator 和原生 `backup --with-files` 取得当前现场的新四件备份及可读证明，再查询实际 installed_apps、仅缺失安装并始终执行标准 migrate。已注册但部分 schema 的 app 不 force-install、不直接建表；只有上述 M32 schema/索引/DocShare 验收通过才解除维护并开放服务。备份失败不得 migrate，约束失败不得开放；任何失败均保留维护与 C 独立证据，不自动重试、restore、uninstall 或删除数据。
 
 兼容回退必须使用能加载**当前已安装全部 app 及现有 schema** 的镜像。安装 `team_schedule` 后，旧四 app 镜像不再满足该条件；禁止自动切回、uninstall、删表/Custom Field 或把 `longtext` 缩回旧类型。停写保留现场与经 M9 在独立环境验证的备份恢复是两条独立路径，backup readability 仍不等于恢复通过。
 
@@ -388,7 +402,7 @@ sh deploy/remote/trial.sh inspect-volumes
 - `bash -n deploy/remote/preflight.sh deploy/remote/trial.sh`、Python AST 和 `git diff --check` 通过。
 - 第一 Ubuntu 的既有 Docker Compose 只做 `config` 渲染，未连接 daemon 创建资源：11 个服务（含 setup profile）、仅 frontend 发布 `127.0.0.1:8088`、4 个固定独立卷、backend 1 worker、未确认时合成标记为 `not-confirmed`，断言通过。
 - 本轮另以本机 standalone Compose v5.1.1 对更新后文件做真实 `config` 渲染，11 服务、双 Redis health、configurator 对双 Redis `service_healthy`、frontend 对 backend `service_healthy` 均通过；未连接 daemon，不把这当作应用健康或升级演练。
-- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。持久运行态替身明确模拟无参数 stop 后 exec 失败、基础设施-only 恢复不启动 backend、完整 up 才恢复 HTTP；已有 ready A 的 install/migrate/schema/readiness 失败和 release/layers 分步提交失败均覆盖合法 A/B 隔离来源续作及未知内容拒绝。双 store 覆盖 classic config 与 containerd index 的成功、失败恢复、同代 resume、ready 代次和混用漂移拒绝，index/config 不 fallback。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
+- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。持久运行态替身明确模拟无参数 stop 后 exec 失败、基础设施-only 恢复不启动 backend、完整 up 才恢复 HTTP；已有 ready A 的 install/migrate/schema/readiness 失败和 release/layers 分步提交失败均覆盖合法 A/B 隔离来源续作及未知内容拒绝。双 store 覆盖 classic config 与 containerd index 的成功、失败恢复、同代 resume、ready 代次和混用漂移拒绝，index/config 不 fallback。独立跨代覆盖 B maintenance→C 成功、C 新备份、备份失败不 migrate、约束失败不开放、未知旧证据拒绝及 B 证据不变；M32 schema 反例覆盖 Member 缺表、索引列错误、DocShare 行和错误 module。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
 - M9 真实 baseline 暴露绝对 `sites_path` 与非 bench cwd 组合导致 logger 指向 `/home/frappe/logs/database.log` 后，`verify_upgrade.py` 已改为先进入 `/home/frappe/frappe-bench/sites`，再以 `sites_path="."` 初始化；`destroy()` 和原异常边界不变。定向初始化回归验证 chdir→init→connect→destroy 顺序及 logger 目标 `/home/frappe/frappe-bench/logs/database.log`，未创建目录或伪造通过；该修正仍待 M9 真实环境复核。
 - 53 个 app/build 源文件与 M9 `source-manifest.json` 全部一致；在合成副本中篡改 `team_access/install.py` 后 `verify-source` 拒绝。
 - `init-env` 防覆盖、三个显式合成确认拒绝路径及阶段顺序门禁通过；mock Docker 完整演练确认 create-site → up → 两个 install-app → 恰好两次 migrate → clear-cache → enable-import，重复 create/migrate 拒绝。mock 只验证编排，不是真实安装证据。

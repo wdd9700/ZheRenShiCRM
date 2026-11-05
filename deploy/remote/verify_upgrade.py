@@ -16,6 +16,33 @@ SCHEDULE_TABLES = (
     "Team Schedule Request",
     "Team Schedule Audit",
 )
+INDEX_CONTRACT = {
+    "Team Schedule Member": ("ts_member_user", ("parent", "user"), 0),
+    "Team Schedule Busy Grant": ("ts_busy_pair", ("subject_user", "viewer_user"), 0),
+    "Team Schedule Source Item": ("ts_source_uid", ("source", "uid_key"), 0),
+    "Team Schedule Request": ("ts_request_owner", ("owner", "request_id"), 0),
+    "Team Schedule": ("ts_start_name", ("start_utc", "name"), 1),
+}
+
+
+def verify_schedule_schema():
+    for doctype in SCHEDULE_TABLES:
+        if frappe.get_meta(doctype).module != "Team Schedule" or not frappe.db.table_exists(doctype):
+            raise RuntimeError("team_schedule metadata or schema table is missing")
+    if frappe.db.exists("DocShare", {"share_doctype": ["in", SCHEDULE_TABLES]}):
+        raise RuntimeError("team_schedule DocShare rows are forbidden")
+    for doctype in SCHEDULE_TABLES:
+        if doctype not in INDEX_CONTRACT:
+            continue
+        index_name, expected_columns, expected_non_unique = INDEX_CONTRACT[doctype]
+        rows = frappe.db.sql("SHOW INDEX FROM `tab" + doctype + "`", as_dict=True)
+        matching = sorted((row for row in rows if row["Key_name"] == index_name), key=lambda row: row["Seq_in_index"])
+        columns = [row["Column_name"] for row in matching]
+        if columns != list(expected_columns) or any(int(row["Non_unique"]) != expected_non_unique for row in matching):
+            raise RuntimeError("team_schedule index contract mismatch")
+    for field in ("title", "description"):
+        if frappe.db.get_column_type("Team Schedule", field) != "longtext":
+            raise RuntimeError("team_schedule literal text schema mismatch")
 
 
 def installed_apps():
@@ -51,12 +78,7 @@ def main():
             return
         if set(apps) != set(EXPECTED_APPS):
             raise RuntimeError("installed app set does not match the approved five apps")
-        missing_tables = [doctype for doctype in SCHEDULE_TABLES if not frappe.db.table_exists(doctype)]
-        if missing_tables:
-            raise RuntimeError("team_schedule schema tables are missing")
-        for field in ("title", "description"):
-            if frappe.db.get_column_type("Team Schedule", field) != "longtext":
-                raise RuntimeError("team_schedule literal text schema mismatch")
+        verify_schedule_schema()
         print("PASS: exact five installed apps and team_schedule schema verified")
     finally:
         frappe.destroy()
