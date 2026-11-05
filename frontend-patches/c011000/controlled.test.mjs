@@ -527,6 +527,101 @@ test('published promise includes processing; concurrent and callback reentry can
   assert.equal(r.loading, false)
 })
 
+test('same-cache automatic read consumers share pending work without superseding it', async () => {
+  const f = await fixture()
+  const gate = deferred()
+  let calls = 0
+  f.config.resourceFetcher = () => { calls++; return gate.promise }
+  const options = { url: 'frappe.onboarding.get_onboarding_status', cache: 'onboarding_status', auto: true }
+  const first = f.resources.createResource(options)
+  const pending = first.promise
+  const second = f.resources.createResource({ ...options })
+  assert.equal(second, first)
+  assert.equal(second.promise, pending)
+  await tick()
+  assert.equal(calls, 1)
+  gate.resolve({ steps: [] })
+  await pending
+  assert.equal(first.fetched, true)
+  f.boundary.assertActive()
+})
+
+test('automatic reads with different params do not reuse another consumer request', async () => {
+  const f = await fixture()
+  const calls = []
+  f.config.resourceFetcher = async ({ params }) => { calls.push(params); return params }
+  const options = { url: 'frappe.client.get', cache: 'shared', auto: true }
+  const first = f.resources.createResource({ ...options, params: { name: 'A' } })
+  const second = f.resources.createResource({ ...options, params: { name: 'B' } })
+  await Promise.all([first.promise, second.promise])
+  assert.notEqual(first, second)
+  assert.equal(first.data.name, 'A')
+  assert.equal(second.data.name, 'B')
+  assert.equal(calls.length, 2)
+})
+
+test('automatic sharing compares parameter data and isolates pending old epochs', async () => {
+  const f = await fixture()
+  const gate = deferred()
+  let calls = 0, successes = 0
+  f.config.resourceFetcher = () => { calls++; return gate.promise }
+  const options = { url: 'frappe.client.get', cache: 'parameters', auto: true, onSuccess: () => successes++ }
+  const first = f.resources.createResource({ ...options, params: { doctype: 'CRM Lead', name: 'A' } })
+  const pending = first.promise
+  const second = f.resources.createResource({ ...options, params: { name: 'A', doctype: 'CRM Lead' } })
+  assert.equal(second.promise, pending)
+  await tick()
+  assert.equal(calls, 1)
+  f.hidden(true)
+  gate.resolve({ private: 'obsolete' })
+  await assert.rejects(pending, { name: 'AbortError' })
+  assert.equal(first.data, null)
+  assert.equal(successes, 0)
+})
+
+test('same-cache automatic failure remains observable and can retry', async () => {
+  const f = await fixture()
+  const options = { url: 'frappe.onboarding.get_onboarding_status', cache: 'retry', auto: true }
+  f.config.resourceFetcher = async () => { throw Error('network offline') }
+  const first = f.resources.createResource(options)
+  await assert.rejects(first.promise, /network offline/)
+  assert.equal(first.fetched, false)
+  f.config.resourceFetcher = async () => []
+  const retry = f.resources.createResource({ ...options })
+  await retry.promise
+  assert.equal(retry.fetched, true)
+  const previous = retry
+  f.hidden(true)
+  const fresh = f.resources.createResource({ ...options, auto: false })
+  assert.notEqual(fresh, previous)
+  assert.equal(fresh.data, null)
+  assert.equal(previous.data, null)
+})
+
+test('automatic write requests and force/reload/submit are not coalesced', async () => {
+  for (const action of ['write', 'force', 'reload', 'submit']) {
+    const url = action === 'write' ? 'frappe.client.insert' : 'frappe.onboarding.get_onboarding_status'
+    const f = await fixture()
+    const gates = []
+    f.config.resourceFetcher = () => { const gate = deferred(); gates.push(gate); return gate.promise }
+    const options = { url, cache: 'explicit', auto: true }
+    const resource = f.resources.createResource(options)
+    const first = resource.promise
+    await tick()
+    if (action === 'write' || action === 'force') f.resources.createResource({ ...options, force: action === 'force' })
+    else resource[action]()
+    const current = resource.promise
+    assert.notEqual(current, first)
+    await tick()
+    assert.equal(gates.length, 2)
+    gates[1].resolve('current')
+    await current
+    gates[0].resolve('old')
+    await assert.rejects(first, { name: 'AbortError' })
+    assert.equal(resource.data, 'current')
+  }
+})
+
 test('ignored auto rejection is handled but published promise still rejects for consumers', async () => {
   for (const failure of ['network', 'transform', 'onSuccess']) {
     const f = await fixture()

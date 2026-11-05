@@ -83,6 +83,65 @@ const { ref, computed, watch, modelValue, props, toEmails, ccEmails, bccEmails, 
 ${emailSource.slice(emailSource.indexOf('const unsubscribedEmails ='), emailSource.indexOf('watch(unsubscribedEmails,'))}
 }`
 
+test('actual getScript shares concurrent reads, caches empty success, retries failure and isolates epochs without writes', async () => {
+  const f = await fixture()
+  const lists = await f.namespace('listResource')
+  const context = createContext({ console: { error() {} }, __: text => text })
+  const code = sources['frontend/src/data/script.js']
+  const glob = "import.meta.glob('../doctypes/*/*.js')"
+  assert.equal(code.split(glob).length, 2)
+  const mod = new SourceTextModule(code.replace(glob, '{}'), { context })
+  await mod.link(specifier => {
+    const values = specifier === 'vue' ? vue
+      : specifier === 'frappe-ui' ? { ...lists, call() { throw Error('Unexpected write') }, toast: {} }
+      : specifier.includes('accountBoundary') ? { accountBoundary: f.boundary }
+      : specifier === '@/stores/global' ? { globalStore: () => ({}) }
+      : specifier === '@/stores/meta' ? { getMeta() {} }
+      : specifier === '@/utils/scriptHelpers' ? { getClassNames() {}, createDocProxy() {} }
+      : specifier === '@/utils/renderFieldLayoutDialog' ? { renderFieldLayoutDialog() {} }
+      : specifier === '@/utils/scriptToast' ? { scriptToast: {} }
+      : specifier === '@/router' ? { default: {} } : null
+    assert.ok(values, specifier)
+    return new SyntheticModule(Object.keys(values), function () {
+      for (const [key, value] of Object.entries(values)) this.setExport(key, value)
+    }, { context })
+  })
+  await mod.evaluate()
+  const getScript = mod.namespace.getScript
+  f.statusResult([])
+  const first = getScript('CRM Lead')
+  const pending = first.scripts.list.promise
+  const second = getScript('CRM Lead')
+  assert.equal(second.scripts.list.promise, pending)
+  await pending
+  assert.equal(await first.setupScript({}), null)
+  getScript('CRM Lead')
+  assert.equal(first.scripts.list.promise, pending)
+  assert.equal(f.requests.filter(r => r.params?.doctype === 'CRM Form Script').length, 1)
+  const listView = getScript('CRM Lead', 'List')
+  assert.notEqual(listView.scripts, first.scripts)
+  await listView.scripts.list.promise
+  assert.equal(f.requests.filter(r => r.params?.doctype === 'CRM Form Script').length, 2)
+  f.statusResult([], Object.assign(Error('script missing'), { exc_type: 'DoesNotExistError' }))
+  const failed = getScript('CRM Deal')
+  await assert.rejects(failed.scripts.list.promise, /script missing/)
+  f.statusResult([])
+  const retry = getScript('CRM Deal')
+  await retry.scripts.list.promise
+  assert.equal(retry.scripts.list.fetched, true)
+  f.hide(true)
+  assert.equal(first.scripts.list.fetched, false)
+  await assert.rejects(first.setupScript({}), { name: 'AbortError' })
+  await f.resume()
+  assert.equal(f.boundary.state, 'ACTIVE')
+  f.statusResult([], Error('script offline'))
+  const offline = getScript('CRM Lead')
+  await assert.rejects(offline.scripts.list.promise, /script offline/)
+  assert.equal(f.boundary.state, 'IDENTITY_REQUIRED')
+  assert.equal(f.covered, true)
+  assert.equal(f.requests.some(r => /insert|set_value|update_user_onboarding_status/.test(r.url)), false)
+})
+
 test('all strict transformed JS/TS/JSX and Vue script blocks parse using the fixed Babel parser', () => {
   const { parse } = require('@babel/parser')
   for (const [path, source] of Object.entries(sources)) {

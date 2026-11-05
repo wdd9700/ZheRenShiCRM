@@ -133,6 +133,21 @@ yarn test:run --config vitest.m24-sfc.config.mjs tests/unit/m24SafeResumeSfc.tes
 
 本机仅 `node --check` 两个候选文件、diff 检查及生产零差异检查通过，无 compiler-sfc/vite/vitest。下一次仍须采退出码、编译/初始挂载/恢复失败层次、第一固定错误类别/位置和未知 API 列表；若失败于 fixture/编译/DOM 能力需先明确区分，不把此类失败冒充业务根因、不添加任意成功响应。此测试增量不要求重复完整 build/native，后续生产修复仍要独审及标准门槛。
 
+## a8c64f5 冻结 oracle 与共同资源层最小修复
+
+M9 run `f575e69931254d0a94d045738b49bf7d` 实际执行 a8c64f5：完整 App/Leads/Create/字段输入、hidden 的 SUSPENDED 和可见后的 resume 均已到达；首轮与一次重试最终均为 RETRY_COVERED / READ_SETTLE / READ_FAILED，unknown=[]、write requests=[]，Vitest 明确报告 **13 unhandled rejections**。首 superseded 发起链为 createResource auto→framework useOnboarding→AppSidebar，后继同 cache consumer 包括 GettingStartedBanner/HelpModal/Leads；另有 getScript→useDocument→FieldLayout/Field 的重复脚本读取。完整日志 SHA `d77c5d7bfb1bf79584bd62041892dbf91bea5c44c6b958896c6bcb29175605b9`。该运行未到显式恢复草稿断言，不是恢复通过。
+
+保留该次测试及配置原字节作为修前/修后 oracle，SHA 分别为 `9a7443fe5c155b87f8b9a497f7aab0265ed306eddc2a59ca67c3449b3312341b` 与 `ad10e49f7ee3be2d9103dbe2f65a3ad2baed89c14c9407ae2f2a9b89c4f3b711`；本次不改 fixture 或断言。
+
+经授权仅作两项生产修复：
+
+- 共同 resources 层仅在 cache 命中、同请求 URL/method/参数数据与 fetcher、已知只读或显式 GET、无 makeParams/debounce/force、同一自动请求仍 pending 时共享原 Promise，不增加 generation。不同自动参数创建独立资源；显式 fetch/reload/submit、force 和自动写不合并，旧 epoch/旧 generation 检查及网络失败语义不变。此处的只读共享分类不是恢复请求授权，不改变 accountBoundary 的 reads 白名单。
+- getScript 改用真实的 `scripts.list.loading/fetched` 和 `scripts.list.fetch()`；并发只读一次，合法空[]形成负缓存，失败不置 fetched，避免旧顶层 fetch 丢弃 reload/finally Promise。doctype/view 与 epoch 的 list cache 隔离仍沿用原严格机制。
+
+在既有测试体系先复现红灯：双 consumer Promise 被替换、不同 params 错复用两项失败，实际完整 getScript 的并发断言失败且出现 superseded 未消费拒绝。修后四 suite **60/60 pass**，严格重放 **38 修改 + 5 guard** 与 after fixture real-runtime **15/15 pass**。新增覆盖同参数键序、不同参数、失败重试、force/reload/submit/写不合并、pending 旧 epoch 回调隔离、实际 getScript 并发/空缓存/可重试失败/网络失败保持遮罩/旧 setupScript 拒绝/零写。getScript 的普通 get_list 网络失败仍按现有策略进入 IDENTITY_REQUIRED，不宣称可在同一已终锁 epoch 重试；可重试失败以 DoesNotExistError 验证。实际 getScript 测试仅把 import.meta.glob 的模块清单设为空，不替换 getScript/list/resources/boundary，仍不等价完整 SFC。
+
+生产 manifest 仍 43 entries；仅 resources.js 与 script.js after SHA 更新，before SHA、apply 源守卫、boundary、权限、草稿字段和恢复读白名单均未改。新候选仍须独审、M9 标准 build/native/bridge、原字节 SFC 修后实测和真实可见 UI，不以本地 60 项绿灯宣称现场闭环。已知 onboarding 读尚不在恢复 reads 中，另行静态核后端契约；本候选不先放宽。
+
 ## 尚待门槛
 
 本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。

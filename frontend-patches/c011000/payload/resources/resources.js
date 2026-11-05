@@ -6,6 +6,28 @@ import { getConfig } from '../utils/config'
 import { accountBoundary } from './accountBoundary'
 
 let cached = {}
+const automaticRequests = new WeakMap()
+const sharedReads = new Set(['frappe.onboarding.get_onboarding_status', 'frappe.client.get',
+  'frappe.client.get_list', 'crm.api.doc.get_data'])
+
+function requestKey(options) {
+  try {
+    const params = JSON.stringify(options.params, (_key, value) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        if (Object.prototype.toString.call(value) !== '[object Object]') throw Error('Non-plain params')
+        return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
+      }
+      if (typeof value === 'function' || typeof value === 'symbol') throw Error('Non-data params')
+      return value
+    })
+    return JSON.stringify([options.url, options.method, params])
+  } catch { return Symbol() }
+}
+
+function automaticFetch(resource, entry) {
+  resource.fetch()
+  entry.promise = resource.promise
+}
 accountBoundary.onInvalidate(() => { cached = {} })
 
 export function createResource(options, vm) {
@@ -13,10 +35,17 @@ export function createResource(options, vm) {
   if (options.cache) {
     cacheKey = getCacheKey(options.cache)
     let cachedResource = cached[cacheKey]
+    const entry = cachedResource && automaticRequests.get(cachedResource)
+    const sameRequest = entry && entry.key === requestKey(options) &&
+      entry.key === requestKey({ ...options, params: cachedResource.params || options.params }) &&
+      entry.makeParams === options.makeParams && entry.resourceFetcher === options.resourceFetcher
 
-    if (cachedResource) {
+    if (cachedResource && (!(cachedResource.auto || options.auto) || sameRequest)) {
       if (cachedResource.auto) {
-        cachedResource.reload()
+        const read = options.method === 'GET' || (!options.method && sharedReads.has(options.url))
+        const shared = read && !options.force && !options.makeParams && !options.debounce &&
+          cachedResource.loading && cachedResource.promise === entry.promise
+        if (!shared) automaticFetch(cachedResource, entry)
       }
       return cachedResource
     }
@@ -223,12 +252,15 @@ export function createResource(options, vm) {
     return data
   }
 
-  if (cacheKey && !cached[cacheKey]) {
+  const automatic = { key: requestKey(options), makeParams: options.makeParams,
+    resourceFetcher: options.resourceFetcher, promise: null }
+  automaticRequests.set(out, automatic)
+  if (cacheKey) {
     cached[cacheKey] = out
   }
 
   if (options.auto) {
-    out.fetch()
+    automaticFetch(out, automatic)
   }
 
   return out

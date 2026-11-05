@@ -34,6 +34,7 @@ SOURCE_EDITS = {
         ("async function loadFileScript(doctype, view) {", "async function loadFileScript(doctype, view) {\n  const resumeEpoch = accountBoundary.epoch"),
         ("    fileScriptCache[key] = await loader()", "    const loaded = await loader()\n    if (resumeEpoch !== accountBoundary.epoch) return null\n    fileScriptCache[key] = loaded"),
         ("export function getScript(doctype, view = 'Form') {", "export function getScript(doctype, view = 'Form') {\n  const resumeEpoch = accountBoundary.epoch"),
+        ("  if (!doctypeScripts[doctype] && !scripts.loading) {\n    scripts.fetch()", "  if (!scripts.list.fetched && !scripts.list.loading) {\n    scripts.list.fetch()"),
         ("  async function setupScript(document, helpers = {}) {",  "  async function setupScript(document, helpers = {}) {\n    accountBoundary.assertActive(resumeEpoch)"),
         ("    const { $dialog, $socket } = globalStore()", "    accountBoundary.assertActive(resumeEpoch)\n    const { $dialog, $socket } = globalStore()"),
     ],
