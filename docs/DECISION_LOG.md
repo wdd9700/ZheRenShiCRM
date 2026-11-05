@@ -137,6 +137,8 @@
 
 - **精确24e本地标准重启差集（2026-11-05）**：按tower后继要求先提交r7证据fd8e381，再同trial一次原242161标准up/stop，拒绝重复恢复矩阵或重启daemon。实际同PID360由activating九次自然到active后才操作；197.237秒exit0、reportd069d13084af7bf81138f37c96c81024cd498dedc68dfb537d6fd8368b61af1b。重启后五app/原七表五完整索引/无DocShare/longtext通过，12类103refs/用户/公私2files/mail/settings全等r7，原B/新C八件backup当前完整可读（不造升级前SHA比较）；真实backend/front pong和nginx转发Engine.IO polling open/close、WebSocket101/Accept/frame0/正常close通过，未登录/业务room/通知测试。8ops/18guards全绿、148容器120卷/C runtime原字节保持，trial最终全停、M7精确恢复，原r1前检红/12历史生命周期变化保留。最小正常stop/up与传输恢复现置信度高；服务器daemon enabled/开机自启、长期可靠性、非计划Redis单独断连恢复与Windows/正式权限仍未验证，任务4不勾整项。原备份及B证据不删，manifest绑定真实r7/r8且not-release-approved；此是已授权可逆本地验收，不新增用户价值取舍，后续远端/真实资料/正式上线范围仍由主控协调。
 
+- **指定证据独审与原任务收敛（2026-11-05）**：精确a4361fa发布证据独审seq114为clean/hold、findings none（[报告](../../../comms/reviews/review-feat-security-integration-and-isolated-recove-integration-v1-delivery-eviden-r1.md)），明确T4正常stop/up/持久性/HTTP与传输socket/标准常驻运行说明已足，T5受控导出关联追踪和指定证据独审子门已足。M17精确86b9dfaef4521e506f143451c0cd738c84cc1883的[运维记录§15](REMOTE_EXECUTION_C010600.md#15-既有-daemon-开机自启收口2026-11-05)（跨分支按该commit读取）补Docker/containerd既有unit active保持、disabled→enabled且11容器不变，无重启/新服务；其seq113 clean/merge仅批准该证据增量。依原任务收敛T4/T5，替代上一条“任务4不勾整项”和此前证据待审口径，不再要求整机重启/长期压测或重复恢复；这些及Redis异常恢复/BFCache/已有加密字段解密只保留真实未验边界，不新设v1.0必做门。当前hold主要是T2正式权限责任及最终24e目标部署/Windows入口；M8原owner只做既有证据对账，非重试被拒安全审。选择复用已验材料而非重开窗口，置信度对已证子门高、对未测边界不外推；无新环境/测试/候选字节变更，也无新增用户价值取舍，M9不Complete/MVP/merge，clean/hold不等全分支批准。最新任务状态及链接见RECOVERY_VALIDATION首节及五任务表。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]

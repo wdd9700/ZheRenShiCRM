@@ -1,5 +1,12 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
+## 2026-11-05：指定证据独审与M17交叉收口（T4/T5已满足，整体仍hold）
+
+- 精确`a4361fa118819c28e71841826be0de44610922d5`的指定发布证据独审为**clean/hold、findings none**：报告[delivery-eviden-r1](../../../comms/reviews/review-feat-security-integration-and-isolated-recove-integration-v1-delivery-eviden-r1.md)，seq114，Checks及Decision明确T4正常stop/up、数据持久性、真实HTTP与传输socket、标准常驻运行说明已满足；T5受控导出关联追踪、恢复/重启/导出证据与决策链及**本次指定证据独审子门**已满足。这里只收敛原任务，不将clean/hold冒称全分支安全或发布批准；新文档提交也不自动沿用旧tip的exact-tip审批。
+- M17精确`86b9dfaef4521e506f143451c0cd738c84cc1883`的[`docs/REMOTE_EXECUTION_C010600.md` §15](REMOTE_EXECUTION_C010600.md#15-既有-daemon-开机自启收口2026-11-05)（跨分支材料，以该commit内容为准）补齐既有daemon开机启用状态：原Docker/containerd保持active、disabled→enabled；唯一`systemctl enable`无`--now`、无start/restart或新服务，11容器逐项状态/策略不变，长驻`unless-stopped`、历史一次性`no`。其独审seq113为clean/merge，仅该证据增量，不是独立实机复算或24e正式部署。结合本地r8原标准up/stop和既有可复现启动/停止说明，正式运行方案不依赖临时8小时WSL hold/relay。
+- **任务收敛**：T4按原正常重启/持久性及运行说明范围完成；既有重启后的有限权限保持成立，M8未覆盖入口的正式发布责任归T2，不能把传输握手当认证room通过。T5导出追踪/证据决策链/指定独审子项完成，合并仍受T2和最终发布门约束。下文旧阶段的“任务4/5未闭合”“最终证据待独审”“daemon enabled未验”是当时状态，以本节和五任务表为最新口径；不抹去任何旧失败。
+- **剩余最小发布门**：由M8原owner对账既有双Sales、列表/CSV/活动、撤权/附件及正常L2 UI证据并明确T2权限责任与必要未覆盖项，不重复已绿或被拒安全审；权限/发布授权明确后，复用24e现tar/release/layers和已审242161原入口交付正式目标、保新备份及业务基线，再从Windows确认该目标正常登录及必要CRM/日程入口。M9仍active，不Complete/MVP/merge。宿主整机重启、长期压测/Redis非计划断连恢复、真实BFCache/hidden UI、已有加密字段解密仍未实测，**仅披露，不新增为本轮v1.0必做门**；本次仅文档引用，无环境操作或测试。
+
 ## 2026-11-05：精确24e标准stop/up持久性与真实socket传输握手（本地差集通过）
 
 - tower14:50:32Z要求r7成功后先提交证据，再接M9任务4最小差集；已先提交`fd8e381a1692aca18fa72aee1ac79827e4c873c2`且tracked clean。此前没有精确24e同等重启证据，故只复用r7已经成功且标准停下的同trial/数据/148容器/120卷，以原242161标准`trial.sh up`一次恢复，再原`stop`收尾；不重build/save/备份生成/restore/install/migrate/权限矩阵，不启动或重启daemon、整机，不登录/改账号或发业务通知。ignored helper `deploy/.runtime/restart_m9_24e_r8.py` SHA **`fe52e34d2d76380506ddcb8a956825fa13be1a5e6cb4bad0dc49a1d4cdb9fa95`**，AST/只读state与备份拼接/一次up与禁止动作检查通过；Socket CRLF/Accept/frame/正常close离线fixture实际通过，首fixture过度escape断言红是零环境的辅助测试错误，运行代码未因此变更。
@@ -124,10 +131,10 @@
 | 1 固定镜像集成、app注册/资产及资源导入保留 | 已完成并勾选 | 既有统一部署与resource faa5f03/access531/五app注册保持；最终8c5/1c标准bench构建、native34/326、四suite bridge1/1及最终image原a8单SFC1/1均实际通过，完整源资产保护保持；本次未部署旧站 |
 | 2 先备份、双迁移、健康/导入与M6/M8真实权限回归 | 部分完成 | 备份/安装/双migrate、真实普通HTTP与正常L2 UI已有证据；完整独立M6/M8多入口权限矩阵未全部闭合，不以定向门替代 |
 | 3 同版本独立恢复、原文关联/权限及正常登录读写 | 已完成并勾选 | 早期同版本cae/34fc链覆盖非空公私2文件与12类；full951同61a新七卷native_restore完整18类109refs等值、原口令及target-only正常读写撤权36请求通过。最新空物理文件和encryptedAuth0不能外推非空/解密 |
-| 4 重启持久化与可复现可靠运行说明 | 部分完成 | 完整18类source/recovery三时点及109/142refs、4普通登录和23只读ACL在人工顺序恢复后全等；infra重启触发两socketexit1、共同exit255原因未明、WSL/daemon持续运行未闭合 |
-| 5 受控导出、可追踪与证据决策链/独审 | 部分完成 | 12CSV/18CSV与JSON逐字段回读、企业联系人需求商机任务关系已实证；本轮最终证据文档尚未独审，不能提前合并 |
+| 4 重启持久化与可复现可靠运行说明 | 按原范围已完成 | 既有source/recovery完整18类及有限普通登录/ACL保持；精确24e r8正常stop/up后12类103refs、公私2files、users/settings保持，真实HTTP与Engine.IO/WebSocket传输通过；M17 86b9dfa §15补既有daemon enabled、稳定宿主/固定Compose及restart策略运行方案，不依赖临时hold。seq114确认本门已足；认证room等正式权限责任仍归T2 |
+| 5 受控导出、可追踪与证据决策链/独审 | 已证子项完成，合并条件保留 | 12CSV/18CSV与JSON逐字段回读、企业联系人需求商机任务/子表引用图、恢复/重启/导出证据与D006链已实证；a4361fa的seq114指定证据独审clean/hold、无P1/P2，该子门不再待审；不是M8/M9全分支批准，合并仍等T2及最终候选部署/Windows发布门 |
 
-可靠性最小建议（未实施）：团队服务端用稳定常驻Docker宿主和固定Compose管理生命周期，不续租临时WSL hold；以已实证infra健康→backend/socket健康→DNS/TCP→frontend启动顺序收敛；按正式部署环境评估服务restart策略及Redis断线error监听/有界恢复。前者不等于修复Framework websocket对Redis的Unhandled退出，后者不得本轮擅改上游或全局策略。先由主控结合正式部署配置选择最小变更，再验受影响重启门；不重跑已有数据恢复或以临时保活宣称可靠托管。第3项已绿不把其他部分项当整项完成；M9整体仍active，不Complete/MVP/merge。
+可靠运行说明现已由本地标准up/stop实证和M17既有Docker/containerd enabled、固定Compose及长驻unless-stopped/一次性no收敛，不续租临时WSL hold作正式托管。历史infra重启触发socket exit1/共同exit255与未归因事实保留；非计划Redis断连恢复、整机重启及长期稳定性未验，但不自动扩大为原T4或本轮v1.0新增测试门，不擅改上游/全局策略。T4及T5已证子门不再循环阻塞；M9整体仍active，剩T2正式权限责任与最终候选交付/Windows入口，clean/hold不是合并许可，不Complete/MVP/merge。
 
 ## 先前累计状态（历史，旧红原样保留）
 
