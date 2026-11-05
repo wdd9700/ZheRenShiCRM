@@ -112,6 +112,14 @@ M9 已执行 `976d220` 的单测试，run `10d7ff3463234481bfc30d9465be82d2` exi
 
 真实 `Onboarding/onboarding.ts` 初始 `frappe.onboarding.get_onboarding_status` 返回 `Record<string, StoredStep[]>`，明确提供 `frappecrm_onboarding_status` 五项已完成清单，保留 Sales User 角色及真实组件/store。`setUp` 只赋值/sync 不写；CRM `reconcileOnboarding` 对已完成清单直接返回，空存储也直接返回；`flushPendingSteps` 在本 case 未创建/保存记录时为空，LeadModal 的 completeStep 仅在 insert 成功后调用。故此场景不应发生 onboarding 写；没有给 update API 成功 fixture，并在原零 insert/set_value 断言中加入 `frappe.onboarding.update_user_onboarding_status`。TrialBanner/SignupBanner 在已有 `is_fc_site:false` / `is_demo_site:false` 下不实例化，不盲补 current_site_info 或外部请求。新解析配置与这些 fixture 尚待 M9 单 case 验证，不能声称完整 SFC 或恢复已通过。
 
+M9 真实执行 `13c698e`，run `02f6dc3f7cb84ddc989c1ed81dce8f78` exit 1 / 1 test fail / **4 unhandled**：实际 Leads 挂载和 Create 点击通过，等待 LeadModal 字段控件超时；此时 epoch 0 / ACTIVE / READY，尚未填草稿、hidden 或 resume。unknown 为两次 `frappe.desk.search.search_link`；首捕获拒绝及四个 Vitest unhandled 均为 `RESOURCE_SUPERSEDED`，`resources.js:145`。不能把文本提及次数 7 当错误数量，亦不能把 runner 的 unknown_endpoint_lines 空数组当无未知请求。完整原始日志 SHA `eb61ecf349110702223f6cdd45a752f6b12cd69649b3d6c5a0c82f8a29d613dc`，source guards 前后通过。
+
+静态核 FieldLayout 的 tabs→sections→columns→fields 与 fixture 结构一致；`Field.vue` computed 的 `placeholder: field.placeholder || field.label` 使 First Name 实际 placeholder 为 `First Name`，不是 getPlaceholder 末分支的 `Enter First Name`。测试 locator 修为 dialog 内该精确 input，不修改 Field。`Controls/Link.vue` 对 User 初始空 txt 的 search_link 自动读，transform 需要 value/可选 label/description 数组；按 [Frappe v15.125.0 search_link](https://raw.githubusercontent.com/frappe/frappe/v15.125.0/frappe/desk/search.py) 返回契约仅补 User 空查询的单个合成用户，其他 doctype/txt 仍拒绝，不添加生产允许项。
+
+新增测试观察只保留已声明 doctype 枚举及调用源码位置：Form Script get_list 的同步发起位置和被 track Promise 的发起位置，仍执行原 track、不增加全局拒绝处理、不忽略 Vitest unhandled。实 SFC 静态链为 LeadModal→useDocument→getScript，以及 FieldLayout→useDocument、四个 Field→useDocument；getScript 在 document cache 命中前就调用。共享 createListResource 没有顶层 loading，只有 list.loading/fetched；成功空列表又不写 doctypeScripts，因此会重复 fetch 并使旧 generation superseded。listResource.fetch 丢弃 reload().finally 返回 Promise，也解释为何基础 resource 已观察拒绝后外层仍可能 unhandled；四项实际归属待新增来源位置确认，不能仅按计数认定全来自脚本。
+
+待主控路由的最小生产方案（本轮未实现）：getScript 的自动读取以 `!scripts.list.fetched && !scripts.list.loading` 为门槛，使用底层 `scripts.list.fetch()` 的已观察 Promise，避免无消费 reload/finally 分支；成功空列表由 fetched=true 形成有效负缓存，并发调用只发一次，失败 fetched=false/loading=false 允许后续重试。需新增实际 getScript 的空缓存复用、并发单flight、首失败后重试成功、epoch 失效重读与不同 doctype/view 隔离 case，并重新做完整 SFC。现有严格函数内存实验已复现重复空读取的失败，但未闭合本次 SFC 四个 unhandled 归属，也未闭合 hidden/resume 因果，故暂不改生产。
+
 M9 仅在隔离的 da2177 **43 entries 已 patch 源**中，原字节复制以下两文件：
 
 - `sfc-resume.test.mjs` → `frontend/tests/unit/m24SafeResumeSfc.test.js`（相对 import 依赖此位置；新增 boot fixture 后须使用新候选 SHA）。

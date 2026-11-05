@@ -84,6 +84,10 @@ function bodyFor(method, params) {
       if (params.doctype !== 'CRM Lead' || !['read', 'create'].includes(params.perm_type)) break
       return response({ has_permission: true })
     }
+    case 'frappe.desk.search.search_link': {
+      if (params.doctype !== 'User' || (params.txt || '') !== '') break
+      return response([{ value: identity, label: user.full_name, description: '' }])
+    }
     case 'frappe.client.get_list': {
       if (!Object.hasOwn(listRows, params.doctype)) break
       return response(listRows[params.doctype])
@@ -133,7 +137,7 @@ const requests = [], rejected = [], unknown = []
 let tracking
 function diagnostics() {
   return JSON.stringify({ boundary: boundary?.diagnostic, state: boundary?.state,
-    rejected: rejected.slice(0, 8), unknown, requests: requests.map(({ method, epoch }) => ({ method, epoch })) })
+    rejected: rejected.slice(0, 8), unknown, requests })
 }
 async function until(check, label, milliseconds = 8000) {
   const deadline = Date.now() + milliseconds
@@ -147,7 +151,7 @@ function button(label) {
   return [...document.querySelectorAll('button')].find(node => node.textContent.trim() === label)
 }
 function firstName() {
-  return document.querySelector('input[placeholder="Enter First Name"], input[aria-label="First Name"], [data-fieldname="first_name"] input')
+  return document.querySelector('[role="dialog"] input[placeholder="First Name"]')
 }
 function visibility(value) {
   hidden = value
@@ -180,7 +184,12 @@ test('real App/Leads/FieldLayout and transport preserve a creation draft across 
     const method = url.pathname.replace(/^\/api\/method\//, '')
     const params = Object.fromEntries(url.searchParams)
     if (options.body) Object.assign(params, JSON.parse(options.body))
-    requests.push({ method, epoch: boundary?.epoch })
+    const doctype = Object.hasOwn(metaFields, params.doctype) ? params.doctype : undefined
+    const origins = method === 'frappe.client.get_list' && doctype === 'CRM Form Script'
+      ? String(new Error().stack || '').split('\n')
+        .filter(line => /(?:src|node_modules)\/.*:\d+:\d+/.test(line)).slice(0, 12)
+      : undefined
+    requests.push({ method, epoch: boundary?.epoch, doctype, origins })
     if (!url.pathname.startsWith('/api/method/')) {
       unknown.push(method); throw Error('SFC_FIXTURE_UNDECLARED_REQUEST:' + method)
     }
@@ -198,7 +207,9 @@ test('real App/Leads/FieldLayout and transport preserve a creation draft across 
   tracking = vi.spyOn(boundary, 'track').mockImplementation(promise => {
     const epoch = boundary.epoch
     const state = boundary.state
-    promise.catch(error => rejected.push({ epoch, state, ...errorEvidence(error) }))
+    const origins = String(new Error().stack || '').split('\n')
+      .filter(line => /(?:src|node_modules)\/.*:\d+:\d+/.test(line)).slice(0, 10)
+    promise.catch(error => rejected.push({ epoch, state, origins, ...errorEvidence(error) }))
     return originalTrack(promise)
   })
   await import('@/main')
