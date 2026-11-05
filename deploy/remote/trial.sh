@@ -326,6 +326,10 @@ set_update_paths() {
     BACKUP_PROOF_TEMP="$RUNTIME/.backup-ready-$NEW_CONFIG.tmp"
     REDIS_EVIDENCE="$RUNTIME/redis-replacement-$NEW_CONFIG"
     REDIS_EVIDENCE_TEMP="$RUNTIME/.redis-replacement-$NEW_CONFIG.tmp"
+    SOURCE_RELEASE="$RUNTIME/reviewed-release-$NEW_CONFIG.env"
+    SOURCE_LAYERS="$RUNTIME/reviewed-image-rootfs-layers-$NEW_CONFIG.txt"
+    SOURCE_RELEASE_TEMP="$RUNTIME/.reviewed-release-$NEW_CONFIG.tmp"
+    SOURCE_LAYERS_TEMP="$RUNTIME/.reviewed-image-rootfs-layers-$NEW_CONFIG.tmp"
 }
 write_state() {
     STATE_TEMP="$RUNTIME/.site-update.state.${NEW_CONFIG:-manual}.$$.tmp"
@@ -334,6 +338,34 @@ write_state() {
     fi
     printf 'ERROR: unable to persist site update state; treat the update as interrupted\n' >&2
     return 1
+}
+persist_reviewed_metadata() {
+    [ "$UPGRADE_APPS" -eq 1 ] || return 0
+    for FILE in "$SOURCE_RELEASE" "$SOURCE_LAYERS" "$SOURCE_RELEASE_TEMP" "$SOURCE_LAYERS_TEMP"; do
+        if [ -e "$FILE" ] || [ -L "$FILE" ]; then
+            [ -f "$FILE" ] && [ ! -L "$FILE" ] || return 1
+        fi
+    done
+    if [ -e "$SOURCE_RELEASE" ] && [ -e "$SOURCE_RELEASE_TEMP" ]; then
+        return 1
+    fi
+    if [ -e "$SOURCE_LAYERS" ] && [ -e "$SOURCE_LAYERS_TEMP" ]; then
+        return 1
+    fi
+    if [ -e "$SOURCE_RELEASE" ]; then
+        cmp -s "$SOURCE_RELEASE" "$NEW_RELEASE" || return 1
+    elif [ -e "$SOURCE_RELEASE_TEMP" ]; then
+        cmp -s "$SOURCE_RELEASE_TEMP" "$NEW_RELEASE" && mv "$SOURCE_RELEASE_TEMP" "$SOURCE_RELEASE" || return 1
+    else
+        (umask 077 && set -C && cat "$NEW_RELEASE" > "$SOURCE_RELEASE_TEMP") && mv "$SOURCE_RELEASE_TEMP" "$SOURCE_RELEASE" || return 1
+    fi
+    if [ -e "$SOURCE_LAYERS" ]; then
+        cmp -s "$SOURCE_LAYERS" "$NEW_LAYERS" || return 1
+    elif [ -e "$SOURCE_LAYERS_TEMP" ]; then
+        cmp -s "$SOURCE_LAYERS_TEMP" "$NEW_LAYERS" && mv "$SOURCE_LAYERS_TEMP" "$SOURCE_LAYERS" || return 1
+    else
+        (umask 077 && set -C && cat "$NEW_LAYERS" > "$SOURCE_LAYERS_TEMP") && mv "$SOURCE_LAYERS_TEMP" "$SOURCE_LAYERS" || return 1
+    fi
 }
 stop_maintenance() {
     if compose stop; then
@@ -567,6 +599,144 @@ resume_preflight() {
         [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "app resume temporary conflict: $CONFLICT"
     done
 }
+ensure_app_context() {
+    if [ -e "$UPDATE_CONTEXT" ] && [ -e "$UPDATE_CONTEXT_TEMP" ]; then
+        return 1
+    fi
+    if [ -e "$UPDATE_CONTEXT" ]; then
+        [ -f "$UPDATE_CONTEXT" ] && [ ! -L "$UPDATE_CONTEXT" ] || return 1
+        load_app_context
+        return
+    fi
+    if [ -e "$UPDATE_CONTEXT_TEMP" ]; then
+        [ -f "$UPDATE_CONTEXT_TEMP" ] && [ ! -L "$UPDATE_CONTEXT_TEMP" ] || return 1
+        ORIGINAL_CONTEXT=$UPDATE_CONTEXT
+        UPDATE_CONTEXT=$UPDATE_CONTEXT_TEMP
+        if ! load_app_context; then
+            UPDATE_CONTEXT=$ORIGINAL_CONTEXT
+            return 1
+        fi
+        UPDATE_CONTEXT=$ORIGINAL_CONTEXT
+        mv "$UPDATE_CONTEXT_TEMP" "$UPDATE_CONTEXT"
+        return
+    fi
+    write_app_context
+}
+ensure_backup_proof() {
+    EXPECTED="backup-four-readable image=$NEW_CONFIG"
+    if [ -e "$BACKUP_PROOF" ] && [ -e "$BACKUP_PROOF_TEMP" ]; then
+        return 1
+    fi
+    if [ -e "$BACKUP_PROOF" ]; then
+        [ -f "$BACKUP_PROOF" ] && [ ! -L "$BACKUP_PROOF" ] && [ "$(cat "$BACKUP_PROOF")" = "$EXPECTED" ]
+        return
+    fi
+    if [ -e "$BACKUP_PROOF_TEMP" ]; then
+        [ -f "$BACKUP_PROOF_TEMP" ] && [ ! -L "$BACKUP_PROOF_TEMP" ] && [ "$(cat "$BACKUP_PROOF_TEMP")" = "$EXPECTED" ] || return 1
+        mv "$BACKUP_PROOF_TEMP" "$BACKUP_PROOF"
+        return
+    fi
+    (umask 077 && set -C && printf '%s\n' "$EXPECTED" > "$BACKUP_PROOF_TEMP") && mv "$BACKUP_PROOF_TEMP" "$BACKUP_PROOF"
+}
+prepare_metadata_file() {
+    TARGET=$1
+    SOURCE=$2
+    if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
+        [ -f "$TARGET" ] && [ ! -L "$TARGET" ] && cmp -s "$TARGET" "$SOURCE"
+        return
+    fi
+    (umask 077 && set -C && cat "$SOURCE" > "$TARGET")
+}
+prepare_lock_temp() {
+    if [ -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
+        [ -f "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ] && [ "$(cat "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")" = "CRM_IMAGE=$NEW_IMAGE" ]
+        return
+    fi
+    (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_IMAGE" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+}
+cross_artifacts_preflight() {
+    for FILE in "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" "$UPDATE_CONTEXT" "$BACKUP_PROOF" "$REDIS_EVIDENCE" \
+      "$SOURCE_RELEASE" "$SOURCE_LAYERS" "$SOURCE_RELEASE_TEMP" "$SOURCE_LAYERS_TEMP" "$UPDATE_CONTEXT_TEMP" "$BACKUP_PROOF_TEMP"; do
+        if [ -e "$FILE" ] || [ -L "$FILE" ]; then
+            [ -f "$FILE" ] && [ ! -L "$FILE" ] || fail "cross-candidate evidence is not an ordinary file: $FILE"
+        fi
+    done
+    if [ -e "$UPDATE_BACKUP" ] && [ "$(cat "$UPDATE_BACKUP")" != "$(cat "$IMAGE_FILE")" ]; then
+        fail 'cross-candidate retained lock differs from current lock'
+    fi
+    if [ -e "$UPDATE_STATE_BACKUP" ]; then
+        case "$(cat "$UPDATE_STATE_BACKUP")" in
+            maintenance\ reason=*) ;;
+            *) fail 'cross-candidate previous state backup is not maintenance' ;;
+        esac
+    fi
+    if [ -e "$UPDATE_RELEASE_BACKUP" ]; then
+        [ -f "$RUNTIME/release.env" ] && cmp -s "$UPDATE_RELEASE_BACKUP" "$RUNTIME/release.env" || fail 'cross-candidate release backup differs from active metadata'
+    fi
+    if [ -e "$UPDATE_LAYERS_BACKUP" ]; then
+        [ -f "$RUNTIME/image-rootfs-layers.txt" ] && cmp -s "$UPDATE_LAYERS_BACKUP" "$RUNTIME/image-rootfs-layers.txt" || fail 'cross-candidate layer backup differs from active metadata'
+    fi
+    if [ -e "$UPDATE_CONTEXT" ] && [ -e "$UPDATE_CONTEXT_TEMP" ]; then
+        fail 'both candidate context and temporary context exist; preserve and review manually'
+    fi
+    if [ -e "$UPDATE_CONTEXT" ]; then
+        load_app_context || fail 'existing candidate context is invalid'
+    fi
+    if [ -e "$UPDATE_CONTEXT_TEMP" ]; then
+        ORIGINAL_CONTEXT=$UPDATE_CONTEXT
+        UPDATE_CONTEXT=$UPDATE_CONTEXT_TEMP
+        if ! load_app_context; then
+            UPDATE_CONTEXT=$ORIGINAL_CONTEXT
+            fail 'candidate temporary context is invalid'
+        fi
+        UPDATE_CONTEXT=$ORIGINAL_CONTEXT
+    fi
+    if [ -e "$BACKUP_PROOF" ] && [ -e "$BACKUP_PROOF_TEMP" ]; then
+        fail 'both candidate backup proof and temporary proof exist; preserve and review manually'
+    fi
+    if [ -e "$BACKUP_PROOF" ]; then
+        [ "$(cat "$BACKUP_PROOF")" = "backup-four-readable image=$NEW_CONFIG" ] || fail 'candidate backup proof mismatch'
+    fi
+    if [ -e "$BACKUP_PROOF_TEMP" ]; then
+        [ "$(cat "$BACKUP_PROOF_TEMP")" = "backup-four-readable image=$NEW_CONFIG" ] || fail 'candidate temporary backup proof mismatch'
+    fi
+    if [ -e "$SOURCE_RELEASE" ] && [ -e "$SOURCE_RELEASE_TEMP" ]; then
+        fail 'both reviewed release and temporary release exist; preserve and review manually'
+    fi
+    if [ -e "$SOURCE_LAYERS" ] && [ -e "$SOURCE_LAYERS_TEMP" ]; then
+        fail 'both reviewed layers and temporary layers exist; preserve and review manually'
+    fi
+    if [ -e "$SOURCE_RELEASE" ] && ! cmp -s "$SOURCE_RELEASE" "$NEW_RELEASE"; then
+        fail 'persisted candidate release differs from reviewed input'
+    fi
+    if [ -e "$SOURCE_LAYERS" ] && ! cmp -s "$SOURCE_LAYERS" "$NEW_LAYERS"; then
+        fail 'persisted candidate layers differ from reviewed input'
+    fi
+    if [ -e "$SOURCE_RELEASE_TEMP" ] && ! cmp -s "$SOURCE_RELEASE_TEMP" "$NEW_RELEASE"; then
+        fail 'temporary candidate release differs from reviewed input'
+    fi
+    if [ -e "$SOURCE_LAYERS_TEMP" ] && ! cmp -s "$SOURCE_LAYERS_TEMP" "$NEW_LAYERS"; then
+        fail 'temporary candidate layers differ from reviewed input'
+    fi
+    if [ -e "$FAILED_RELEASE" ] || [ -L "$FAILED_RELEASE" ]; then
+        failed_metadata_allowed "$FAILED_RELEASE" "$NEW_RELEASE" "$UPDATE_RELEASE_BACKUP" || fail 'candidate failed release has unknown provenance'
+    fi
+    if [ -e "$FAILED_LAYERS" ] || [ -L "$FAILED_LAYERS" ]; then
+        failed_metadata_allowed "$FAILED_LAYERS" "$NEW_LAYERS" "$UPDATE_LAYERS_BACKUP" || fail 'candidate failed layers have unknown provenance'
+    fi
+    if [ -e "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ]; then
+        cmp -s "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$NEW_RELEASE" || fail 'candidate release temporary content mismatch'
+    fi
+    if [ -e "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" ]; then
+        cmp -s "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" "$NEW_LAYERS" || fail 'candidate layer temporary content mismatch'
+    fi
+    if [ -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
+        [ "$(cat "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")" = "CRM_IMAGE=$NEW_IMAGE" ] || fail 'candidate lock temporary content mismatch'
+    fi
+    for CONFLICT in "$ROLLBACK_TEMP" "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp"; do
+        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "cross-candidate recovery temporary conflict: $CONFLICT"
+    done
+}
 cross_preflight() {
     [ -f "$RUNTIME/site-update.state" ] && [ ! -L "$RUNTIME/site-update.state" ] || fail 'cross-candidate upgrade requires retained maintenance state'
     STATE=$(cat "$RUNTIME/site-update.state")
@@ -576,40 +746,49 @@ cross_preflight() {
     esac
     PREVIOUS_CONFIG=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$RUNTIME/site-update.state")
     valid_sha256 "$PREVIOUS_CONFIG" || fail 'maintenance generation has no valid source config'
-    [ "$NEW_CONFIG" != "$PREVIOUS_CONFIG" ] || fail 'cross-candidate upgrade requires a new config; use same-generation resume instead'
-    PREVIOUS_CONTEXT="$RUNTIME/app-upgrade-context-$PREVIOUS_CONFIG"
-    PREVIOUS_PROOF="$RUNTIME/backup-ready-$PREVIOUS_CONFIG"
-    PREVIOUS_LOCK="$RUNTIME/image.env.pre-site-update-$PREVIOUS_CONFIG"
-    for REQUIRED in "$PREVIOUS_CONTEXT" "$PREVIOUS_PROOF" "$PREVIOUS_LOCK"; do
-        [ -f "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "previous generation proof is missing or unsafe: $REQUIRED"
-    done
-    [ "$(cat "$PREVIOUS_LOCK")" = "$(cat "$IMAGE_FILE")" ] || fail 'current lock differs from the retained maintenance source lock'
-    [ "$(cat "$PREVIOUS_PROOF")" = "backup-four-readable image=$PREVIOUS_CONFIG" ] || fail 'previous generation backup proof mismatch'
+    CROSS_RETRY=0
+    if [ "$NEW_CONFIG" = "$PREVIOUS_CONFIG" ]; then
+        CROSS_RETRY=1
+        [ ! -e "$BACKUP_PROOF" ] || fail 'candidate backup proof already exists; use same-generation resume'
+        [ -f "$UPDATE_BACKUP" ] && [ ! -L "$UPDATE_BACKUP" ] || fail 'early candidate continuation requires its retained previous lock'
+        [ "$(cat "$UPDATE_BACKUP")" = "$(cat "$IMAGE_FILE")" ] || fail 'early candidate lock differs from current lock'
+    else
+        PREVIOUS_CONTEXT="$RUNTIME/app-upgrade-context-$PREVIOUS_CONFIG"
+        PREVIOUS_PROOF="$RUNTIME/backup-ready-$PREVIOUS_CONFIG"
+        PREVIOUS_LOCK="$RUNTIME/image.env.pre-site-update-$PREVIOUS_CONFIG"
+        for REQUIRED in "$PREVIOUS_CONTEXT" "$PREVIOUS_PROOF" "$PREVIOUS_LOCK"; do
+            [ -f "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "previous generation proof is missing or unsafe: $REQUIRED"
+        done
+        [ "$(cat "$PREVIOUS_LOCK")" = "$(cat "$IMAGE_FILE")" ] || fail 'current lock differs from the retained maintenance source lock'
+        [ "$(cat "$PREVIOUS_PROOF")" = "backup-four-readable image=$PREVIOUS_CONFIG" ] || fail 'previous generation backup proof mismatch'
+    fi
     PREVIOUS_RELEASE_BACKUP="$RUNTIME/release.pre-$PREVIOUS_CONFIG.env"
     PREVIOUS_LAYERS_BACKUP="$RUNTIME/image-rootfs-layers.pre-$PREVIOUS_CONFIG.txt"
     PREVIOUS_FAILED_RELEASE="$RUNTIME/failed-release-$PREVIOUS_CONFIG.env"
     PREVIOUS_FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers-$PREVIOUS_CONFIG.txt"
+    TRUSTED_PREVIOUS_RELEASE="$RUNTIME/reviewed-release-$PREVIOUS_CONFIG.env"
+    TRUSTED_PREVIOUS_LAYERS="$RUNTIME/reviewed-image-rootfs-layers-$PREVIOUS_CONFIG.txt"
+    if [ ! -e "$TRUSTED_PREVIOUS_RELEASE" ]; then
+        TRUSTED_PREVIOUS_RELEASE="$RUNTIME/.release.env.site-update-$PREVIOUS_CONFIG.tmp"
+    fi
+    if [ ! -e "$TRUSTED_PREVIOUS_LAYERS" ]; then
+        TRUSTED_PREVIOUS_LAYERS="$RUNTIME/.image-rootfs-layers.site-update-$PREVIOUS_CONFIG.tmp"
+    fi
     if [ -e "$PREVIOUS_FAILED_RELEASE" ] || [ -L "$PREVIOUS_FAILED_RELEASE" ]; then
         [ -f "$PREVIOUS_FAILED_RELEASE" ] && [ ! -L "$PREVIOUS_FAILED_RELEASE" ] || fail 'previous failed release is not an ordinary file'
         if [ ! -f "$PREVIOUS_RELEASE_BACKUP" ] || [ -L "$PREVIOUS_RELEASE_BACKUP" ] || ! cmp -s "$PREVIOUS_FAILED_RELEASE" "$PREVIOUS_RELEASE_BACKUP"; then
-            [ "$(release_value CRM_IMAGE_CONFIG "$PREVIOUS_FAILED_RELEASE")" = "$PREVIOUS_CONFIG" ] || fail 'previous failed release has unknown provenance'
+            [ -f "$TRUSTED_PREVIOUS_RELEASE" ] && [ ! -L "$TRUSTED_PREVIOUS_RELEASE" ] &&
+              cmp -s "$PREVIOUS_FAILED_RELEASE" "$TRUSTED_PREVIOUS_RELEASE" || fail 'previous failed release is not bound to the reviewed candidate or retained backup'
         fi
     fi
     if [ -e "$PREVIOUS_FAILED_LAYERS" ] || [ -L "$PREVIOUS_FAILED_LAYERS" ]; then
         [ -f "$PREVIOUS_FAILED_LAYERS" ] && [ ! -L "$PREVIOUS_FAILED_LAYERS" ] || fail 'previous failed layers are not an ordinary file'
         if [ ! -f "$PREVIOUS_LAYERS_BACKUP" ] || [ -L "$PREVIOUS_LAYERS_BACKUP" ] || ! cmp -s "$PREVIOUS_FAILED_LAYERS" "$PREVIOUS_LAYERS_BACKUP"; then
-            awk 'substr($0, 1, 7) != "sha256:" || length($0) != 71 || substr($0, 8) !~ /^[0-9a-f]+$/ {bad=1} {count++} END {exit bad || count < 1}' "$PREVIOUS_FAILED_LAYERS" || fail 'previous failed layers are invalid'
+            [ -f "$TRUSTED_PREVIOUS_LAYERS" ] && [ ! -L "$TRUSTED_PREVIOUS_LAYERS" ] &&
+              cmp -s "$PREVIOUS_FAILED_LAYERS" "$TRUSTED_PREVIOUS_LAYERS" || fail 'previous failed layers are not bound to the reviewed candidate or retained backup'
         fi
     fi
-    for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
-      "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
-      "$UPDATE_CONTEXT" "$UPDATE_CONTEXT_TEMP" "$BACKUP_PROOF" "$BACKUP_PROOF_TEMP" "$REDIS_EVIDENCE" "$REDIS_EVIDENCE_TEMP" \
-      "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" \
-      "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" \
-      "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp" \
-      "$RUNTIME/.site-update.state.$NEW_CONFIG.tmp"; do
-        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "cross-candidate target/evidence conflict: $CONFLICT"
-    done
+    cross_artifacts_preflight
 }
 update_site_image() {
     if [ "$UPGRADE_APPS" -eq 1 ]; then
@@ -671,6 +850,7 @@ update_site_image() {
         fi
         for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
           "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
+          "$SOURCE_RELEASE" "$SOURCE_LAYERS" "$SOURCE_RELEASE_TEMP" "$SOURCE_LAYERS_TEMP" \
           "$UPDATE_CONTEXT" "$UPDATE_CONTEXT_TEMP" "$BACKUP_PROOF" "$BACKUP_PROOF_TEMP" "$REDIS_EVIDENCE" "$REDIS_EVIDENCE_TEMP" \
           "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" \
           "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" \
@@ -689,18 +869,22 @@ update_site_image() {
         resume_infrastructure || fail 'unable to restore only DB/Redis for app resume; no old application service or configurator was started'
     elif [ "$CROSS_APPS" -eq 1 ]; then
         CANDIDATE_CONTEXT=$UPDATE_CONTEXT
-        UPDATE_CONTEXT=$RUNTIME/app-upgrade-context-$PREVIOUS_CONFIG
+        if [ -e "$RUNTIME/release.env" ] && [ ! -e "$UPDATE_RELEASE_BACKUP" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
+        fi
+        if [ -e "$RUNTIME/image-rootfs-layers.txt" ] && [ ! -e "$UPDATE_LAYERS_BACKUP" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/image-rootfs-layers.txt" > "$UPDATE_LAYERS_BACKUP")
+        fi
+        if [ ! -e "$UPDATE_STATE_BACKUP" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
+        fi
+        SOURCE_CONFIG=$(sed -n 's/.*image=\(sha256:[0-9a-f][0-9a-f]*\).*/\1/p' "$UPDATE_STATE_BACKUP")
+        valid_sha256 "$SOURCE_CONFIG" || fail 'cross-candidate source state has no valid config'
+        UPDATE_CONTEXT=$RUNTIME/app-upgrade-context-$SOURCE_CONFIG
         load_app_context || fail 'previous generation context is invalid'
         UPDATE_CONTEXT=$CANDIDATE_CONTEXT
         [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail 'credentials changed since the previous maintenance generation'
         [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail 'DB identity changed since the previous maintenance generation'
-        if [ -e "$RUNTIME/release.env" ]; then
-            (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
-        fi
-        if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
-            (umask 077 && set -C && cat "$RUNTIME/image-rootfs-layers.txt" > "$UPDATE_LAYERS_BACKUP")
-        fi
-        (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
     else
         verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
         verify_infrastructure || fail 'current DB/Redis are not healthy; refuse update before stopping writers'
@@ -730,10 +914,19 @@ update_site_image() {
         verify_redis_contract before || fail 'Redis image/config-hash/volume contract mismatch before update'
     fi
     if [ "$RESUME_APPS" -eq 0 ]; then
-        (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
-        (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
-        (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
-        (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_IMAGE" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+        if [ "$CROSS_APPS" -eq 1 ]; then
+            prepare_metadata_file "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$NEW_RELEASE" || fail 'unable to prepare candidate release metadata'
+            prepare_metadata_file "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" "$NEW_LAYERS" || fail 'unable to prepare candidate layers metadata'
+            prepare_lock_temp || fail 'unable to prepare candidate image lock'
+            if [ ! -e "$UPDATE_BACKUP" ]; then
+                (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
+            fi
+        else
+            (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
+            (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
+            (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
+            (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_IMAGE" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+        fi
     else
         [ ! -L "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ] || fail 'resume metadata temporary must not be a symlink'
         if [ ! -e "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ]; then
@@ -750,6 +943,7 @@ update_site_image() {
     [ "$UPGRADE_APPS" -eq 0 ] || UPDATE_MODE=apps
     [ "$RESUME_APPS" -eq 0 ] || UPDATE_MODE=apps-resume
     [ "$CROSS_APPS" -eq 0 ] || UPDATE_MODE=apps-from-maintenance
+    persist_reviewed_metadata || fail 'unable to preserve reviewed release/layers for this generation'
     write_state "updating image=$NEW_CONFIG mode=$UPDATE_MODE" || fail 'unable to record update start; no runtime action was taken'
     UPDATE_ACTIVE=1
     trap update_exit EXIT
@@ -757,7 +951,11 @@ update_site_image() {
     trap 'fail_update signal-int' INT
     trap 'fail_update signal-term' TERM
     if [ "$UPGRADE_APPS" -eq 1 ] && [ "$RESUME_APPS" -eq 0 ]; then
-        write_app_context || fail_update context-write-failed
+        if [ "$CROSS_APPS" -eq 1 ]; then
+            ensure_app_context || fail_update context-write-failed
+        else
+            write_app_context || fail_update context-write-failed
+        fi
     fi
     if [ "$CROSS_APPS" -eq 1 ]; then
         resume_infrastructure || fail_update infrastructure-resume-failed
@@ -777,7 +975,7 @@ update_site_image() {
         compose run --no-deps -T configurator || fail_update candidate-configurator-failed
         if [ "$CROSS_APPS" -eq 1 ]; then
             candidate_backup || fail_update candidate-backup-failed
-            (umask 077 && set -C && printf 'backup-four-readable image=%s\n' "$NEW_CONFIG" > "$BACKUP_PROOF_TEMP") && mv "$BACKUP_PROOF_TEMP" "$BACKUP_PROOF" || fail_update backup-proof-write-failed
+            ensure_backup_proof || fail_update backup-proof-write-failed
         fi
         MISSING_JSON=$(candidate_apps missing) || fail_update candidate-app-query-failed
         MISSING_APPS=$(printf '%s' "$MISSING_JSON" | python3 -c 'import json,sys; value=json.load(sys.stdin); missing=value.get("missing"); assert set(value)=={"missing"} and isinstance(missing,list); assert all(app in ("resource_import","team_access","team_schedule") for app in missing); print(" ".join(missing))') || fail_update candidate-app-list-invalid
