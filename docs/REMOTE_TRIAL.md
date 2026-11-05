@@ -223,9 +223,9 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
   /已审release目录 /已核验镜像.tar --confirm-site-image-update
 ```
 
-该动作先离线核验 tar SHA、index→amd64 manifest→config 及逐层 diff_ids，再完成四件备份可读检查后加载并验证新镜像，保留 `.env`、站点配置、数据库/卷、原镜像和 `image.env.pre-site-update`，以 Compose 原生重建。六个长驻应用服务须全部运行新 config，configurator 须同 config 且 exit 0；DB/Redis 容器 ID、`.env` 和站点配置哈希不得改变。全部目标、备份和临时路径冲突在运行态变化前预检，完整元数据先写入临时文件。切换后任何退出、写入/rename失败或可捕获信号都会先独立尽力 `compose stop`，再分别尝试锁恢复和元数据隔离，并把 stop/lock/metadata 结果写入 `site-update.state`；任何失败均不自动重启已知权限缺陷版本。成功后才提交新 manifest/层清单供后续 `check`。后续权限复验失败同样立即停写/维护，不以旧版回退冒充健康。不 `down -v`/prune、不 init、不重复旧 load 迁移、不改公开范围/SSH/firewall，也不解除 M8/M9 门禁。
+该动作先离线核验 tar SHA、index→amd64 manifest→config 及逐层 diff_ids，再写维护态、停写并完成四件备份可读检查，随后加载并验证新镜像，保留 `.env`、站点配置、数据库/卷、原镜像和 `image.env.pre-site-update`，以 Compose 原生重建。六个长驻应用服务须全部运行新 config，configurator 须同 config 且 exit 0；DB 容器 ID、`.env` 和站点配置哈希不得改变。Redis 不使用一刀切的 ID 不变门禁：脚本比较旧/新 Compose config-hash，严格核 Redis 固定镜像、queue 的 `crm_trial_c010400_redis:/data` 读写卷挂载和最终健康配置。hash 不变时禁止换 ID；本轮健康配置导致 hash 变化时允许受控重建，并在 `redis-replacement-<新config>` 中记录旧/新 ID，拒绝其他身份或挂载漂移。不得用 `--no-recreate` 跳过健康配置。全部目标、备份和临时路径冲突在运行态变化前预检，完整元数据先写入临时文件。切换后任何退出、写入/rename失败或可捕获信号都会先独立尽力 `compose stop`，再分别尝试锁恢复和元数据隔离，并把 stop/lock/metadata 结果写入 `site-update.state`；任何失败均不自动重启已知权限缺陷版本。成功后才提交新 manifest/层清单供后续 `check`。后续权限复验失败同样立即停写/维护，不以旧版回退冒充健康。不 `down -v`/prune、不 init、不重复旧 load 迁移、不改公开范围/SSH/firewall，也不解除 M8/M9 门禁。
 
-`update-site-image` 保持 **image-only** 语义：不查询或安装 app、不执行 migrate，只适用于候选与现站 app 集合和 schema 兼容的已审镜像。含新增 app 的候选不得走此捷径。
+`update-site-image` 保持 **image-only** 语义：不查询或安装 app、不执行 migrate，只适用于候选与现站 app 集合和 schema 兼容的已审镜像。含新增 app 的候选不得走此捷径。该路径也不擅自清除 Frappe 维护模式；维护站点应使用上述五 app 受控路径，或由操作员另行审查业务恢复步骤，不能为让 `up --wait` 通过而提前开放。
 
 ### 受控五 app 扩展升级（最终 digest 待 M9 提供）
 
@@ -239,10 +239,20 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
 
 该动作复用同代次冲突、备份和恢复保护，并额外执行以下顺序：
 
-1. 以 active probe 要求当前 DB、双 Redis、backend、frontend 全部 healthy（兼容尚未配置 Docker healthcheck 的现站），先写 `updating` 维护状态，停止 frontend、websocket、双队列和 scheduler，以阻断外部及后台写入；backend 暂留仅用于原生四件备份，备份可读后停止 backend。DB/Redis 不停，供 one-shot 使用。
+1. 只以 DB 原生检查、双 Redis PING 和当前镜像 one-shot 的内部 installed-apps/maintenance 查询验证起点，**不要求维护站点先返回 HTTP pong，也不先解除维护模式**。随后写 `updating` 维护状态，停止 frontend、websocket、双队列和 scheduler，以阻断外部及后台写入；backend 暂留仅用于原生四件备份，备份可读后停止 backend。DB/Redis 不停，供 one-shot 使用。
 2. 加载并核验候选后，先以候选 **one-shot configurator** 更新 `sites/apps.txt` 和既有连接配置，再以候选 one-shot 查询实际 `frappe.get_installed_apps`。基线必须已含 `frappe`/`crm` 且不超出批准五 app；只对缺失的 `resource_import`、`team_access`、`team_schedule` 依次执行标准 `bench install-app`，已存在者绝不重复安装。随后执行一次标准 `bench migrate`，不是初装的两次 migrate，也不读取/删除 `migrated-twice` 来重跑初装。
-3. 另一个 one-shot 校验精确五 app 集合、七个 `team_schedule` 自有表，以及 `Team Schedule.title/description` 均为 `longtext`。只有这些检查成功才执行 `compose up -d --wait` 开放服务；随后再核全部应用镜像、DB/Redis/backend/frontend active readiness、基础设施容器 ID、`.env` 和站点配置哈希，最后才写 ready。
+3. 另一个 one-shot 校验精确五 app 集合、七个 `team_schedule` 自有表，以及 `Team Schedule.title/description` 均为 `longtext`。schema 通过后，若原维护模式为 1，才由候选 one-shot 执行标准 `set-config maintenance_mode 0`；若续作前已经关闭，则只接受原值为 1 的情况，其他漂移均失败。随后才执行 `compose up -d --wait` 并要求 HTTP readiness。除 `maintenance_mode` 外，站点配置规范化哈希必须不变；原本非维护站点还须保持完整配置哈希不变。
 4. 查询、安装、migrate 或 schema/readiness 任一步失败都保留维护态、四件备份、one-shot 和已发生的 app/schema 现场，不写 ready，也不自动重试。恢复旧锁只是保留本轮起点元数据，**不会启动旧镜像**。同代冲突和维护态仍须人工审查，不能删状态/初装 marker 改跑 `create-site`、`install-extensions` 或初装 `migrate`；后续已审执行仍按实际 installed apps 只安装缺失项。
+
+安装或 migrate 已发生后，经人工审查可用同一 release/tar 做同代续作：
+
+```sh
+CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
+  sh "$UPDATE_STAGING/deploy/remote/trial.sh" resume-site-apps \
+  /已审release目录 /已核验镜像.tar --confirm-site-app-upgrade
+```
+
+`resume-site-apps` 仅接受同代维护状态、原始上下文、原锁备份和 `backup-four-readable` 证明，复用四件备份而不重复初装备份。它不要求运行中的旧应用服务，不执行旧镜像 one-shot，先核 DB/Redis 后加载候选并仅运行候选 one-shot。已安装 app 不重复安装，已有 Redis 证据逐字保持；状态、marker 和失败现场均不靠删除绕过。缺少上述证明、代次不同、临时文件/证据内容不符或基础设施漂移均 fail-closed，必须先走人工维护评估。
 
 兼容回退必须使用能加载**当前已安装全部 app 及现有 schema** 的镜像。安装 `team_schedule` 后，旧四 app 镜像不再满足该条件；禁止自动切回、uninstall、删表/Custom Field 或把 `longtext` 缩回旧类型。停写保留现场与经 M9 在独立环境验证的备份恢复是两条独立路径，backup readability 仍不等于恢复通过。
 
@@ -374,7 +384,7 @@ sh deploy/remote/trial.sh inspect-volumes
 - `bash -n deploy/remote/preflight.sh deploy/remote/trial.sh`、Python AST 和 `git diff --check` 通过。
 - 第一 Ubuntu 的既有 Docker Compose 只做 `config` 渲染，未连接 daemon 创建资源：11 个服务（含 setup profile）、仅 frontend 发布 `127.0.0.1:8088`、4 个固定独立卷、backend 1 worker、未确认时合成标记为 `not-confirmed`，断言通过。
 - 本轮另以本机 standalone Compose v5.1.1 对更新后文件做真实 `config` 渲染，11 服务、双 Redis health、configurator 对双 Redis `service_healthy`、frontend 对 backend `service_healthy` 均通过；未连接 daemon，不把这当作应用健康或升级演练。
-- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready 且不二次启动、旧 image-only 不安装不迁移，以及显式确认。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext 和异常基线。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
+- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
 - 53 个 app/build 源文件与 M9 `source-manifest.json` 全部一致；在合成副本中篡改 `team_access/install.py` 后 `verify-source` 拒绝。
 - `init-env` 防覆盖、三个显式合成确认拒绝路径及阶段顺序门禁通过；mock Docker 完整演练确认 create-site → up → 两个 install-app → 恰好两次 migrate → clear-cache → enable-import，重复 create/migrate 拒绝。mock 只验证编排，不是真实安装证据。
 - 合成四件备份夹具通过 gzip/tar/config 完整性验证；stub 预检在本地非 Alibaba OS 上明确失败且未创建目标目录。

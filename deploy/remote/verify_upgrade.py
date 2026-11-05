@@ -25,12 +25,22 @@ def installed_apps():
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("missing", "verify"):
-        raise RuntimeError("expected missing or verify mode")
+    if len(sys.argv) != 2 or sys.argv[1] not in ("missing", "verify", "maintenance"):
+        raise RuntimeError("expected missing, verify or maintenance mode")
     mode = sys.argv[1]
     frappe.init(site="crm.localhost", sites_path="/home/frappe/frappe-bench/sites")
     frappe.connect()
     try:
+        if mode == "maintenance":
+            value = frappe.conf.get("maintenance_mode", 0)
+            if value in (True, 1, "1"):
+                enabled = True
+            elif value in (False, 0, "0", None):
+                enabled = False
+            else:
+                raise RuntimeError("unrecognized maintenance mode")
+            print(json.dumps({"maintenance_mode": enabled}, separators=(",", ":")))
+            return
         apps = installed_apps()
         if mode == "missing":
             if not {"frappe", "crm"}.issubset(apps) or not set(apps).issubset(EXPECTED_APPS):

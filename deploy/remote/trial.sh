@@ -26,13 +26,17 @@ if [ "$ACTION" = load-image ]; then
 fi
 UPDATE_RELEASE_DIR=
 UPGRADE_APPS=0
-if [ "$ACTION" = update-site-image ] || [ "$ACTION" = upgrade-site-apps ]; then
+RESUME_APPS=0
+if [ "$ACTION" = update-site-image ] || [ "$ACTION" = upgrade-site-apps ] || [ "$ACTION" = resume-site-apps ]; then
     [ "$#" -ge 2 ] || { printf '%s requires a reviewed release directory and image archive\n' "$ACTION" >&2; exit 2; }
     UPDATE_RELEASE_DIR=$1
     IMAGE_ARCHIVE=$2
     shift 2
-    if [ "$ACTION" = upgrade-site-apps ]; then
+    if [ "$ACTION" = upgrade-site-apps ] || [ "$ACTION" = resume-site-apps ]; then
         UPGRADE_APPS=1
+    fi
+    if [ "$ACTION" = resume-site-apps ]; then
+        RESUME_APPS=1
     fi
 fi
 CONFIRM=0
@@ -67,6 +71,7 @@ Actions:
   migrate-image-lock-to-config One-time exact index-to-config lock migration; requires classic confirmation
   update-site-image DIR TAR    Image-only reviewed update with backup and rollback; requires confirmation
   upgrade-site-apps DIR TAR    Controlled update to the approved five apps; requires app upgrade confirmation
+  resume-site-apps DIR TAR     Resume the same failed app generation without repeating backup/init
   create-site                  One-time new site; requires synthetic confirmation
   up                           Start/wait all trial services
   install-extensions           One-time resource_import then team_access install; requires confirmation
@@ -295,6 +300,9 @@ valid_sha256() {
 valid_revision() {
     printf '%s' "$1" | awk 'length == 40 && $0 ~ /^[0-9a-f]+$/ {ok=1} END {exit !ok}'
 }
+valid_hash64() {
+    printf '%s' "$1" | awk 'length == 64 && $0 ~ /^[0-9a-f]+$/ {ok=1} END {exit !ok}'
+}
 require_compose_materials() {
     [ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || fail 'compose credentials file must be ordinary and non-symlink'
     [ -f "$IMAGE_FILE" ] && [ ! -L "$IMAGE_FILE" ] || fail 'compose image lock must be ordinary and non-symlink'
@@ -307,6 +315,12 @@ set_update_paths() {
     FAILED_RELEASE="$RUNTIME/failed-release-$NEW_CONFIG.env"
     FAILED_LAYERS="$RUNTIME/failed-image-rootfs-layers-$NEW_CONFIG.txt"
     ROLLBACK_TEMP="$RUNTIME/.image.env.rollback-$NEW_CONFIG.tmp"
+    UPDATE_CONTEXT="$RUNTIME/app-upgrade-context-$NEW_CONFIG"
+    UPDATE_CONTEXT_TEMP="$RUNTIME/.app-upgrade-context-$NEW_CONFIG.tmp"
+    BACKUP_PROOF="$RUNTIME/backup-ready-$NEW_CONFIG"
+    BACKUP_PROOF_TEMP="$RUNTIME/.backup-ready-$NEW_CONFIG.tmp"
+    REDIS_EVIDENCE="$RUNTIME/redis-replacement-$NEW_CONFIG"
+    REDIS_EVIDENCE_TEMP="$RUNTIME/.redis-replacement-$NEW_CONFIG.tmp"
 }
 write_state() {
     STATE_TEMP="$RUNTIME/.site-update.state.${NEW_CONFIG:-manual}.$$.tmp"
@@ -408,15 +422,127 @@ verify_running_app_images() {
     ACTUAL=$(docker_cli container inspect "$PROJECT-configurator-1" --format '{{.Image}} {{.State.Status}} {{.State.ExitCode}}')
     [ "$ACTUAL" = "$EXPECTED exited 0" ]
 }
-verify_service_readiness() {
+verify_infrastructure() {
     compose exec -T db healthcheck.sh --connect --innodb_initialized >/dev/null &&
       compose exec -T redis-cache redis-cli ping >/dev/null &&
-      compose exec -T redis-queue redis-cli ping >/dev/null &&
+      compose exec -T redis-queue redis-cli ping >/dev/null
+}
+verify_service_readiness() {
+    verify_infrastructure &&
       compose exec -T backend /home/frappe/frappe-bench/env/bin/python -c 'import json,sys,urllib.request; response=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8000/api/method/ping",headers={"Host":sys.argv[1]}),timeout=5); raise SystemExit(0 if json.loads(response.read()).get("message") == "pong" else 1)' "$SITE" &&
       compose exec -T frontend /home/frappe/frappe-bench/env/bin/python -c 'import json,sys,urllib.request; response=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8080/api/method/ping",headers={"Host":sys.argv[1]}),timeout=5); raise SystemExit(0 if json.loads(response.read()).get("message") == "pong" else 1)' "$SITE"
 }
 candidate_apps() {
     compose run --no-deps -T --entrypoint /home/frappe/frappe-bench/env/bin/python backend - "$1" < "$REMOTE/verify_upgrade.py"
+}
+query_maintenance() {
+    RAW=$(candidate_apps maintenance) || return 1
+    printf '%s' "$RAW" | python3 -c 'import json,sys; value=json.load(sys.stdin); assert set(value)=={"maintenance_mode"} and type(value["maintenance_mode"]) is bool; print("1" if value["maintenance_mode"] else "0")'
+}
+site_config_fingerprint() {
+    compose exec -T backend /home/frappe/frappe-bench/env/bin/python -c 'import hashlib,json; path="/home/frappe/frappe-bench/sites/crm.localhost/site_config.json"; data=json.load(open(path,encoding="utf-8")); data.pop("maintenance_mode",None); print(hashlib.sha256(json.dumps(data,sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest())'
+}
+verify_redis_contract() {
+    PHASE=$1
+    REDIS_IMAGE=public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    CACHE_HASH_NEW=$(compose config --hash redis-cache | awk 'NR == 1 && $1 == "redis-cache" {print $2}')
+    QUEUE_HASH_NEW=$(compose config --hash redis-queue | awk 'NR == 1 && $1 == "redis-queue" {print $2}')
+    valid_hash64 "$CACHE_HASH_NEW" && valid_hash64 "$QUEUE_HASH_NEW" || return 1
+    CACHE_HASH_CURRENT=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{index .Config.Labels "com.docker.compose.config-hash"}}')
+    QUEUE_HASH_CURRENT=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{index .Config.Labels "com.docker.compose.config-hash"}}')
+    valid_hash64 "$CACHE_HASH_CURRENT" && valid_hash64 "$QUEUE_HASH_CURRENT" || return 1
+    if [ "$PHASE" = after ]; then
+        [ "$CACHE_HASH_CURRENT" = "$CACHE_HASH_NEW" ] && [ "$QUEUE_HASH_CURRENT" = "$QUEUE_HASH_NEW" ] || return 1
+    else
+        [ "$CACHE_HASH_CURRENT" = "$CACHE_CONFIG_HASH_BEFORE" ] || [ "$CACHE_HASH_CURRENT" = "$CACHE_HASH_NEW" ] || return 1
+        [ "$QUEUE_HASH_CURRENT" = "$QUEUE_CONFIG_HASH_BEFORE" ] || [ "$QUEUE_HASH_CURRENT" = "$QUEUE_HASH_NEW" ] || return 1
+    fi
+    [ "$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Config.Image}}')" = "$REDIS_IMAGE" ] || return 1
+    [ "$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Config.Image}}')" = "$REDIS_IMAGE" ] || return 1
+    QUEUE_MOUNT=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Type}}:{{.Name}}:{{.Destination}}:{{.RW}}{{end}}{{end}}')
+    [ "$QUEUE_MOUNT" = volume:crm_trial_c010400_redis:/data:true ]
+}
+write_redis_evidence() {
+    CACHE_AFTER=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
+    QUEUE_AFTER=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')
+    valid_hash64 "$CACHE_AFTER" && valid_hash64 "$QUEUE_AFTER" || return 1
+    if [ "$CACHE_CONFIG_HASH_BEFORE" = "$CACHE_HASH_NEW" ]; then
+        [ "$CACHE_AFTER" = "$CACHE_BEFORE" ] || return 1
+    fi
+    if [ "$QUEUE_CONFIG_HASH_BEFORE" = "$QUEUE_HASH_NEW" ]; then
+        [ "$QUEUE_AFTER" = "$QUEUE_BEFORE" ] || return 1
+    fi
+    EXPECTED="cache_old=$CACHE_BEFORE cache_new=$CACHE_AFTER hash=$CACHE_HASH_NEW
+queue_old=$QUEUE_BEFORE queue_new=$QUEUE_AFTER hash=$QUEUE_HASH_NEW"
+    if [ -e "$REDIS_EVIDENCE" ] || [ -L "$REDIS_EVIDENCE" ]; then
+        [ -f "$REDIS_EVIDENCE" ] && [ ! -L "$REDIS_EVIDENCE" ] && [ "$(cat "$REDIS_EVIDENCE")" = "$EXPECTED" ]
+        return
+    fi
+    (umask 077 && set -C && printf '%s\n' "$EXPECTED" > "$REDIS_EVIDENCE_TEMP") && mv "$REDIS_EVIDENCE_TEMP" "$REDIS_EVIDENCE"
+}
+write_app_context() {
+    (umask 077 && set -C && printf '%s\n' \
+      "ENV_SHA256=$ENV_BEFORE" \
+      "DB_CONTAINER_ID=$DB_BEFORE" \
+      "CACHE_CONTAINER_ID=$CACHE_BEFORE" \
+      "CACHE_CONFIG_HASH=$CACHE_CONFIG_HASH_BEFORE" \
+      "QUEUE_CONTAINER_ID=$QUEUE_BEFORE" \
+      "QUEUE_CONFIG_HASH=$QUEUE_CONFIG_HASH_BEFORE" \
+      "SITE_CONFIG_SHA256=$SITE_CONFIG_BEFORE" \
+      "SITE_CONFIG_FINGERPRINT=$SITE_CONFIG_FINGERPRINT" \
+      "MAINTENANCE_MODE=$MAINTENANCE_BEFORE" > "$UPDATE_CONTEXT_TEMP") && mv "$UPDATE_CONTEXT_TEMP" "$UPDATE_CONTEXT"
+}
+load_app_context() {
+    ENV_BEFORE=$(release_value ENV_SHA256 "$UPDATE_CONTEXT")
+    DB_BEFORE=$(release_value DB_CONTAINER_ID "$UPDATE_CONTEXT")
+    CACHE_BEFORE=$(release_value CACHE_CONTAINER_ID "$UPDATE_CONTEXT")
+    CACHE_CONFIG_HASH_BEFORE=$(release_value CACHE_CONFIG_HASH "$UPDATE_CONTEXT")
+    QUEUE_BEFORE=$(release_value QUEUE_CONTAINER_ID "$UPDATE_CONTEXT")
+    QUEUE_CONFIG_HASH_BEFORE=$(release_value QUEUE_CONFIG_HASH "$UPDATE_CONTEXT")
+    SITE_CONFIG_BEFORE=$(release_value SITE_CONFIG_SHA256 "$UPDATE_CONTEXT")
+    SITE_CONFIG_FINGERPRINT=$(release_value SITE_CONFIG_FINGERPRINT "$UPDATE_CONTEXT")
+    MAINTENANCE_BEFORE=$(release_value MAINTENANCE_MODE "$UPDATE_CONTEXT")
+    valid_hash64 "$DB_BEFORE" && valid_hash64 "$CACHE_BEFORE" && valid_hash64 "$QUEUE_BEFORE" &&
+      valid_hash64 "$CACHE_CONFIG_HASH_BEFORE" && valid_hash64 "$QUEUE_CONFIG_HASH_BEFORE" &&
+      valid_hash64 "$SITE_CONFIG_FINGERPRINT" || return 1
+    [ "$MAINTENANCE_BEFORE" = 0 ] || [ "$MAINTENANCE_BEFORE" = 1 ]
+}
+resume_preflight() {
+    [ -f "$RUNTIME/site-update.state" ] && [ ! -L "$RUNTIME/site-update.state" ] || fail 'app resume requires retained maintenance state'
+    STATE=$(cat "$RUNTIME/site-update.state")
+    case "$STATE" in
+        maintenance\ reason=*" image=$NEW_CONFIG"*) ;;
+        *) fail 'app resume only accepts maintenance for the same reviewed generation' ;;
+    esac
+    for REQUIRED in "$UPDATE_CONTEXT" "$BACKUP_PROOF" "$UPDATE_BACKUP"; do
+        [ -f "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "app resume evidence is missing or unsafe: $REQUIRED"
+    done
+    [ "$(cat "$UPDATE_BACKUP")" = "$(cat "$IMAGE_FILE")" ] || fail 'app resume current lock does not match the retained previous lock'
+    [ "$(cat "$BACKUP_PROOF")" = "backup-four-readable image=$NEW_CONFIG" ] || fail 'app resume backup proof does not match this generation'
+    for EVIDENCE in "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" "$REDIS_EVIDENCE"; do
+        if [ -e "$EVIDENCE" ] || [ -L "$EVIDENCE" ]; then
+            [ -f "$EVIDENCE" ] && [ ! -L "$EVIDENCE" ] || fail "app resume evidence must be ordinary and non-symlink: $EVIDENCE"
+        fi
+    done
+    if [ -e "$FAILED_RELEASE" ] || [ -L "$FAILED_RELEASE" ]; then
+        [ -f "$FAILED_RELEASE" ] && [ ! -L "$FAILED_RELEASE" ] && cmp -s "$FAILED_RELEASE" "$NEW_RELEASE" || fail 'failed release evidence differs from the resume candidate'
+    fi
+    if [ -e "$FAILED_LAYERS" ] || [ -L "$FAILED_LAYERS" ]; then
+        [ -f "$FAILED_LAYERS" ] && [ ! -L "$FAILED_LAYERS" ] && cmp -s "$FAILED_LAYERS" "$NEW_LAYERS" || fail 'failed layer evidence differs from the resume candidate'
+    fi
+    if [ -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
+        [ "$(cat "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")" = "CRM_IMAGE=$NEW_CONFIG" ] || fail 'resume lock temporary content mismatch'
+    fi
+    if [ -e "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ]; then
+        cmp -s "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$NEW_RELEASE" || fail 'resume release temporary content mismatch'
+    fi
+    if [ -e "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" ]; then
+        cmp -s "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" "$NEW_LAYERS" || fail 'resume layer temporary content mismatch'
+    fi
+    for CONFLICT in "$UPDATE_CONTEXT_TEMP" "$BACKUP_PROOF_TEMP" "$REDIS_EVIDENCE_TEMP" "$ROLLBACK_TEMP" \
+      "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp"; do
+        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "app resume temporary conflict: $CONFLICT"
+    done
 }
 update_site_image() {
     if [ "$UPGRADE_APPS" -eq 1 ]; then
@@ -453,75 +579,105 @@ update_site_image() {
     python3 "$REMOTE/verify_image_archive.py" "$IMAGE_ARCHIVE" "$NEW_RELEASE" "$NEW_LAYERS" || fail 'reviewed archive digest chain verification failed'
     set_update_paths
     [ ! -L "$RUNTIME/site-update.state" ] || fail 'site-update.state must not be a symlink; refuse any update write'
-    if [ -e "$RUNTIME/site-update.state" ]; then
-        CURRENT_LOCK=$(cat "$IMAGE_FILE")
-        [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=${CURRENT_LOCK#CRM_IMAGE=}" ] || fail 'repeat update requires a clean ready state matching the current lock; do not edit or delete maintenance state to bypass it'
+    if [ "$RESUME_APPS" -eq 1 ]; then
+        resume_preflight
     else
-        for EVIDENCE in "$RUNTIME/release.env" "$RUNTIME/image-rootfs-layers.txt" \
-          "$RUNTIME/image.env.pre-site-update" "$RUNTIME/failed-release.env" "$RUNTIME/failed-image-rootfs-layers.txt" \
-          "$RUNTIME"/image.env.pre-site-update-* "$RUNTIME"/site-update.state.pre-* \
-          "$RUNTIME"/release.pre-* "$RUNTIME"/image-rootfs-layers.pre-* \
-          "$RUNTIME"/failed-release-* "$RUNTIME"/failed-image-rootfs-layers-*; do
-            [ ! -e "$EVIDENCE" ] && [ ! -L "$EVIDENCE" ] || fail "update evidence exists without state; refuse first-only bypass: $EVIDENCE"
+        if [ -e "$RUNTIME/site-update.state" ]; then
+            CURRENT_LOCK=$(cat "$IMAGE_FILE")
+            [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=${CURRENT_LOCK#CRM_IMAGE=}" ] || fail 'repeat update requires a clean ready state matching the current lock; do not edit or delete maintenance state to bypass it'
+        else
+            for EVIDENCE in "$RUNTIME/release.env" "$RUNTIME/image-rootfs-layers.txt" \
+              "$RUNTIME/image.env.pre-site-update" "$RUNTIME/failed-release.env" "$RUNTIME/failed-image-rootfs-layers.txt" \
+              "$RUNTIME"/image.env.pre-site-update-* "$RUNTIME"/site-update.state.pre-* \
+              "$RUNTIME"/release.pre-* "$RUNTIME"/image-rootfs-layers.pre-* \
+              "$RUNTIME"/failed-release-* "$RUNTIME"/failed-image-rootfs-layers-* \
+              "$RUNTIME"/app-upgrade-context-* "$RUNTIME"/backup-ready-* "$RUNTIME"/redis-replacement-*; do
+                [ ! -e "$EVIDENCE" ] && [ ! -L "$EVIDENCE" ] || fail "update evidence exists without state; refuse first-only bypass: $EVIDENCE"
+            done
+        fi
+        for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
+          "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
+          "$UPDATE_CONTEXT" "$UPDATE_CONTEXT_TEMP" "$BACKUP_PROOF" "$BACKUP_PROOF_TEMP" "$REDIS_EVIDENCE" "$REDIS_EVIDENCE_TEMP" \
+          "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" \
+          "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" \
+          "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp" \
+          "$RUNTIME/.site-update.state.$NEW_CONFIG.tmp"; do
+            [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "site update generation target/temporary/backup conflict must be resolved before any runtime change: $CONFLICT"
         done
     fi
-    for CONFLICT in "$UPDATE_BACKUP" "$UPDATE_STATE_BACKUP" "$UPDATE_RELEASE_BACKUP" "$UPDATE_LAYERS_BACKUP" \
-      "$FAILED_RELEASE" "$FAILED_LAYERS" "$ROLLBACK_TEMP" \
-      "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" \
-      "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" \
-      "$RUNTIME/.release.restore-$NEW_CONFIG.tmp" "$RUNTIME/.layers.restore-$NEW_CONFIG.tmp" \
-      "$RUNTIME/.site-update.state.$NEW_CONFIG.tmp"; do
-        [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "site update generation target/temporary/backup conflict must be resolved before any runtime change: $CONFLICT"
-    done
     require_runtime
     [ "$CRM_IMAGE" = "$CRM_IMAGE_CONFIG" ] || fail 'running-site update only accepts the existing classic config lock'
     [ "$NEW_CONFIG" != "$CRM_IMAGE_CONFIG" ] || fail 'reviewed update must select a different config; no-op update refused'
     require_marker migrated-twice
     require_docker
-    verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
-    if [ "$UPGRADE_APPS" -eq 1 ]; then
-        verify_service_readiness || fail 'current DB/Redis/backend/frontend are not all healthy; refuse app upgrade before stopping writers'
-    fi
-    if [ -e "$RUNTIME/release.env" ]; then
-        (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
-    fi
-    if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
-        (umask 077 && set -C && cat "$RUNTIME/image-rootfs-layers.txt" > "$UPDATE_LAYERS_BACKUP")
-    fi
-    if [ -e "$RUNTIME/site-update.state" ]; then
-        (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
-    fi
-    (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
-    (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
-    ENV_BEFORE=$(sha256sum "$ENV_FILE")
-    DB_BEFORE=$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')
-    CACHE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
-    QUEUE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')
-    SITE_CONFIG_BEFORE=$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)
-    if [ "$UPGRADE_APPS" -eq 1 ]; then
-        (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
-        (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
-        write_state "updating image=$NEW_CONFIG mode=apps" || fail 'unable to record app upgrade start; no runtime action was taken'
-        UPDATE_ACTIVE=1
-        trap update_exit EXIT
-        trap 'fail_update signal-hup' HUP
-        trap 'fail_update signal-int' INT
-        trap 'fail_update signal-term' TERM
-        compose stop frontend websocket queue-short queue-long scheduler || fail_update stop-writers-failed
-    fi
-    backup
-    if [ "$UPGRADE_APPS" -eq 1 ]; then
-        compose stop backend || fail_update stop-backend-failed
+    if [ "$RESUME_APPS" -eq 1 ]; then
+        load_app_context || fail 'retained app upgrade context is invalid'
+        verify_infrastructure || fail 'DB/Redis are not healthy for app resume; no old application service was started'
+        [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail 'credentials changed since the retained app upgrade context'
+        [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail 'DB identity changed since the retained app upgrade context'
     else
+        verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
+        verify_infrastructure || fail 'current DB/Redis are not healthy; refuse update before stopping writers'
+        if [ -e "$RUNTIME/release.env" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/release.env" > "$UPDATE_RELEASE_BACKUP")
+        fi
+        if [ -e "$RUNTIME/image-rootfs-layers.txt" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/image-rootfs-layers.txt" > "$UPDATE_LAYERS_BACKUP")
+        fi
+        if [ -e "$RUNTIME/site-update.state" ]; then
+            (umask 077 && set -C && cat "$RUNTIME/site-update.state" > "$UPDATE_STATE_BACKUP")
+        fi
+        ENV_BEFORE=$(sha256sum "$ENV_FILE")
+        DB_BEFORE=$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')
+        CACHE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
+        QUEUE_BEFORE=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')
+        CACHE_CONFIG_HASH_BEFORE=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{index .Config.Labels "com.docker.compose.config-hash"}}')
+        QUEUE_CONFIG_HASH_BEFORE=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{index .Config.Labels "com.docker.compose.config-hash"}}')
+        SITE_CONFIG_BEFORE=$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)
+        if [ "$UPGRADE_APPS" -eq 1 ]; then
+            candidate_apps missing >/dev/null || fail 'current site/app baseline is invalid; HTTP readiness is not required for maintenance entry'
+            MAINTENANCE_BEFORE=$(query_maintenance) || fail 'unable to classify current maintenance mode safely'
+            SITE_CONFIG_FINGERPRINT=$(site_config_fingerprint) || fail 'unable to fingerprint site configuration without exposing values'
+        fi
+    fi
+    verify_redis_contract before || fail 'Redis image/config-hash/volume contract mismatch before update'
+    if [ "$RESUME_APPS" -eq 0 ]; then
+        (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
+        (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
         (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
         (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
-        write_state "updating image=$NEW_CONFIG" || fail 'unable to record update start; no runtime action was taken'
-        UPDATE_ACTIVE=1
-        trap update_exit EXIT
-        trap 'fail_update signal-hup' HUP
-        trap 'fail_update signal-int' INT
-        trap 'fail_update signal-term' TERM
+    else
+        [ ! -L "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ] || fail 'resume metadata temporary must not be a symlink'
+        if [ ! -e "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ]; then
+            (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
+        fi
+        if [ ! -e "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" ]; then
+            (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
+        fi
+        if [ ! -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
+            (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+        fi
     fi
+    UPDATE_MODE=image-only
+    [ "$UPGRADE_APPS" -eq 0 ] || UPDATE_MODE=apps
+    [ "$RESUME_APPS" -eq 0 ] || UPDATE_MODE=apps-resume
+    write_state "updating image=$NEW_CONFIG mode=$UPDATE_MODE" || fail 'unable to record update start; no runtime action was taken'
+    UPDATE_ACTIVE=1
+    trap update_exit EXIT
+    trap 'fail_update signal-hup' HUP
+    trap 'fail_update signal-int' INT
+    trap 'fail_update signal-term' TERM
+    if [ "$UPGRADE_APPS" -eq 1 ] && [ "$RESUME_APPS" -eq 0 ]; then
+        write_app_context || fail_update context-write-failed
+    fi
+    compose stop frontend websocket queue-short queue-long scheduler || fail_update stop-writers-failed
+    if [ "$RESUME_APPS" -eq 0 ]; then
+        backup
+        if [ "$UPGRADE_APPS" -eq 1 ]; then
+            (umask 077 && set -C && printf 'backup-four-readable image=%s\n' "$NEW_CONFIG" > "$BACKUP_PROOF_TEMP") && mv "$BACKUP_PROOF_TEMP" "$BACKUP_PROOF" || fail_update backup-proof-write-failed
+        fi
+    fi
+    compose stop backend || fail_update stop-backend-failed
     docker_cli load -i "$IMAGE_ARCHIVE"
     verify_image_identity "$NEW_CONFIG" "$NEW_CONFIG" "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM" "$NEW_LAYERS"
     mv "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" "$IMAGE_FILE" || fail_update lock-rename-failed
@@ -534,15 +690,30 @@ update_site_image() {
         done
         compose run --no-deps -T backend bench --site "$SITE" migrate || fail_update migrate-failed
         candidate_apps verify || fail_update schema-verification-failed
+        MAINTENANCE_CURRENT=$(query_maintenance) || fail_update maintenance-query-failed
+        if [ "$MAINTENANCE_CURRENT" != "$MAINTENANCE_BEFORE" ]; then
+            [ "$MAINTENANCE_BEFORE" = 1 ] && [ "$MAINTENANCE_CURRENT" = 0 ] || fail_update maintenance-state-drift
+        fi
+        if [ "$MAINTENANCE_CURRENT" = 1 ]; then
+            compose run --no-deps -T backend bench --site "$SITE" set-config maintenance_mode 0 || fail_update maintenance-resume-failed
+            [ "$(query_maintenance)" = 0 ] || fail_update maintenance-resume-verification-failed
+        fi
     fi
     compose up -d --wait || fail_update recreate-failed
     verify_running_app_images "$NEW_CONFIG" || fail_update application-image-mismatch
+    verify_redis_contract after || fail_update redis-contract-changed
+    write_redis_evidence || fail_update redis-evidence-changed
     verify_service_readiness || fail_update application-readiness-failed
     [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail_update db-container-changed
-    [ "$CACHE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')" ] || fail_update redis-cache-container-changed
-    [ "$QUEUE_BEFORE" = "$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')" ] || fail_update redis-queue-container-changed
     [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail_update env-changed
-    [ "$SITE_CONFIG_BEFORE" = "$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)" ] || fail_update site-config-changed
+    if [ "$UPGRADE_APPS" -eq 1 ]; then
+        [ "$SITE_CONFIG_FINGERPRINT" = "$(site_config_fingerprint)" ] || fail_update site-config-changed
+        if [ "$MAINTENANCE_BEFORE" = 0 ]; then
+            [ "$SITE_CONFIG_BEFORE" = "$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)" ] || fail_update site-config-changed
+        fi
+    else
+        [ "$SITE_CONFIG_BEFORE" = "$(compose exec -T backend sha256sum /home/frappe/frappe-bench/sites/crm.localhost/site_config.json)" ] || fail_update site-config-changed
+    fi
     mv "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$RUNTIME/release.env" || fail_update release-rename-failed
     mv "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" "$RUNTIME/image-rootfs-layers.txt" || fail_update layers-rename-failed
     write_state "ready image=$NEW_CONFIG" || fail_update ready-state-write-failed
@@ -629,6 +800,7 @@ case "$ACTION" in
     migrate-image-lock-to-config) migrate_image_lock_to_config ;;
     update-site-image) update_site_image ;;
     upgrade-site-apps) update_site_image ;;
+    resume-site-apps) update_site_image ;;
     create-site) create_site ;;
     up) up ;;
     install-extensions) install_extensions ;;
