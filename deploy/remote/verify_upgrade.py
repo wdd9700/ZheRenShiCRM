@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 
 import frappe
@@ -28,7 +29,8 @@ def main():
     if len(sys.argv) != 2 or sys.argv[1] not in ("missing", "verify", "maintenance"):
         raise RuntimeError("expected missing, verify or maintenance mode")
     mode = sys.argv[1]
-    frappe.init(site="crm.localhost", sites_path="/home/frappe/frappe-bench/sites")
+    os.chdir("/home/frappe/frappe-bench/sites")
+    frappe.init(site="crm.localhost", sites_path=".")
     frappe.connect()
     try:
         if mode == "maintenance":
