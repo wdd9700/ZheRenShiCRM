@@ -51,6 +51,16 @@ function response(message) {
 function bodyFor(method, params) {
   switch (method) {
     case 'frappe.auth.get_logged_user': return response(identity)
+    case 'crm.www.crm.get_context_for_dev': return response({
+      frappe_version: '15.125.0', has_automation_engine: false, default_route: '/crm',
+      site_name: 'synthetic.invalid', socketio_port: 9000, read_only_mode: false,
+      csrf_token: 'synthetic-not-a-credential', setup_complete: 1,
+      sysdefaults: { currency: 'USD', date_format: 'yyyy-mm-dd', time_format: 'HH:mm:ss',
+        float_precision: 3, currency_precision: 2, number_format: '#,###.##' },
+      is_demo_site: false, demo_data_created: false, is_fc_site: false,
+      translated_doctypes: [], translated_messages: {}, timezone: { system: 'UTC', user: 'UTC' },
+      state_options: {},
+    })
     case 'crm.api.session.get_users': return response([[user], [user]])
     case 'crm.api.session.get_user_info': return response([user])
     case 'crm.api.session.get_organizations':

@@ -98,15 +98,19 @@ Lead/Deal modal 的 QuickEntry layout 改为在对应 status resource 的 `list.
 
 只读源码发现一条具体候选路径：`useDocument` 每次调用实际 `getScript`；后者以不存在的 list resource 顶层 `scripts.loading` 判断进行中读取，合法空脚本列表又不创建 `doctypeScripts[doctype]`。FieldLayout/字段再次调用 useDocument 时可能重复 fetch。一次无写入内存实验执行固定 `getScript` 完整函数和实际补丁 boundary/resources/listResource，延迟两次合成成功空列表：两响应均成功，却得到 `RETRY_COVERED / READ_SETTLE / READ_FAILED`，随后进程还以未消费 `Resource request superseded` AbortError exit 1。随后以 runtime_sources 严格 SHA 校验后的 da2177 after getScript 完整函数重复实验，进程级仅收集未消费拒绝类别，断言两次成功响应、同样恢复失败及一个 AbortError 全通过，exit 0；不执行 setupScript，也不编译 SFC，未证明现场唯一根因。生产尚未修改。原 real-runtime 将 getScript 替换成 controllers stub，且只渲染 p，漏掉此真实脚本/模板链，也未执行实际 frappeRequest 转换。
 
-新增 `frontend-patches/c011000/sfc-resume.test.mjs` 是**待 M9 执行的测试候选，不是已通过证据**。它 import 实际 main/App/router，完整挂载 App 的桌面布局、AppSidebar、GlobalModals、Leads、ViewControls/Filter/SortBy/ColumnSettings、LeadModal/Dialog/FieldLayout 和实际字段控件；不替换业务组件、store 或 router.ready。仅 socket.io 外部传输受控且不发送自动事件；fetch 明确列出已读 API 返回结构，未知 method/doctype 立即失败，不兜底成功。脚本列表明确为空。测试内观察 boundary.track 但始终调用原方法，仅保存固定错误类别、源码位置和合成请求顺序；不改产品 runtime。真实 DOM 点 Create、填 First Name、受控 visibility 往返、失败时一次 retry、显式草稿恢复和零写请求均有断言。受控 hidden 只用于单测，不代替 Windows 真实 UI。标准 vitest.config 已有 framework/icon alias stub，仍是已知非业务外部边界。
+新增 `frontend-patches/c011000/sfc-resume.test.mjs` 是**待 M9 执行的测试候选，不是已通过证据**。它 import 实际 main/App/router，完整挂载 App 的桌面布局、AppSidebar、GlobalModals、Leads、ViewControls/Filter/SortBy/ColumnSettings、LeadModal/Dialog/FieldLayout 和实际字段控件；不替换业务组件、store 或 router.ready。仅 socket.io 外部传输受控且不发送自动事件；fetch 明确列出已读 API 返回结构，未知 method/doctype 立即失败，不兜底成功。脚本列表明确为空。测试内观察 boundary.track 但始终调用原方法，仅保存固定错误类别、源码位置和合成请求顺序；不改产品 runtime。真实 DOM 点 Create、填 First Name、受控 visibility 往返、失败时一次 retry、显式草稿恢复和零写请求均有断言。受控 hidden 只用于单测，不代替 Windows 真实 UI。最初沿用标准 vitest.config 的 framework/icon alias stub；后续静态复核已识别 framework 不能作为空模块边界，独立配置修订见下。
 
 M9 已执行 `976d220` 的单测试，run `10d7ff3463234481bfc30d9465be82d2` exit 1，源码 before/after 守卫均通过。失败在编译：`dialogs.jsx` 转换产物导入 `react/jsx-dev-runtime`，尚未到达 App 挂载或恢复业务。固定正式 `vite.config.js` 第 3/13 行已有 `@vitejs/plugin-vue-jsx` / `vueJsx()`，而 `vitest.config.js` plugins 仅 `vue()`；package.json dependencies 已声明 `@vitejs/plugin-vue-jsx: ^5.1.6`，yarn.lock 第 2411 行锁定 5.1.6，其依赖 Vue Babel JSX 2.0.1。因此是测试缺少正式 Vue JSX 变换，不应安装 React 或 mock dialogs 绕过。
 
-新增独立 `frontend-patches/c011000/vitest.sfc.config.mjs`：导入原 vitest.config 对象、保留所有 test/alias 设置，只按正式插件顺序在 vue 后追加既有 `vueJsx()`。不覆盖正式 vite/vitest 配置，不改依赖、生产 manifest/apply 或测试业务链。该新配置尚待 M9 执行验证；本机只有 Node 语法检查，不能声称编译障碍已实测通过。
+新增独立 `frontend-patches/c011000/vitest.sfc.config.mjs`：导入原 vitest.config 对象，按正式插件顺序在 vue 后追加既有 `vueJsx()`。M9 随后执行 `1259a2a`，run `a43eff14de014e2492510a558f916cdd` exit 1、1 test fail、0 unhandled，JSX 编译障碍已过；首错是 `SFC_FIXTURE_UNDECLARED_REQUEST:crm.www.crm.get_context_for_dev`，随后初始 App 挂载超时和 `DEV_CONTEXT / CONTEXT_EXCEPTION`，没有进入目标恢复业务。后续 AbortError/superseded 不能替代这条首错。生产 source guards 前后均通过。
+
+按固定后端 [crm/www/crm.py](https://raw.githubusercontent.com/frappe/crm/36bd8859f2a6345a620477bc708d0546e8c3f08a/crm/www/crm.py) 的 `get_context_for_dev → get_boot` 返回结构，测试明确补齐版本、站点、CSRF 合成值、sysdefaults、setup、翻译、timezone、state_options 和 demo/FC 标记；不读取真实身份或凭据。静态核对实际 users/views/organizations/notifications/settings/availability/meta/list/layout/telephony 消费结构，保留逐项枚举响应与未知请求失败，不给任意 API 兜底。
+
+静态复核还发现标准 vitest 配置把 `@framework/ui` 指向空 export stub，真实 main 的 telemetry plugin 和 AppSidebar 的 onboarding 不会成立。独立 SFC 配置因此仅将该 alias 替换为正式 vite 的 `../../frappe/ui/src`，并复用其 peer dedupe 列表；保留原 test 设置和 icon stub，不 mock framework 业务组件，不引入生产 PWA 插件。不覆盖正式 vite/vitest 配置，不改依赖或生产 manifest/apply。真实 framework 的启动契约正在向 M9 索取只读源码核对；此新解析配置尚待单 case 验证，不能声称完整 SFC 或恢复已通过。
 
 M9 仅在隔离的 da2177 **43 entries 已 patch 源**中，原字节复制以下两文件：
 
-- `sfc-resume.test.mjs` → `frontend/tests/unit/m24SafeResumeSfc.test.js`（相对 import 依赖此位置，测试 SHA 不变）。
+- `sfc-resume.test.mjs` → `frontend/tests/unit/m24SafeResumeSfc.test.js`（相对 import 依赖此位置；新增 boot fixture 后须使用新候选 SHA）。
 - `vitest.sfc.config.mjs` → `frontend/vitest.m24-sfc.config.mjs`（依赖同目录原始 vitest.config.js，不覆盖它）。
 
 frontend cwd 执行：
