@@ -10,9 +10,11 @@ After standard bench app registration and editable package installation:
 
 ```sh
 bench --site ISOLATED_SITE install-app team_schedule
-bench --site ISOLATED_SITE migrate
-bench --site ISOLATED_SITE migrate
 bench --site ISOLATED_SITE set-config allow_tests true
+bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_patch_manifest
+bench --site ISOLATED_SITE migrate
+bench --site ISOLATED_SITE migrate
+bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_patch_manifest
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_time
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_model_service
 bench --site ISOLATED_SITE run-tests --module team_schedule.tests.test_permissions_core
@@ -32,6 +34,31 @@ Pure time tests may also run without Frappe:
 ```sh
 PYTHONPATH=apps/team_schedule python -B -m unittest team_schedule.tests.test_model_time
 ```
+
+## Fresh-install discovery and partial-install continuation (M32)
+
+On pinned [Frappe 15.125.0](https://github.com/frappe/frappe/blob/v15.125.0/frappe/installer.py#L273-L355), `install_app` runs `sync_for` before registering/committing the app, marking its patches completed, and calling `after_install`. Moving constraints to a later hook or skipping missing tables would hide an incomplete install, not fix it. The seven DocType JSONs, controllers, module name and package paths are valid; the failed candidate's existing 128-file build guard also checked those JSONs and `modules.txt` in the image.
+
+The discovery gap is in [model/sync.py](https://github.com/frappe/frappe/blob/v15.125.0/frappe/model/sync.py): it iterates only `frappe.local.app_modules.get(app_name) or []`, silently importing nothing if a previously cached four-app module map omits the fifth app. Pinned `frappe.clear_cache()` clears site cache entries but does not rebuild the separate `local.app_modules`/`local.module_app` objects loaded at initialization. `before_install` now invalidates only the site-scoped `app_modules` key and calls the official `setup_module_map(include_all_apps=True)` before standard synchronization. No app schema is manually created, no global Redis flush is used, and `after_install`, post-model-sync patch and `after_migrate` still run all mandatory constraints and share checks unchanged.
+
+M9's retained `m9-upgrade-22d94b0-r6/actual-five-app-upgrade.log` records `Installing team_schedule` followed by `after_install` failing on missing `tabTeam Schedule Member`, with no DocType progress output. Its exact failed process's module map and postfailure database snapshot were not captured. The stale-map mechanism is reproduced from pinned source and matches that log; it is not a claim that the failed process's memory or database was inspected. The Windows worker has no Frappe/MariaDB runtime and does not deploy, restore or rebuild images.
+
+The existing `test_model_patch_manifest` module now checks standard module/JSON discovery, reproduces the stale-map zero-import case against Framework's actual `sync_for`, verifies all seven tables/metadata and the exact index columns/uniqueness **before** two constraint retries, then checks them again. Run it immediately after a fresh standard install, before any migration could mask an install defect, and again after the two standard migrations above. The discovery test mocks only import/commit/cache effects; it does not itself create tables. Pure contract/time/availability/parser/UI regression on Windows: 64 tests, 62 passed and two real-`vobject` tests skipped because that library is absent. A separate in-memory harness executed the pinned `setup_module_map` and `sync_for` functions: stale four-app discovery imported zero files; the new hook caused all seven JSONs to be discovered. These are not actual fresh-install or permission acceptance; M9 must run the real isolated-site install/migrate/schema and existing service/permission suites on the reviewed candidate.
+
+For the preserved failed maintenance site, only M9 may execute an authorized continuation, subject to the deployment tool's state/lineage gates:
+
+1. Keep maintenance and writer shutdown in force; retain the failed-generation metadata, locks, logs, volumes and readable with-files backup. Use a reviewed compatible image containing all five apps and this fix; do not simply restart the prior four-app image against a possibly five-app site. This README does not authorize a cross-generation deployment-tool bypass.
+2. First observe actual `installed_apps`, seven DocType/table states, constraint states and app DocShare rows. The pinned installer commits registration and patch logs before the failed hook, so registration is expected to have persisted, but **the actual postfailure value remains unknown**. A failed CLI is not evidence of rollback.
+3. If already registered, a normal non-force `install-app` returns "already installed" and cannot repair schema. Use the authorized standard `migrate` path: its setup clears/rebuilds module maps, standard schema sync creates missing tables, and `after_migrate` still enforces constraints even if the install already marked the patch completed. If not registered, use standard install first. Do not alter `installed_apps`/Patch Log, force-install, uninstall, drop tables, delete data/shares, restore a database, or call constraints directly before schema sync.
+4. Before reopening, require seven tables/DocTypes with module `Team Schedule`; no app DocShare rows; and `SHOW INDEX` results matching the table below, ordered by `Seq_in_index`. Missing/incorrect constraints or duplicates must stop continuation, never trigger data cleanup or a skip. Repeat standard migrate and verify the same schema/constraints and retained data. Patch Log alone is insufficient evidence.
+
+| DocType | Index name | Ordered columns | `Non_unique` |
+|---|---|---|---|
+| Team Schedule Member | `ts_member_user` | `parent, user` | 0 |
+| Team Schedule Busy Grant | `ts_busy_pair` | `subject_user, viewer_user` | 0 |
+| Team Schedule Source Item | `ts_source_uid` | `source, uid_key` | 0 |
+| Team Schedule Request | `ts_request_owner` | `owner, request_id` | 0 |
+| Team Schedule | `ts_start_name` | `start_utc, name` | 1 |
 
 ## Data and access
 
