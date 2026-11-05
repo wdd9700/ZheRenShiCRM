@@ -106,7 +106,11 @@ M9 已执行 `976d220` 的单测试，run `10d7ff3463234481bfc30d9465be82d2` exi
 
 按固定后端 [crm/www/crm.py](https://raw.githubusercontent.com/frappe/crm/36bd8859f2a6345a620477bc708d0546e8c3f08a/crm/www/crm.py) 的 `get_context_for_dev → get_boot` 返回结构，测试明确补齐版本、站点、CSRF 合成值、sysdefaults、setup、翻译、timezone、state_options 和 demo/FC 标记；不读取真实身份或凭据。静态核对实际 users/views/organizations/notifications/settings/availability/meta/list/layout/telephony 消费结构，保留逐项枚举响应与未知请求失败，不给任意 API 兜底。
 
-静态复核还发现标准 vitest 配置把 `@framework/ui` 指向空 export stub，真实 main 的 telemetry plugin 和 AppSidebar 的 onboarding 不会成立。独立 SFC 配置因此仅将该 alias 替换为正式 vite 的 `../../frappe/ui/src`，并复用其 peer dedupe 列表；保留原 test 设置和 icon stub，不 mock framework 业务组件，不引入生产 PWA 插件。不覆盖正式 vite/vitest 配置，不改依赖或生产 manifest/apply。真实 framework 的启动契约正在向 M9 索取只读源码核对；此新解析配置尚待单 case 验证，不能声称完整 SFC 或恢复已通过。
+静态复核还发现标准 vitest 配置把 `@framework/ui` 指向空 export stub，真实 main 的 telemetry plugin 和 AppSidebar 的 onboarding 不会成立。独立 SFC 配置因此仅将该 alias 替换为正式 vite 的 `../../frappe/ui/src`，并复用其 peer dedupe 列表；保留原 test 设置和 icon stub，不 mock framework 业务组件，不引入生产 PWA 插件。不覆盖正式 vite/vitest 配置，不改依赖或生产 manifest/apply。M9 随后从精确 `sha256:936623e8110ae259dc06032d2750dc122c70a3597e978f7b1e673e95bca5f222` 只读导出 framework ui/src（341 files，manifest SHA `738a359b6ba7abe86dc332eda03dbe2dad2b702d3d67c5b29b57637450ea7807`）。`bc90ed8` 未运行：静态核明确补齐三项启动契约后再交单 case，不宣称回归通过。
+
+真实 `utils/session.ts` 只从 cookie `user_id` 读身份，测试因此在 import main 前设与合成 identity 一致的 cookie，cleanup 定向移除；不是浏览器或生产会话操作。真实 `telemetry/pulse.ts` 的 `BootConfig` 可选字段契约用于精确 `frappe.utils.telemetry.pulse.client.boot_config` 响应 `{ enabled: false, site: 'synthetic.invalid', user: identity }`；不提供真实 host/key，不 mock telemetry 模块。插件仍尝试加载 canonical Pulse client，失败由真实 loader 降级，不把禁用响应夸成跳过模块加载。
+
+真实 `Onboarding/onboarding.ts` 初始 `frappe.onboarding.get_onboarding_status` 返回 `Record<string, StoredStep[]>`，明确提供 `frappecrm_onboarding_status` 五项已完成清单，保留 Sales User 角色及真实组件/store。`setUp` 只赋值/sync 不写；CRM `reconcileOnboarding` 对已完成清单直接返回，空存储也直接返回；`flushPendingSteps` 在本 case 未创建/保存记录时为空，LeadModal 的 completeStep 仅在 insert 成功后调用。故此场景不应发生 onboarding 写；没有给 update API 成功 fixture，并在原零 insert/set_value 断言中加入 `frappe.onboarding.update_user_onboarding_status`。TrialBanner/SignupBanner 在已有 `is_fc_site:false` / `is_demo_site:false` 下不实例化，不盲补 current_site_info 或外部请求。新解析配置与这些 fixture 尚待 M9 单 case 验证，不能声称完整 SFC 或恢复已通过。
 
 M9 仅在隔离的 da2177 **43 entries 已 patch 源**中，原字节复制以下两文件：
 

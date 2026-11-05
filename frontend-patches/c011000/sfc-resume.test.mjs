@@ -61,6 +61,16 @@ function bodyFor(method, params) {
       translated_doctypes: [], translated_messages: {}, timezone: { system: 'UTC', user: 'UTC' },
       state_options: {},
     })
+    case 'frappe.utils.telemetry.pulse.client.boot_config':
+      return response({ enabled: false, site: 'synthetic.invalid', user: identity })
+    case 'frappe.onboarding.get_onboarding_status':
+      return response({ frappecrm_onboarding_status: [
+        { name: 'create_first_lead', completed: true },
+        { name: 'connect_your_email', completed: true },
+        { name: 'invite_your_team', completed: true },
+        { name: 'convert_lead_to_deal', completed: true },
+        { name: 'create_first_task', completed: true },
+      ] })
     case 'crm.api.session.get_users': return response([[user], [user]])
     case 'crm.api.session.get_user_info': return response([user])
     case 'crm.api.session.get_organizations':
@@ -150,6 +160,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   document.body.replaceChildren()
+  document.cookie = 'user_id=; Max-Age=0; Path=/'
 })
 
 test('real App/Leads/FieldLayout and transport preserve a creation draft across a fresh runtime', async () => {
@@ -157,6 +168,7 @@ test('real App/Leads/FieldLayout and transport preserve a creation draft across 
   window.history.replaceState({}, '', '/crm/leads/view/list')
   localStorage.clear()
   localStorage.setItem('crm_setup_completed', '1')
+  document.cookie = `user_id=${encodeURIComponent(identity)}; Path=/`
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 })
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => hidden ? 'hidden' : 'visible' })
   window.site_name = 'synthetic.invalid'
@@ -218,5 +230,8 @@ test('real App/Leads/FieldLayout and transport preserve a creation draft across 
   restore.click()
   await nextTick()
   expect(firstName()?.value, diagnostics()).toBe(draft)
-  expect(requests.some(({ method }) => ['frappe.client.insert', 'frappe.client.set_value'].includes(method))).toBe(false)
+  expect(requests.some(({ method }) => [
+    'frappe.client.insert', 'frappe.client.set_value',
+    'frappe.onboarding.update_user_onboarding_status',
+  ].includes(method)), diagnostics()).toBe(false)
 }, 30000)
