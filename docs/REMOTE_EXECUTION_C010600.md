@@ -392,3 +392,18 @@ CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/
 CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime sh /home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh maintenance-stop
 CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime sh /home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh restore-old-lock --confirm-site-image-update
 ```
+
+## 15. 既有 daemon 开机自启收口（2026-11-05）
+
+本次仅获准启用服务器既有 Docker/containerd systemd 单元的开机自启，不是正式版本升级。沿既有 SSH 身份与 pinned known_hosts 严格校验成功，无 ACL 或访问方式调整；未读取私钥正文、口令或完整敏感配置。
+
+| 检查 | 执行前 | 执行后 |
+|---|---|---|
+| `systemctl is-active docker.service containerd.service` | 两者 active，exit 0 | 两者 active，exit 0 |
+| `systemctl is-enabled docker.service containerd.service` | 两者 disabled，exit 1 | 两者 enabled，exit 0 |
+| 既有项目 `crm-trial-c010400` | 9 个长驻 running，configurator/create-site exited | 状态不变 |
+| 全部 11 容器逐项比较 | 记录完整 ID、状态、StartedAt、RestartCount、OOMKilled、restart policy | 前后完全一致；RestartCount 均 0、OOMKilled 均 false |
+
+唯一变更命令为 `sudo -n systemctl enable docker.service containerd.service`，exit 0；输出仅新增 `/etc/systemd/system/multi-user.target.wants/` 下指向既有 `/usr/lib/systemd/system/docker.service` 与 `containerd.service` 的两条 symlink。没有 `--now`、start/restart、整机重启、新建系统服务或修改既有 service 策略/配置；没有变更镜像、maintenance、DB 或测试业务。
+
+长驻容器仍为 `unless-stopped`，两历史一次性容器仍为 `no`。本次只证明开机启用标志已设置且当前容器未受影响，**未实测宿主重启，也不证明重启后的应用/socket readiness**。M9 精确 24e 候选的 fresh 安装、部分失败维护恢复、正常 stop/up 数据保持及 HTTP/Engine.IO/WebSocket 证据属于其独立验证；正式版本仍未上线，不能把本次 enable 记成候选部署或正式发布完成。
