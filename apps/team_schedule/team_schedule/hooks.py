@@ -6,6 +6,7 @@ app_email = "noreply@example.invalid"
 app_license = "AGPL-3.0-or-later"
 required_apps = ["frappe"]
 
+before_install = "team_schedule.install.before_install"
 before_migrate = "team_schedule.patches.v1_constraints.check_shares"
 after_install = "team_schedule.patches.v1_constraints.execute"
 after_migrate = "team_schedule.patches.v1_constraints.execute"
