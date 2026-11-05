@@ -10,7 +10,7 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-async function fixture(identify = async () => 'Synthetic Sales') {
+async function fixture(identify = async () => 'Synthetic Sales', legacyTracking = false) {
   let hidden = false, cookie = 'synthetic-cookie', uncovered = 0, identities = 0
   const events = {}, covers = [], config = {}
   const env = { crypto: webcrypto, cookie: () => cookie, hidden: () => hidden,
@@ -34,6 +34,11 @@ async function fixture(identify = async () => 'Synthetic Sales') {
     if (id === 'socketAccess') return synthetic(id, { readSocket() {} })
     const path = ['safeResume', 'resumeRuntime'].includes(id) ? `./payload/${id}.js` : `./payload/resources/${id}.${id === 'local' ? 'ts' : 'js'}`
     let code = await readFile(new URL(path, import.meta.url), 'utf8')
+    if (id === 'resources' && legacyTracking) {
+      const gate = 'if (epoch === accountBoundary.epoch) accountBoundary.track(promise)'
+      assert.equal(code.split(gate).length, 2)
+      code = code.replace(gate, 'accountBoundary.track(promise)')
+    }
     if (id === 'local') code = code.replace(/<T = any>/g, '').replace(/: Promise<(?:T \| null|null)>/g, '').replace(/: string/g, '').replace(/: T/g, '')
     if (id === 'accountBoundary') code = code.replace('createAccountBoundary(browserEnvironment())', 'createAccountBoundary(globalThis.__env)')
     const mod = new SourceTextModule(code, { context, identifier: id })
@@ -56,6 +61,130 @@ function adapter(f, refresh = async () => ({ commit() {} })) {
   f.boundary.setAdapter({ suspend() { captures++ }, discard() { discards++ }, refresh })
   return { get captures() { return captures }, get discards() { return discards } }
 }
+
+for (const legacyTracking of [true, false]) test(`retired Link 300ms callbacks: ${legacyTracking ? 'pre-fix barrier contamination' : 'current barrier stays isolated'}`, async () => {
+  const f = await fixture(undefined, legacyTracking)
+  const { createResource } = await f.namespace('resources')
+  const root = process.env.C011100_FRONTEND_ROOT
+  assert.ok(root, 'Fixed frontend source is required for the Link timer characterization')
+  const { resolve } = await import('node:path')
+  const { createHash } = await import('node:crypto')
+  const source = await readFile(resolve(root, 'src/components/Controls/Link.vue'), 'utf8')
+  assert.equal(createHash('sha256').update(source).digest('hex'), '7d479056e49265528060f02da13a950f7f3ef7a0efff4a884e6a385bdaf6f79b')
+  const reloadCode = source.slice(source.indexOf('function reload(val, force = false)'), source.indexOf('function clearValue(close)'))
+  const link = new SourceTextModule(`export function mount(options, props) { ${reloadCode}; return reload }`, { context: createContext({}) })
+  await link.link(() => { throw Error('Unexpected Link reload import') }); await link.evaluate()
+  const requests = [], assertions = []
+  f.config.resourceFetcher = async request => { requests.push(request); return [] }
+  const originalAssert = f.boundary.assertRequest
+  f.boundary.assertRequest = (expected, url) => {
+    assertions.push({ expected, current: f.boundary.epoch, state: f.boundary.state, url })
+    return originalAssert(expected, url)
+  }
+  const props = { doctype: 'User', filters: [] }
+  const makeLink = () => {
+    let callbacks = 0
+    const resource = createResource({ url: 'frappe.desk.search.search_link', method: 'POST',
+      onSuccess() { callbacks++ },
+      params: { txt: '', doctype: props.doctype, filters: props.filters } })
+    return { resource, reload: link.namespace.mount(resource, props), get callbacks() { return callbacks } }
+  }
+  const retired = makeLink()
+  const oldEpoch = f.boundary.epoch
+  let clock = 0
+  const timers = []
+  const schedule = callback => timers.push({ at: clock + 300, callback })
+  schedule(() => retired.reload(''))
+  schedule(() => retired.reload('', true))
+  const rejected = []
+  adapter(f, async context => {
+    const current = makeLink()
+    current.reload('')
+    await current.resource.promise
+    assert.equal(requests.length, 1, 'Current epoch search_link is already permitted')
+    clock = 300
+    for (const timer of timers.filter(timer => timer.at <= clock)) {
+      timer.callback()
+      rejected.push(retired.resource.promise)
+      await assert.rejects(retired.resource.promise, { name: 'AbortError' })
+    }
+    context.phase('READ_SETTLE')
+    await context.settleReads()
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(rejected.length, 2)
+  assert.equal(requests.length, 1, 'Retired timers cannot reach transport')
+  const oldAssertions = assertions.filter(item => item.expected === oldEpoch)
+  assert.equal(oldAssertions.length, 2)
+  assert.ok(oldAssertions.every(item => item.state === 'HYDRATING' && item.expected !== item.current))
+  assert.equal(retired.resource.data, null)
+  assert.equal(retired.callbacks, 0)
+  assert.equal(f.boundary.state, legacyTracking ? 'RETRY_COVERED' : 'ACTIVE')
+  assert.equal(f.boundary.diagnostic.resumeStage, legacyTracking ? 'READ_SETTLE' : 'READY')
+  assert.equal(f.boundary.diagnostic.resumeFailure, legacyTracking ? 'READ_FAILED' : 'NONE')
+})
+
+test('current epoch delayed reads remain tracked, including failures and invalidation after tracking', async () => {
+  for (const failure of [null, 'AbortError', 'network', 'permission', 'undeclared', 'retire']) {
+    const f = await fixture()
+    const { createResource } = await f.namespace('resources')
+    const response = deferred(), started = deferred()
+    let request, callbacks = 0, transports = 0, settled = false, commits = 0
+    f.config.resourceFetcher = async () => { transports++; return response.promise }
+    adapter(f, async context => {
+      const timer = () => {
+        request = createResource({ url: failure === 'undeclared' ? 'custom.undeclared' : 'frappe.desk.search.search_link',
+          onSuccess() { callbacks++ } })
+        request.fetch()
+      }
+      const scheduled = { at: 300, callback: timer }
+      const clock = 300
+      if (scheduled.at <= clock) scheduled.callback()
+      context.phase('READ_SETTLE')
+      const barrier = context.settleReads().then(() => { settled = true })
+      started.resolve()
+      await barrier
+      return { commit() { commits++ } }
+    })
+    f.hide(true); f.hide(false)
+    const recovery = f.boundary.resume()
+    await started.promise; await tick()
+    if (failure === 'undeclared') {
+      await recovery
+      assert.equal(transports, 0)
+      assert.equal(f.boundary.state, 'RETRY_COVERED')
+      assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+      continue
+    }
+    assert.equal(transports, 1)
+    assert.equal(settled, false, 'Current epoch read keeps the recovery barrier pending')
+    assert.equal(f.boundary.state, 'HYDRATING')
+    if (failure === 'retire') {
+      f.hide(true)
+      response.resolve([])
+      await recovery
+      assert.equal(f.boundary.state, 'SUSPENDED')
+    } else if (failure) {
+      response.reject(Object.assign(Error(failure), failure === 'AbortError' ? { name: 'AbortError' }
+        : failure === 'permission' ? { status: 403, exc_type: 'PermissionError' } : {}))
+      await recovery
+      assert.equal(f.boundary.state, failure === 'permission' ? 'IDENTITY_REQUIRED' : 'RETRY_COVERED')
+      assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+    } else {
+      response.resolve([])
+      await recovery
+      assert.equal(f.boundary.state, 'ACTIVE')
+      assert.equal(callbacks, 1)
+      assert.equal(commits, 1)
+    }
+    if (failure) {
+      assert.equal(callbacks, 0)
+      assert.equal(commits, 0)
+      assert.equal(request.data, null)
+    }
+  }
+})
 
 test('hidden-visible recovery is one flight, fresh read then second identity then atomic reveal', async () => {
   const f = await fixture(), fresh = deferred(), order = []

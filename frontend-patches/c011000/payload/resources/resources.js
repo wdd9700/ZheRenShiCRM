@@ -148,7 +148,7 @@ export function createResource(options, vm) {
     let promise = runFetch(params, tempOptions, id)
     promise.catch(() => {})
     out.promise = promise
-    accountBoundary.track(promise)
+    if (epoch === accountBoundary.epoch) accountBoundary.track(promise)
     if (id === generation) {
       out.loading = true
       out.error = null

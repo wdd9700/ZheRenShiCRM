@@ -156,6 +156,16 @@ requestKey 现先遍历原始值和数据属性描述符，再生成规范文本
 
 新增回归使用同一个显式 resourceFetcher，核对两次实际输入引用与各自返回结果，包含上述碰撞、安全退化和副作用计数为零；原 force/reload/submit/自动写/失败重试/旧 epoch 断言保留。修后四 suite **62/62 pass**，严格重放 **38 修改 + 5 guard**、after fixture **15/15 pass**。本次仅改 resources payload、精确 manifest after、既有 controlled 测试及本文；getScript 修复、boundary/reads、SFC/config oracle 均原字节不变。仍需新 tip 独审，不沿用 d27ff94 的 hold 作为批准；新 SFC 和真实 UI 验收尚未执行。
 
+## b2 修后 SFC 仍红：退休资源污染当前读取屏障
+
+M9 run `fdeef6ea73c745d8a01fb8e2defd289c` 使用 b2 两生产 delta 和冻结原字节 SFC：仍 READ_SETTLE / READ_FAILED，但 unhandled 从 13 降到 0，Form Script 各 epoch 从两次降到一次；unknown/write 均为空。仅四条 tracked 拒绝来自 epoch2/4 的 HYDRATING 发起快照，各两条为 Link.vue 的 doctype/filters immediate300ms→reload206。栈走 assertRequest111→assertActive95，而非未声明请求109；search_link 原本就在 reads 中。onboarding 仅初始 epoch0 一次，没有恢复请求，本轮不扩大该方向。日志 SHA `7eb02e6d24b5ec0fbe5ac72832a71f0c5f66a72bdcf73db6a80b1e075af692f8`。
+
+本地固定 SHA 的原始 Link reload 完整函数配合实际 resources/boundary 和明确受控300ms队列，复现创建epoch0资源在epoch2 HYDRATING触发：expected0/current2，两次请求均在transport前AbortError；当前epoch同search_link则成功。旧fetch无条件track使两拒绝污染新settle。保留该修前characterization：测试仅精确撤回新增归属门，仍预期RETRY_COVERED/READ_FAILED；修后同对照预期ACTIVE、旧transport/callback均0。此为受控timer因果，不是实际VueUse卸载/取消实测；真实SFC日志也未直接记录资源创建epoch，不将模拟值冒充现场值。
+
+授权最小生产修复只有 resources.fetch 的一行：仅资源创建捕获的epoch等于boundary当前epoch时track。旧资源继续由原assertCurrent/assertRequest拒绝，不重新绑定、不放行、不按AbortError分类过滤；当前epoch任何失败仍进入原屏障。authAction原login/logout的assert豁免及可调用行为未变；仅同样遵创建epoch归属登记，不增加写重放。boundary/reads、Link组件、getScript、SFC/config均不变。
+
+新增当前epoch受控延迟读回归验证：合法读让settle等待到响应；AbortError/网络/权限/未声明请求继续遮罩；已track后再隐藏失效，迟到成功不提交、不回调。四 suite **65/65 pass**，严格重放 **38 修改 + 5 guard**、after fixture **15/15 pass**。新tip仍需独审和M9原SFC修后实测，不能以本地通过称实际恢复闭环。
+
 ## 尚待门槛
 
 本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。
