@@ -1,6 +1,6 @@
 # D020100 Safe Tab Resume — 候选实现与验收门槛
 
-状态：本地实现和固定源重放已完成；**标准构建、独立审查及正常可见浏览器验收待 tower/M9，未称完整交付或部署可用。**
+状态：代码/测试契约与固定源重放已完成；telemetry 代码审查结论保留，1c586261 原字节完整 SFC 已通过，主控确认 8c5 / 2c695eb2 构建通过。**原生浏览器真实 hidden→visible 尚未触发并验收，整体交付门仍未关闭。**
 
 ## 起点与决策
 
@@ -188,8 +188,19 @@ Framework 模块默认 client=null、appName 未设、isEnabled=false，现有 u
 
 四 suite **67/67 pass**；严格重放 **38 修改 + 5 guard**、after fixture **16/16 pass**（证据 fixture 仅模拟 Git HEAD，不是真实构建）。main before SHA 仍 `c49ae1cc49039ded911ec6ab505afa2589f9119d4eb3376d87af9ca5b69fc609`，after 为 `504432dc1a9177f4987bc98a84c39859eadf4181e760841941bf78bb5996612d`；manifest 仍43 entries，所有 before/source_edits/apply 守卫不变。原 a8 oracle SHA `9a7443fe5c155b87f8b9a497f7aab0265ed306eddc2a59ca67c3449b3312341b`、config SHA `ad10e49f7ee3be2d9103dbe2f65a3ad2baed89c14c9407ae2f2a9b89c4f3b711` 及诊断副本/helper 原字节不变。仍须新 tip 独审、M9 原 oracle、标准 build/native/bridge 和真实新页 UI 验收；本机不启动共享环境，不宣称现场已闭环。
 
-## 尚待门槛
+## 当前对账与最小原生生命周期验收（交 Terra）
 
-本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。
+已完成实现/测试任务：状态机与 epoch；当前列表参数、详情默认活动及创建表单只读重载/运行域隔离；同标签内存草稿、显式权限复核恢复与冲突保护；既有四 suite 扩展及严格补丁重放。复杂编辑器/移动页边界仍按上文，不新增支持。telemetry 已通过的代码审查结论不回退、不扩大清理范围。
 
-独立审查后由 M9 集成，正常可见浏览器至少验证：默认活动详情、列表筛选/分页、创建草稿、切 tab 往返与再次隐藏、网络失败重试、账号切换/注销/撤权、旧请求晚到、冲突不覆盖和复杂编辑器安全退出。不能改 visibility 或用后台工具绕过；未通过这些不得称完整交付。
+M9 run `a6dc793202ef4d05b78edab68a2ca523` 对 1c586261 的原 a8 oracle/config 原字节执行：actual_test_exit0、1 file/1 test PASS、12.978s、unhandled0。实际草稿输入→受控 hidden/SUSPENDED/blocked→首次 visible/resume ACTIVE→unknown=[]→新控件无自动回填→显式 restore 后 firstName 相等→零 insert/set_value/onboarding 写断言全段通过。结果 JSON SHA `e5c1f91ca0598ffebe3ba6b4bb14805bd2cf673240e06a172b7434f00ad75bb5`、完整 log SHA `ec607921a8fe1cec718e99072c706c14ca8eb69774cb5527d59b02d527729323`，在 M9 `deploy/.runtime/m24-sfc-{result,single}-a6dc793202ef4d05b78edab68a2ca523.{json,log}`。这是完整组件测试的受控生命周期，不是原生浏览器切 tab。主控另确认 8c5 / 2c695eb2 构建通过；不重跑已绿 67/326 等测试，不把历史构建证据张冠李戴为新的现场生命周期证据。
+
+最小环境配合：等 M9 独立升级演练释放窗口，由 Terra 提供当前授权的稳定目标/部署与 bundle 身份、同一浏览器标签的测试账号、无真实敏感内容的测试记录；不使用已关闭 URL、不切部署、不刷新已有草稿。验收必须是新 bundle 新页，旧 bundle 页不会自动停旧 Pulse client。仅需一轮用户自愿的原生标签切走/返回，或浏览器宿主已有的原生 tab 激活/窗口最小化与恢复能力；不打开侧栏、不抢前台。普通窗口遮挡或 focus 变化不保证 hidden。
+
+当前内置 browser 工具契约：activate_tab 只选择控制目标，create_tab 可后台创建，均不保证 document.hidden；switch_tab 明确显示会话中的面板，不符合本轮禁止反复开侧栏/抢前台的限制。工具未提供独立的原生窗口最小化/恢复或保证 Page Visibility 的原生 tab 激活操作，因此不能承诺纯后台自动完成。Terra 若已有不显示面板且确实影响页面原生生命周期的宿主能力，先核其契约再只试一次；否则直接报告能力缺口，等待用户自然进行一次原生切换并配合读取，不以工具控制目标切换反复试探。
+
+1. 在获准的新页正常 UI 打开 Lead 创建表单，输入唯一合成 First Name，不点保存；留一份字段/当前路由的脱敏证据。默认详情、列表筛选/分页等其他真实 UI 场景若无已有证据仍保留待验，不能由这一个创建 case 外推。
+2. 用户或已核能力做一次真实原生切走/最小化，并在返回前允许后台只读 DOM snapshot（不显示面板、不输入脚本）看到“标签已暂停；未保存编辑仅保留在本标签内存…”遮罩且旧业务不可见。如已有合规只读观测可记录 data-crm-resume-state=SUSPENDED/data-crm-account-blocked 或真实 visibilityState，则一并保留；不为读取而注入 listener/改属性。没有暂停证据即“未触发生命周期/未验证”，不是 PASS。
+3. 同标签原生返回，等恢复完成；正常判据是遮罩解除、当前页面/创建表单可用、新字段不自动回填，出现无值草稿提示。点击“恢复未提交编辑（不保存）”，原合成字段等值且没有执行保存。若已有允许的只读属性观测，应为 ACTIVE、READY/NONE、无 blocked；旧 C011100 PAGE_HIDDEN first-failure 是历史值，不是当前恢复失败判据。若约15秒后仍遮罩，记录屏幕固定 D020100 stage/failure 并停止，不循环 retry，不刷新丢草稿。
+4. 不增加网络/业务注入。若环境已有不抢前台的只读网络采证，保留本轮必要身份/授权/只读请求及无 insert/set_value/onboarding 写证据；否则“零写请求”仅沿用组件测试结论，不冒称本轮真实网络已验证。真实撤权/换账号、离线重试、再次隐藏、旧响应、冲突及复杂编辑器安全退出仍需对应正常 UI/环境窗口，未有证据的项目不勾成现场通过。
+
+禁止注入 visibility/pagehide/pageshow、调用 boundary.pause/resume/API 代替 UI、更换 oracle/验收条件或无限重试。最小正向 case 通过只关闭“真实 hidden→visible + 显式草稿恢复”这一缺口；整体交付任务继续保留，直至剩余真实场景按证据对账。代码 worker 本轮仅文档/协议更新，不操作浏览器、部署或 M9 环境。
