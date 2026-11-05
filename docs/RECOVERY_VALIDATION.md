@@ -1,5 +1,17 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
+## 2026-11-05：最终8c5一次Windows UI窗口正常收尾（UI结论分列）
+
+- 主控在检查点 `3459859d9968975724c46d7b4fa6d9af2b55f55c` 后明确授权唯一nonce `650aa164fcae4d3fb613214537d7a8eb`。仅第一Ubuntu，复用原full951站点/账号/sites/logs/internal network；新建app3、none资产seed及3个自有scratch/assets卷，不替换/启动旧app，不创建站点/账号，不install/migrate/备份恢复/权限matrix或重跑已绿构建、native、bridge、SFC。镜像精确8c5/前端1c，原image labels/RootFS和完整旧资源守卫保持。
+- 实际按必要infra健康→backend健康/TCP→socket健康及实际upstream DNS/TCP→frontend健康/TCP顺序启动。回环8092、3600秒UTC+monotonic原截止 **2026-11-05T07:11:40.350216+00:00** 不续期；READY交主控时06:24:14.852740Z剩2845.497秒。凭据仅交原受保护文件路径，不记录密码。Windows既有两普通Sales正常password login/identity/CRM HTML-CSRF与日程meta等值、36件原资产和42件新CRM资源逐字节/Content-Type、privateACL及正常logout实际PASS。前后READONLY完整18类/120refs缺0/settings/users/config/files相等，EmailQueue0，物理公私文件0不外推非空文件验收。这是Windows HTTP/静态资产前检，不替代真实UI。
+- proof `final-8c5-ui-windows-proof-650aa164fcae4d3fb613214537d7a8eb.json` SHA `9873eb6e32fa36e6677ce1a6e5072c0a31068cb0655bee829cd8ef1424cf9400`；confirmed SHA `4b25b7185f9cb14408eddcda1a0175b9881925ae54563982ad164cce3a103892`；前只读log SHA `54330f0317ac7228cbe6ec4ed8b6e9d7fd0ec214e2cf88ea53d35fb177f190b2`。
+- 06:30:33Z用户要求先排查Desktop1.3.0子代理browser控制，不允许主控代做；主控此前仅tab61原A正常login/Create Lead/输入未保存草稿0628后暂停。用户开启独立子代理browser开关后，Terra/agent475在06:43:07Z新turn的browser.get_state成功并接续，主控未再操作。worker始终未操作浏览器/清理会话/提前release。此权限问题已解除，不保留为当前阻断。
+- **实际UI终态来自主控转交Terra报告，非worker逐字段DB核验**：新Lead `SYNTHETIC-V1-8C5-LEAD-SAVE-0656` / `CRM-LEAD-2026-00003`，owner A/New，创建及整页刷新读回通过；新Schedule唯一标题 `SYNTHETIC-V1-8C5-SCHEDULE-0647`，owner A，UTC2026-11-09 09:07–09:42、Busy/Cancelled rev3，无成员，创建rev1/说明编辑rev2/刷新读回/取消rev3通过，UI未提供ID。最终明确：真实hidden→visible草稿恢复没有触发，因此未验证；Deal草稿、跨身份、Note/Task、共享撤回的新候选UI均未验，不以SFC绿或保存成功替代。原未保存Lead草稿未提交，未新增Note/Task/ICS/Grant。
+- Terra07:09:08正常CRM Log out，tab61到/login；tab62先观察到旧内存日程，正常reload后到/login，停止操作/面板隐藏。注销后后台旧DOM直到reload才清的观察已交M29 owner agent482只读定位，本worker不调查、不称完整安全UI通过。按主控07:09:36.053Z明确授权，仅Write本nonce既定release，未续期/重开/stop容器或WSL/删除。
+- 唯一 `bash-ps6ye9ey` / WPID53664总 **3658.228秒exit0**；Windows wsl子PID29000，driver/relay均0/own release，driver07:10:01.311154Z结算、Windows07:10:05.378433Z结算，**WSL及Windows8092Listen均0**。16tracked操作全0；fresh107原容器/103原卷及daemon/mainlock保持，仅原infra3必要启动的授权生命周期单列允许，新app3/none seed及3卷至111/106。fresh前12历史生命周期变化独立记录，无finalguardfailure，不外推跨WSL全等或长期在线。
+- 既定READONLY收窗摘要实际仅五类变：Lead2→3、Comment5→6、Schedule5→6、Audit24→28、Request3→4；其余13类逐SHA保持，refs120→135/缺0。site/common配置、users、files、encryptedAuth0、EmailQueue0保持。主控接受本次summary仅确认增量范围而非逐字段终态；不为Comment/Audit等正常可能增量额外唤醒环境，不再新DB探针、重开窗口或重复测试。原日志保留。
+- 最终报告 `final-8c5-ui-result-650aa164fcae4d3fb613214537d7a8eb.json` SHA `41c1e3648c88075153dc58b67c5d8f66e6c0beaf09b7ae2cf2ac2336577b68e0`；launcher报告 SHA `847c68fe581ce4a466088edc67fe7fe0be88c8992dd0c07ae7821bad96747081`；launch log SHA `9aa240693850371e7325f9fda847b10d172e00ef13625c64d84c5efc7f194a54`。全部后台已结算，M9第2/4/5具体缺口保持，不Complete/MVP/merge或正式托管声明。下文开窗前“未开UI”属于先前提交时态，旧失败/证据保持。
+
 ## 2026-11-05：v1.0收口与精确1c58626源码SFC通过
 
 - v1.0范围由用户明确为L0–L3、Windows使用端与团队服务端；L3.5和其他平台不入发布。决策追加D-001，既有私域/数据保护不缩小。停止重复已绿源码SFC与未变依赖测试，接续标准构建、原生回归/四suite bridge及最终镜像原a8单SFC一次；Windows真实UI和部署由主控统筹，本worker未开窗口。
