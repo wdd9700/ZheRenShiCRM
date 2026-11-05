@@ -544,7 +544,7 @@ resume_preflight() {
         failed_metadata_allowed "$FAILED_LAYERS" "$NEW_LAYERS" "$UPDATE_LAYERS_BACKUP" || fail 'failed layer evidence is neither the reviewed candidate nor the retained previous generation'
     fi
     if [ -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
-        [ "$(cat "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")" = "CRM_IMAGE=$NEW_CONFIG" ] || fail 'resume lock temporary content mismatch'
+        [ "$(cat "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")" = "CRM_IMAGE=$NEW_IMAGE" ] || fail 'resume lock temporary content mismatch'
     fi
     if [ -e "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ]; then
         cmp -s "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" "$NEW_RELEASE" || fail 'resume release temporary content mismatch'
@@ -591,13 +591,18 @@ update_site_image() {
     command -v python3 >/dev/null 2>&1 || fail 'Python 3 standard library is required for offline archive chain verification'
     python3 "$REMOTE/verify_image_archive.py" "$IMAGE_ARCHIVE" "$NEW_RELEASE" "$NEW_LAYERS" || fail 'reviewed archive digest chain verification failed'
     set_update_paths
+    require_runtime
+    NEW_IMAGE=$NEW_CONFIG
+    [ "$CRM_IMAGE_LOCK_KIND" = classic-config ] || NEW_IMAGE=$NEW_INDEX
     [ ! -L "$RUNTIME/site-update.state" ] || fail 'site-update.state must not be a symlink; refuse any update write'
     if [ "$RESUME_APPS" -eq 1 ]; then
         resume_preflight
     else
         if [ -e "$RUNTIME/site-update.state" ]; then
-            CURRENT_LOCK=$(cat "$IMAGE_FILE")
-            [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=${CURRENT_LOCK#CRM_IMAGE=}" ] || fail 'repeat update requires a clean ready state matching the current lock; do not edit or delete maintenance state to bypass it'
+            CURRENT_RELEASE=$REMOTE/release.env
+            [ ! -e "$RUNTIME/release.env" ] || CURRENT_RELEASE=$RUNTIME/release.env
+            CURRENT_CONFIG=$(release_value CRM_IMAGE_CONFIG "$CURRENT_RELEASE")
+            [ "$(cat "$RUNTIME/site-update.state")" = ready ] || [ "$(cat "$RUNTIME/site-update.state")" = "ready image=$CURRENT_CONFIG" ] || fail 'repeat update requires a clean ready state matching the current config generation; do not edit or delete maintenance state to bypass it'
         else
             for EVIDENCE in "$RUNTIME/release.env" "$RUNTIME/image-rootfs-layers.txt" \
               "$RUNTIME/image.env.pre-site-update" "$RUNTIME/failed-release.env" "$RUNTIME/failed-image-rootfs-layers.txt" \
@@ -618,8 +623,6 @@ update_site_image() {
             [ ! -e "$CONFLICT" ] && [ ! -L "$CONFLICT" ] || fail "site update generation target/temporary/backup conflict must be resolved before any runtime change: $CONFLICT"
         done
     fi
-    require_runtime
-    [ "$CRM_IMAGE" = "$CRM_IMAGE_CONFIG" ] || fail 'running-site update only accepts the existing classic config lock'
     [ "$NEW_CONFIG" != "$CRM_IMAGE_CONFIG" ] || fail 'reviewed update must select a different config; no-op update refused'
     require_marker migrated-twice
     require_docker
@@ -660,7 +663,7 @@ update_site_image() {
         (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
         (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
         (umask 077 && set -C && cat "$IMAGE_FILE" > "$UPDATE_BACKUP")
-        (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+        (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_IMAGE" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
     else
         [ ! -L "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp" ] && [ ! -L "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ] || fail 'resume metadata temporary must not be a symlink'
         if [ ! -e "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp" ]; then
@@ -670,7 +673,7 @@ update_site_image() {
             (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")
         fi
         if [ ! -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
-            (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_CONFIG" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
+            (umask 077 && set -C && printf 'CRM_IMAGE=%s\n' "$NEW_IMAGE" > "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")
         fi
     fi
     UPDATE_MODE=image-only
@@ -694,7 +697,7 @@ update_site_image() {
     fi
     compose stop backend || fail_update stop-backend-failed
     docker_cli load -i "$IMAGE_ARCHIVE"
-    verify_image_identity "$NEW_CONFIG" "$NEW_CONFIG" "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM" "$NEW_LAYERS"
+    verify_image_identity "$NEW_IMAGE" "$NEW_IMAGE" "$NEW_RESOURCE" "$NEW_TEAM" "$NEW_CRM" "$NEW_LAYERS"
     mv "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" "$IMAGE_FILE" || fail_update lock-rename-failed
     if [ "$UPGRADE_APPS" -eq 1 ]; then
         compose run --no-deps -T configurator || fail_update candidate-configurator-failed
@@ -715,7 +718,7 @@ update_site_image() {
         fi
     fi
     compose up -d --wait || fail_update recreate-failed
-    verify_running_app_images "$NEW_CONFIG" || fail_update application-image-mismatch
+    verify_running_app_images "$NEW_IMAGE" || fail_update application-image-mismatch
     verify_redis_contract after || fail_update redis-contract-changed
     write_redis_evidence || fail_update redis-evidence-changed
     verify_service_readiness || fail_update application-readiness-failed

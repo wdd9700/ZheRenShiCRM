@@ -215,6 +215,8 @@ sh deploy/remote/trial.sh check
 
 现有工具支持上述工具更新和旧锁迁移，但运行站点补丁还必须有 M9 提供的独立 `release.env`、完整 `image-rootfs-layers.txt` 和镜像 tar。元数据须包含精确 `CRM_IMAGE_CONFIG`、OCI index、平台 manifest、tar SHA 及三个源码 revision；本包不猜补丁 digest、不重 build。首轮当前锁须为旧 config `129b0357…`；续升则必须为当前 runtime 对应 config，且站点已完成双迁移。无状态仅在无任何首轮/续升证据时允许，已有证据但状态丢失必须停止审查；同 config/no-op、冲突及当前应用运行镜像漂移均须零写入拒绝。
 
+升级与续作同时支持 classic config 和 containerd index 两种 store，但不跨 store 自动迁移：classic 锁继续使用精确 config，containerd 锁继续使用精确 index，候选锁、运行容器 `.Image` 和失败恢复均沿用当前类型。archive verifier 已固定唯一 linux/amd64 index→manifest→config 与全部 diff_ids，运行期再核 `.Id`、平台、labels 和 RootFS；不以 config 地址冒充 containerd `.Id`，不在 index/config 间 fallback，也不接受 tag、陌生或多平台歧义引用。`ready`/`maintenance` 状态及代次文件始终以稳定 config 标识，containerd 续升和 resume 不把 index 误当代次。
+
 从独立已审 staging 调用新工具，显式复用现有 runtime，不覆盖旧工具目录：
 
 ```sh
@@ -386,7 +388,7 @@ sh deploy/remote/trial.sh inspect-volumes
 - `bash -n deploy/remote/preflight.sh deploy/remote/trial.sh`、Python AST 和 `git diff --check` 通过。
 - 第一 Ubuntu 的既有 Docker Compose 只做 `config` 渲染，未连接 daemon 创建资源：11 个服务（含 setup profile）、仅 frontend 发布 `127.0.0.1:8088`、4 个固定独立卷、backend 1 worker、未确认时合成标记为 `not-confirmed`，断言通过。
 - 本轮另以本机 standalone Compose v5.1.1 对更新后文件做真实 `config` 渲染，11 服务、双 Redis health、configurator 对双 Redis `service_healthy`、frontend 对 backend `service_healthy` 均通过；未连接 daemon，不把这当作应用健康或升级演练。
-- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。持久运行态替身明确模拟无参数 stop 后 exec 失败、基础设施-only 恢复不启动 backend、完整 up 才恢复 HTTP；已有 ready A 的 install/migrate/schema/readiness 失败和 release/layers 分步提交失败均覆盖合法 A/B 隔离来源续作及未知内容拒绝。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
+- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。持久运行态替身明确模拟无参数 stop 后 exec 失败、基础设施-only 恢复不启动 backend、完整 up 才恢复 HTTP；已有 ready A 的 install/migrate/schema/readiness 失败和 release/layers 分步提交失败均覆盖合法 A/B 隔离来源续作及未知内容拒绝。双 store 覆盖 classic config 与 containerd index 的成功、失败恢复、同代 resume、ready 代次和混用漂移拒绝，index/config 不 fallback。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
 - 53 个 app/build 源文件与 M9 `source-manifest.json` 全部一致；在合成副本中篡改 `team_access/install.py` 后 `verify-source` 拒绝。
 - `init-env` 防覆盖、三个显式合成确认拒绝路径及阶段顺序门禁通过；mock Docker 完整演练确认 create-site → up → 两个 install-app → 恰好两次 migrate → clear-cache → enable-import，重复 create/migrate 拒绝。mock 只验证编排，不是真实安装证据。
 - 合成四件备份夹具通过 gzip/tar/config 完整性验证；stub 预检在本地非 Alibaba OS 上明确失败且未创建目标目录。
