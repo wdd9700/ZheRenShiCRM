@@ -462,6 +462,11 @@ verify_redis_contract() {
     QUEUE_MOUNT=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Type}}:{{.Name}}:{{.Destination}}:{{.RW}}{{end}}{{end}}')
     [ "$QUEUE_MOUNT" = volume:crm_trial_c010400_redis:/data:true ]
 }
+resume_infrastructure() {
+    verify_redis_contract before || return 1
+    compose up -d --wait db redis-cache redis-queue || return 1
+    verify_infrastructure
+}
 write_redis_evidence() {
     CACHE_AFTER=$(docker_cli container inspect "$PROJECT-redis-cache-1" --format '{{.Id}}')
     QUEUE_AFTER=$(docker_cli container inspect "$PROJECT-redis-queue-1" --format '{{.Id}}')
@@ -507,6 +512,14 @@ load_app_context() {
       valid_hash64 "$SITE_CONFIG_FINGERPRINT" || return 1
     [ "$MAINTENANCE_BEFORE" = 0 ] || [ "$MAINTENANCE_BEFORE" = 1 ]
 }
+failed_metadata_allowed() {
+    FAILED=$1
+    CANDIDATE=$2
+    BACKUP=$3
+    [ -f "$FAILED" ] && [ ! -L "$FAILED" ] || return 1
+    cmp -s "$FAILED" "$CANDIDATE" && return 0
+    [ -f "$BACKUP" ] && [ ! -L "$BACKUP" ] && cmp -s "$FAILED" "$BACKUP"
+}
 resume_preflight() {
     [ -f "$RUNTIME/site-update.state" ] && [ ! -L "$RUNTIME/site-update.state" ] || fail 'app resume requires retained maintenance state'
     STATE=$(cat "$RUNTIME/site-update.state")
@@ -525,10 +538,10 @@ resume_preflight() {
         fi
     done
     if [ -e "$FAILED_RELEASE" ] || [ -L "$FAILED_RELEASE" ]; then
-        [ -f "$FAILED_RELEASE" ] && [ ! -L "$FAILED_RELEASE" ] && cmp -s "$FAILED_RELEASE" "$NEW_RELEASE" || fail 'failed release evidence differs from the resume candidate'
+        failed_metadata_allowed "$FAILED_RELEASE" "$NEW_RELEASE" "$UPDATE_RELEASE_BACKUP" || fail 'failed release evidence is neither the reviewed candidate nor the retained previous generation'
     fi
     if [ -e "$FAILED_LAYERS" ] || [ -L "$FAILED_LAYERS" ]; then
-        [ -f "$FAILED_LAYERS" ] && [ ! -L "$FAILED_LAYERS" ] && cmp -s "$FAILED_LAYERS" "$NEW_LAYERS" || fail 'failed layer evidence differs from the resume candidate'
+        failed_metadata_allowed "$FAILED_LAYERS" "$NEW_LAYERS" "$UPDATE_LAYERS_BACKUP" || fail 'failed layer evidence is neither the reviewed candidate nor the retained previous generation'
     fi
     if [ -e "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp" ]; then
         [ "$(cat "$RUNTIME/.image.env.site-update-$NEW_CONFIG.tmp")" = "CRM_IMAGE=$NEW_CONFIG" ] || fail 'resume lock temporary content mismatch'
@@ -612,9 +625,9 @@ update_site_image() {
     require_docker
     if [ "$RESUME_APPS" -eq 1 ]; then
         load_app_context || fail 'retained app upgrade context is invalid'
-        verify_infrastructure || fail 'DB/Redis are not healthy for app resume; no old application service was started'
         [ "$ENV_BEFORE" = "$(sha256sum "$ENV_FILE")" ] || fail 'credentials changed since the retained app upgrade context'
         [ "$DB_BEFORE" = "$(docker_cli container inspect "$PROJECT-db-1" --format '{{.Id}}')" ] || fail 'DB identity changed since the retained app upgrade context'
+        resume_infrastructure || fail 'unable to restore only DB/Redis for app resume; no old application service or configurator was started'
     else
         verify_running_app_images "$CRM_IMAGE" || fail 'current application image drift detected; refuse backup/load/update without any runtime change'
         verify_infrastructure || fail 'current DB/Redis are not healthy; refuse update before stopping writers'
@@ -640,7 +653,9 @@ update_site_image() {
             SITE_CONFIG_FINGERPRINT=$(site_config_fingerprint) || fail 'unable to fingerprint site configuration without exposing values'
         fi
     fi
-    verify_redis_contract before || fail 'Redis image/config-hash/volume contract mismatch before update'
+    if [ "$RESUME_APPS" -eq 0 ]; then
+        verify_redis_contract before || fail 'Redis image/config-hash/volume contract mismatch before update'
+    fi
     if [ "$RESUME_APPS" -eq 0 ]; then
         (umask 077 && set -C && cat "$NEW_RELEASE" > "$RUNTIME/.release.env.site-update-$NEW_CONFIG.tmp")
         (umask 077 && set -C && cat "$NEW_LAYERS" > "$RUNTIME/.image-rootfs-layers.site-update-$NEW_CONFIG.tmp")

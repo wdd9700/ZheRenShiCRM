@@ -252,7 +252,9 @@ CRM_TRIAL_RUNTIME_DIR="$HOME/crm-trial/deploy/remote/.runtime" \
   /已审release目录 /已核验镜像.tar --confirm-site-app-upgrade
 ```
 
-`resume-site-apps` 仅接受同代维护状态、原始上下文、原锁备份和 `backup-four-readable` 证明，复用四件备份而不重复初装备份。它不要求运行中的旧应用服务，不执行旧镜像 one-shot，先核 DB/Redis 后加载候选并仅运行候选 one-shot。已安装 app 不重复安装，已有 Redis 证据逐字保持；状态、marker 和失败现场均不靠删除绕过。缺少上述证明、代次不同、临时文件/证据内容不符或基础设施漂移均 fail-closed，必须先走人工维护评估。
+`resume-site-apps` 仅接受同代维护状态、原始上下文、原锁备份和 `backup-four-readable` 证明，复用四件备份而不重复初装备份。失败清理可能已停止全栈，因此先严格核对 DB 身份、Redis 镜像/config-hash 和 queue 卷，再只执行 `compose up -d --wait db redis-cache redis-queue` 恢复并等待必要基础设施；**不得用全栈 up 恢复，也不启动旧 backend/frontend/worker/configurator**。随后加载候选并仅运行候选 one-shot。已安装 app 不重复安装，已有 Redis 证据逐字保持；状态、marker 和失败现场均不靠删除绕过。
+
+隔离的 `failed-release-<B>` / `failed-image-rootfs-layers-<B>` 按各自提交阶段允许两种已证明来源：本轮候选 B，或与本轮备份逐字一致的旧代 A。release 与 layers 可分别为 A/B（分步提交失败的正常现场），未知内容仍拒绝；这些证据只读核对，绝不覆盖或删除。缺少上述证明、代次不同、临时文件/证据内容不符或基础设施漂移均 fail-closed，必须先走人工维护评估。
 
 兼容回退必须使用能加载**当前已安装全部 app 及现有 schema** 的镜像。安装 `team_schedule` 后，旧四 app 镜像不再满足该条件；禁止自动切回、uninstall、删表/Custom Field 或把 `longtext` 缩回旧类型。停写保留现场与经 M9 在独立环境验证的备份恢复是两条独立路径，backup readability 仍不等于恢复通过。
 
@@ -384,7 +386,7 @@ sh deploy/remote/trial.sh inspect-volumes
 - `bash -n deploy/remote/preflight.sh deploy/remote/trial.sh`、Python AST 和 `git diff --check` 通过。
 - 第一 Ubuntu 的既有 Docker Compose 只做 `config` 渲染，未连接 daemon 创建资源：11 个服务（含 setup profile）、仅 frontend 发布 `127.0.0.1:8088`、4 个固定独立卷、backend 1 worker、未确认时合成标记为 `not-confirmed`，断言通过。
 - 本轮另以本机 standalone Compose v5.1.1 对更新后文件做真实 `config` 渲染，11 服务、双 Redis health、configurator 对双 Redis `service_healthy`、frontend 对 backend `service_healthy` 均通过；未连接 daemon，不把这当作应用健康或升级演练。
-- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
+- 当前真实 `trial.sh` 函数的合成 mock 覆盖：五 app 升级顺序、只安装缺失 `team_schedule`、初装 marker/同代重复保护、安装/migrate/schema/readiness 失败不写 ready、同代续作不重复备份/安装、维护模式不先 pong 且 schema 后才开放、旧 image-only 不安装不迁移，以及显式确认。持久运行态替身明确模拟无参数 stop 后 exec 失败、基础设施-only 恢复不启动 backend、完整 up 才恢复 HTTP；已有 ready A 的 install/migrate/schema/readiness 失败和 release/layers 分步提交失败均覆盖合法 A/B 隔离来源续作及未知内容拒绝。Redis 反例覆盖旧 hash→新 hash 的预期换 ID 与证据、同 hash 非预期换 ID 拒绝、queue 挂载漂移拒绝。`verify_upgrade.py` 以 stub Frappe 边界覆盖缺失集合、精确五 app、七表/longtext、maintenance 布尔分类和异常基线；另从固定 v15.125.0 `app.py` AST 执行 `init_request`，确认 maintenance_mode=1/allow_reads=0 在 API dispatch 前抛出 SessionStopped。以上均不是实际 Frappe 安装、migrate、Compose 服务启动或远端升级证据。
 - 53 个 app/build 源文件与 M9 `source-manifest.json` 全部一致；在合成副本中篡改 `team_access/install.py` 后 `verify-source` 拒绝。
 - `init-env` 防覆盖、三个显式合成确认拒绝路径及阶段顺序门禁通过；mock Docker 完整演练确认 create-site → up → 两个 install-app → 恰好两次 migrate → clear-cache → enable-import，重复 create/migrate 拒绝。mock 只验证编排，不是真实安装证据。
 - 合成四件备份夹具通过 gzip/tar/config 完整性验证；stub 预检在本地非 Alibaba OS 上明确失败且未创建目标目录。
