@@ -129,6 +129,8 @@
 
 - **同现场接续实证与剩余门（2026-11-05）**：自有cwd修正后真实四app快照、原977双migrate/clear-cache通过，12类103引用缺0/用户/公私2文件保持，System Settings摘要迁移后变化单列。原977升级同tar全链通过但pre-backup candidate_apps missing报FileNotFoundError，尚未新备份/install/schema/readiness；同路径问题已交M13，owner冻结22d94b0待独审，不由M9热改。原M7同ID/image/port/fullMount/policy/running恢复实证保持；r4自有finalguard包含restart_count不变量且报红，但丢失computed值，不能归因已证count误报。唯一另授只读r5保存当前完整contract无差异、count1/原109卷全metadata等值（共114，trial4命名+原trial cache匿名1），但不能追溯r4当刻差异；r5预设必须count差异的断言也红，全部保留，不循环探针或重restore凑绿。当前置信度只覆盖恢复/标准双迁移及现资源contract，完整升级仍未过；等精确工具独审与tower新恢复指令。tower后续明确下一自有guard先落完整computed/diff，仅获授权精确前端started/finished/pid/restart_count单列生命周期、最终running/无OOM/无持续重启；身份/image/Config.Image/ports/fullMount/policy和其他旧容器保护不放宽，不追溯改旧红，本轮未执行新guard。无需用户重新作业务取舍，持久入口与真实资料门不变。
 
+- **22d94已审同现场升级后续（2026-11-05）**：tower明确恢复后仅导出精确已审工具，保原trial/runtime/真实migrated-twice与同tar，不重restore/双迁移/build/save。原工具真实越过cwd查询门，停写并生成20261105_174924新四件可读backup、load精确2c/configurator成功，只缺team_schedule安装进入after_install后在v1_constraints.py19 add_unique报1146 Team Schedule Member表不存在。原工具保留maintenance install-team_schedule-failed/stopstopped/lockrestored/metadataquarantined，未进入后续migrate/schema/readiness/after业务快照，partial schema不冒称全回滚。首异常已交产品owner/tower/high finding，选择保现场等最小修复独审及同现场resume裁定；拒绝手工建表/跳约束/重restore或旧四app回退。新先落now/diff守卫本轮真实通过，M7完整contract/running/noOOM/无持续重启finally恢复，其他旧容器/114原卷/daemon/mainlock全等；不追溯改绿r4/r5。完整报告9696564063d54c9d927f78fed96e2f1f939697b6424024dd14d24f75ea91803a与log164b5654a768024e7d465483a6fec9c7e61361abebc07bdd7c6740c64ea17e53见RECOVERY_VALIDATION首节。隔离/备份与失败维护机制实证高，完整升级仍未通过；技术缺陷不新增用户价值取舍，真实资料/远端/可靠托管门不变。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]
