@@ -11,15 +11,49 @@ const sharedReads = new Set(['frappe.onboarding.get_onboarding_status', 'frappe.
   'frappe.client.get_list', 'crm.api.doc.get_data'])
 
 function requestKey(options) {
-  try {
-    const params = JSON.stringify(options.params, (_key, value) => {
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        if (Object.prototype.toString.call(value) !== '[object Object]') throw Error('Non-plain params')
-        return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
+  const ancestors = new Set()
+  function encode(value) {
+    if (value === null) return 'null'
+    if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+    if (typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)) return String(value)
+    if (typeof value !== 'object' || ancestors.has(value)) throw Error('Non-JSON params')
+    const array = Array.isArray(value)
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== null) {
+      const constructor = Object.getOwnPropertyDescriptor(proto, 'constructor')?.value
+      const builtin = array ? Array : Object
+      if (typeof constructor !== 'function' ||
+          Function.prototype.toString.call(constructor) !== Function.prototype.toString.call(builtin) ||
+          Object.getOwnPropertyDescriptor(constructor, 'prototype')?.value !== proto) {
+        throw Error('Non-plain params')
       }
-      if (typeof value === 'function' || typeof value === 'symbol') throw Error('Non-data params')
-      return value
-    })
+    } else if (array) throw Error('Non-plain array')
+    for (let current = value; current; current = Object.getPrototypeOf(current)) {
+      if (Object.getOwnPropertyDescriptor(current, 'toJSON')) throw Error('Custom JSON params')
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const keys = Reflect.ownKeys(descriptors)
+    if (keys.some(key => typeof key !== 'string')) throw Error('Symbol params')
+    ancestors.add(value)
+    try {
+      if (array) {
+        const length = descriptors.length.value
+        if (keys.length !== length + 1) throw Error('Sparse or extended array')
+        return '[' + Array.from({ length }, (_, index) => {
+          const field = descriptors[index]
+          if (!field?.enumerable || !Object.hasOwn(field, 'value')) throw Error('Non-data array')
+          return encode(field.value)
+        }).join(',') + ']'
+      }
+      return '{' + keys.sort().map(key => {
+        const field = descriptors[key]
+        if (!field.enumerable || !Object.hasOwn(field, 'value')) throw Error('Non-data params')
+        return JSON.stringify(key) + ':' + encode(field.value)
+      }).join(',') + '}'
+    } finally { ancestors.delete(value) }
+  }
+  try {
+    const params = options.params === undefined ? 'default' : encode(options.params)
     return JSON.stringify([options.url, options.method, params])
   } catch { return Symbol() }
 }

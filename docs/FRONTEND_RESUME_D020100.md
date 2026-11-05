@@ -148,6 +148,14 @@ M9 run `f575e69931254d0a94d045738b49bf7d` 实际执行 a8c64f5：完整 App/Lead
 
 生产 manifest 仍 43 entries；仅 resources.js 与 script.js after SHA 更新，before SHA、apply 源守卫、boundary、权限、草稿字段和恢复读白名单均未改。新候选仍须独审、M9 标准 build/native/bridge、原字节 SFC 修后实测和真实可见 UI，不以本地 60 项绿灯宣称现场闭环。已知 onboarding 读尚不在恢复 reads 中，另行静态核后端契约；本候选不先放宽。
 
+## d27ff94 独审 P2-1：原始参数无损比较
+
+独审确认旧 JSON replacer 会将 NaN/null、Date/ISO 字符串、数组 undefined/null 误判相同，而实际 resourceFetcher 接收的是原始 params，并非 JSON round-trip 结果。新增实际资源层对照回归在未修 d27ff94 上先红：两个 consumer 被合并，仅得到第一份参数结果。该问题是参数隔离缺陷，不认定为现场 READ_FAILED 的唯一原因。
+
+requestKey 现先遍历原始值和数据属性描述符，再生成规范文本，不先 JSON.stringify 对象；仅明确无损的普通 JSON 值可共享。拒绝非有限数、负零、嵌套 undefined、稀疏/扩展数组、Date、toJSON、class、自定义原型、循环、函数、symbol、BigInt、访问器及非枚举字段；不合格返回独立 sentinel，原始参数仍原样交给各自 fetcher，不拦截正常请求。不调用用户 getter/toJSON；跨 realm 的原生 Object/Array 原型依据其原生 constructor/prototype 描述符核验。无 params 的顶层 undefined 保留默认语义；普通嵌套键序等价和 JSON 类型隔离保留。
+
+新增回归使用同一个显式 resourceFetcher，核对两次实际输入引用与各自返回结果，包含上述碰撞、安全退化和副作用计数为零；原 force/reload/submit/自动写/失败重试/旧 epoch 断言保留。修后四 suite **62/62 pass**，严格重放 **38 修改 + 5 guard**、after fixture **15/15 pass**。本次仅改 resources payload、精确 manifest after、既有 controlled 测试及本文；getScript 修复、boundary/reads、SFC/config oracle 均原字节不变。仍需新 tip 独审，不沿用 d27ff94 的 hold 作为批准；新 SFC 和真实 UI 验收尚未执行。
+
 ## 尚待门槛
 
 本机固定导出缺 vite/esbuild/vitest/TypeScript/compiler-sfc/vue-router；未安装依赖、未启动 WSL/容器/远端。需 tower 协调 M9 在既有固定 Linux 构建环境用候选 commit 单次 clean baseline apply + 标准构建（包含完整 SFC、真实依赖解析和 Vitest bridge），有失败必须回修，不降低 hash/构建门槛。

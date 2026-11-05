@@ -579,6 +579,59 @@ test('automatic sharing compares parameter data and isolates pending old epochs'
   assert.equal(successes, 0)
 })
 
+test('automatic sharing preserves original fetcher params and rejects lossy or effectful data', async () => {
+  let effects = 0
+  const cyclic = {}; cyclic.self = cyclic
+  const getter = Object.defineProperty({}, 'v', { enumerable: true, get() { effects++; return null } })
+  const custom = { toJSON() { effects++; return 'encoded' } }
+  const date = new Date('2026-01-01T00:00:00.000Z')
+  const symbolKey = { [Symbol('hidden')]: true }
+  const hidden = Object.defineProperty({}, 'v', { value: 1 })
+  const cases = [
+    [{ v: NaN }, { v: null }], [{ v: Infinity }, { v: null }],
+    [{ v: -Infinity }, { v: null }], [{ v: -0 }, { v: 0 }],
+    [{ v: date }, { v: date.toISOString() }],
+    [{ v: [undefined] }, { v: [null] }], [{ v: Array(1) }, { v: [null] }],
+    [{ v: undefined }, {}], [{ v: custom }, { v: 'encoded' }],
+    [new (class Params { constructor() { this.v = 1 } })(), { v: 1 }],
+    [cyclic, cyclic], [{ v() {} }, { v() {} }],
+    [{ v: Symbol('value') }, {}], [{ v: 1n }, { v: '1' }],
+    [getter, { v: null }], [symbolKey, {}], [hidden, {}],
+  ]
+  for (const [left, right] of cases) {
+    const f = await fixture()
+    const calls = []
+    const resourceFetcher = async ({ params }) => { calls.push(params); return params === left ? 'left' : 'right' }
+    const options = { url: 'frappe.client.get', cache: 'raw-params', auto: true, resourceFetcher }
+    const first = f.resources.createResource({ ...options, params: left })
+    const second = f.resources.createResource({ ...options, params: right })
+    await Promise.all([first.promise, second.promise])
+    assert.notEqual(first, second)
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0], left)
+    assert.equal(calls[1], right)
+    assert.equal(first.data, 'left')
+    assert.equal(second.data, left === right ? 'left' : 'right')
+    assert.equal(effects, 0, 'Parameter comparison must not invoke getters or toJSON')
+  }
+})
+
+test('automatic sharing keeps plain JSON types distinct and accepts nested key order', async () => {
+  const f = await fixture()
+  const calls = []
+  const resourceFetcher = async ({ params }) => { calls.push(params); return params }
+  const options = { url: 'frappe.client.get', cache: 'json-types', auto: true, resourceFetcher }
+  const resources = [null, false, 0, '0', { v: null }, { v: false }, { v: 0 }, { v: '0' }]
+    .map(params => f.resources.createResource({ ...options, params }))
+  await Promise.all(resources.map(resource => resource.promise))
+  assert.equal(new Set(resources).size, resources.length)
+  assert.equal(calls.length, resources.length)
+  const first = f.resources.createResource({ ...options, params: { b: [1, { y: true, x: null }], a: 'value' } })
+  const second = f.resources.createResource({ ...options, params: { a: 'value', b: [1, { x: null, y: true }] } })
+  assert.equal(second.promise, first.promise)
+  await first.promise
+})
+
 test('same-cache automatic failure remains observable and can retry', async () => {
   const f = await fixture()
   const options = { url: 'frappe.onboarding.get_onboarding_status', cache: 'retry', auto: true }
