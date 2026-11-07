@@ -459,3 +459,9 @@ sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh upgrade-site-app
 最终 `ready image=sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9`，活动锁相同；六长驻app全同config，configurator exited0；9长驻运行，DB/双Redis/backend/frontend healthy，队列/scheduler/websocket不额外声称配置了healthcheck。新one-shot全部exited0并保留。再次check通过平台、三labels与全部RootFS层。**成功保持服务常驻，没有演练finally停站**。旧24e失败、旧锁/镜像/备份/工具均保留；不把既有备份可读当恢复演练。
 
 本轮原始输出在worker ignored runtime：`m17-ld2-upgrade.stdout.log`、`m17-ld2-before.stdout.log`、`m17-ld2-after.stdout.log`、`m17-ld2-final-state.stdout.log`；不含口令/cookie。Windows既有隧道仍为本地18088→服务器127.0.0.1:8088，准确入口 `http://127.0.0.1:18088/login`、`/crm`、`/team-schedule`。已通知主控交Terra做Windows最小UI验收，本worker未抢跑业务UI或新增测试数据。正常v1权限仅为限定发布批准，不宣完整安全认证；宿主重启、全部安全旁路、长期容量、Windows本轮真实UI仍各有边界，未因此补算通过。
+
+### 17.1 Windows普通UI验收账号夹具
+
+主控明确授权新增唯一合成普通账号 `v1-ui-acceptance-20261107195038@example.invalid`，用标准框架User insert及fresh get重读验证：业务角色恰Sales User、enabled System User、send_welcome_email=0；创建前核mute_emails与synthetic_only仍严格整数1。没有额外管理员/System Manager角色、没有修改任何既有账号密码/角色，不删除旧用户，也未通过API创建Lead/日程。
+
+随机强口令仅内存生成，凭据写入本worker独立ignored runtime文件；文件创建时关闭Windows ACL继承并仅当前用户FullControl，写后再核ACL通过。密码未输出stdout、Tower消息或Git，受保护文件准确路径已单独交Terra用于正式目标18088正常UI验收；文档不复制凭据。新增账号仅为验收夹具，UI验证结果由Terra独立记录，不把创建/角色检查冒充已通过业务UI。
