@@ -428,3 +428,13 @@ sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh upgrade-site-app
 工具失败收口实测：全项目停止，原锁/元数据恢复，状态为 `maintenance reason=exit-1 image=sha256:41a88ded3dc8ac55cab451ff6b3c0b605968b971f28f726d38c0b1378b84b36e stop=stopped lock=restored metadata=restored`；活动锁恢复 `fb00dd79…`。只读复核全部项目容器exited，包含DB/双Redis；保留两个正常退出的查询one-shot。frontend/scheduler/websocket退出码137是本次stop后所见，不据此推断OOM。没有自动启动旧缺app镜像、重试load、删除卷/镜像、切存储驱动或恢复覆库。原数据升级后摘要未能复核（站点停服），不把备份可读说成恢复或数据全等已验。
 
 本地原始工具输出：`P:/CRM/.tower/worktrees/wt-17/deploy/.runtime/m17-final-upgrade.stdout.log`；失败只读状态：同目录 `m17-final-failure-state.stdout.log`。均ignored，记录工具/摘要而非凭据。主控已收到即时失败报告，后续修复候选或同代恢复须另明确授权，不能使用跨代入口抢跑。当前Windows既有隧道映射仍为本地18088→远端127.0.0.1:8088，但服务维护停止，登录/CRM/日程不可作为可用入口；成功恢复后才验 `http://127.0.0.1:18088/login`、`/crm`、`/team-schedule`。宿主重启、完整权限安全矩阵与浏览器全流程边界不因此补算通过。
+
+### 16.1 获准恢复旧四 app 可用（同日，非候选上线）
+
+M13 核明失败在 pre-schema load，主控另明确授权恢复。执行前严格核旧 `fb00dd79…` 锁、上述完整 `maintenance exit-1` 字符串，活动release/layers与本代保留旧元数据逐字相同；升级原始日志未进入候选configurator/install/migrate。沿既有已验证 `/home/dev/c1102-reviewed-update-eaffe942/tools/deploy/remote/trial.sh`，每条显式 `CRM_TRIAL_DOCKER_SUDO=1` 与原 `CRM_TRIAL_RUNTIME_DIR`，执行 maintenance-status/check/up/status/versions/ping；不修改或重新上传工具。
+
+check 通过 config/平台/三labels/全部diff_ids；up exit0，九长驻恢复运行，configurator正常exit0，六app仍旧fb00。versions/installed_apps精确为 frappe、crm、resource_import、team_access，未安装team_schedule。up后首个即时ping返回502，说明旧up只保证容器运行而不保证HTTP已就绪；随后限定只读核站点maintenance_mode未设（None），再正常ping得到200/pong，没有修改维护开关。此非持续故障或通过解除维护绕检查。
+
+恢复后重新运行同一只读摘要脚本，六类全部完整doc数量与canonical SHA、原四app集合输出与升级前日志逐字全等：Lead10 `edc6028f…94ea`、Deal3 `2ecbb35c…701c`、Organization5 `7e5a1720…5e82`、Contact21 `4fb7fe5e…6905`、Task7 `bf813074…8beb`、Note13 `4cdf635d…47f1`；严格synthetic/mute/server_script开关断言仍通过。before/after完整摘要在ignored `m17-final-before.stdout.log` / `m17-old-restore-after.stdout.log`，启动原始输出为 `m17-old-restore.stdout.log`（该日志含首ping502，整体命令exit22，不能把它伪记整组exit0；up本身exit0，后续独立ping通过）。
+
+**当前旧版保持运行，失败maintenance记录原样保留**，其中 `stop=stopped` 是失败时历史结果，不是当前实时状态；未删state或伪造ready。无install/migrate/restore、无DB覆库/卸app/权限关闭、无daemon或宿主重启。Windows既有隧道本地18088→远端127.0.0.1:8088，旧版入口 `http://127.0.0.1:18088/login`、`/crm` 已可接续；team_schedule尚未安装，不提供新日程上线承诺。24e仍未上线，等待低层兼容候选与下一明确部署指令。
