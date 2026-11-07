@@ -1,0 +1,129 @@
+name: crm-recovery-b010200
+
+x-recovery-labels: &recovery-labels
+  crm.recovery.mission: M9
+  crm.recovery.run_id: ${CRM_RECOVERY_RUN_ID:-planning}
+
+x-recovery-app: &recovery-app
+  labels: *recovery-labels
+  image: ${CRM_IMAGE:?set the same immutable security image as the backup source}
+  pull_policy: never
+  volumes:
+    - recovery_sites:/home/frappe/frappe-bench/sites
+    - recovery_logs:/home/frappe/frappe-bench/logs
+  networks: [recovery]
+  restart: "no"
+
+services:
+  recovery-db:
+    image: public.ecr.aws/docker/library/mariadb@sha256:f1c56f035ed268a0d7c2c2e06dc879f6319b997cb434cf822a4cfd72a7aa184d
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --skip-character-set-client-handshake, --skip-innodb-read-only-compressed]
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/recovery-keys/db-root-password
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - recovery_db:/var/lib/mysql
+      - recovery_keys:/run/recovery-keys:ro
+    networks: [recovery]
+    labels: *recovery-labels
+    restart: "no"
+
+  recovery-cache:
+    image: public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    networks: [recovery]
+    labels: *recovery-labels
+    restart: "no"
+
+  recovery-queue:
+    image: public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    command: [redis-server, --appendonly, "yes"]
+    volumes:
+      - recovery_redis:/data
+    networks: [recovery]
+    labels: *recovery-labels
+    restart: "no"
+
+  restore:
+    <<: *recovery-app
+    profiles: [setup]
+    entrypoint: [/home/frappe/frappe-bench/env/bin/python, /opt/recovery_site.py]
+    environment:
+      CRM_IMAGE: ${CRM_IMAGE:?set immutable source image}
+      CRM_RECOVERY_RUN_ID: ${CRM_RECOVERY_RUN_ID:-planning}
+      CRM_RECOVERY_SYNTHETIC_ONLY_ACK: ${CRM_RECOVERY_SYNTHETIC_ONLY_ACK:-not-confirmed}
+    volumes:
+      - recovery_sites:/home/frappe/frappe-bench/sites
+      - recovery_logs:/home/frappe/frappe-bench/logs
+      - recovery_bundle:/restore:ro
+      - recovery_keys:/run/recovery-keys:ro
+      - type: bind
+        source: ./recovery_site.py
+        target: /opt/recovery_site.py
+        read_only: true
+    depends_on:
+      recovery-db:
+        condition: service_healthy
+      recovery-cache:
+        condition: service_started
+      recovery-queue:
+        condition: service_started
+
+  backend:
+    <<: *recovery-app
+    environment:
+      GUNICORN_THREADS: "2"
+      GUNICORN_WORKERS: "1"
+      GUNICORN_TIMEOUT: "120"
+    depends_on:
+      recovery-db:
+        condition: service_healthy
+      recovery-cache:
+        condition: service_started
+      recovery-queue:
+        condition: service_started
+
+  websocket:
+    <<: *recovery-app
+    command: [node, /home/frappe/frappe-bench/apps/frappe/socketio.js]
+    depends_on: [backend]
+
+  frontend:
+    <<: *recovery-app
+    command: [nginx-entrypoint.sh]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      NGINX_LISTEN_PORT: "8080"
+      FRAPPE_SITE_NAME_HEADER: recovery.localhost
+      PROXY_READ_TIMEOUT: "120"
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - "127.0.0.1:8089:8080"
+    depends_on: [backend, websocket]
+
+networks:
+  recovery:
+    name: crm_recovery_b010200_network
+    internal: true
+    labels: *recovery-labels
+
+volumes:
+  recovery_db:
+    name: crm_recovery_b010200_db
+  recovery_sites:
+    name: crm_recovery_b010200_sites
+  recovery_redis:
+    name: crm_recovery_b010200_redis
+  recovery_logs:
+    name: crm_recovery_b010200_logs
+  recovery_bundle:
+    name: crm_recovery_b010200_bundle
+    external: true
+  recovery_keys:
+    name: crm_recovery_b010200_keys
+    external: true

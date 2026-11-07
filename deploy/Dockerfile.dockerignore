@@ -4,6 +4,10 @@
 !apps/
 !apps/resource_import/
 !apps/resource_import/**
+!apps/team_access/
+!apps/team_access/**
 **/__pycache__
 **/*.pyc
 **/*.egg-info
+**/.local
+**/.env

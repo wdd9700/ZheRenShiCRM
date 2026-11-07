@@ -20,8 +20,31 @@ Frappe CRM为AGPL-3.0，Framework为MIT；网络提供修改版服务时评估�
 - 最终项目固定`crm-mvp-v15`；卷`crm_mvp_v15_db`、`crm_mvp_v15_redis`、`crm_mvp_v15_sites`。首次部署先查同名资源；已有站点绝不再new-site或重建库。DB/Redis不发布端口，唯一入口`127.0.0.1:8088:8080`。
 - 初探54GiB RAM、根卷819GiB空闲；官方release压缩层约779MiB，派生Node依赖/镜像/数据库额外占空间，预留至少5GiB实验预算；不是生产容量建议。
 - `init-env`用标准库生成独立高熵DB/管理员密码，O_EXCL拒绝覆盖、不打印值，POSIX创建0600；DrvFS仍须依赖Windows ACL。本地`.env`对Docker管理员可见，不等于生产秘密管理。
-- 不提交`.env`、token、客户数据、渲染后的含秘密Compose、OCI缓存、日志、卷或备份。构建上下文现在是仓库根，`deploy/Dockerfile.dockerignore`只放行Dockerfile与`apps/resource_import`源，排除pycache/egg-info；`deploy/.dockerignore`继续拒绝旧式deploy上下文的其他文件。
+- 不提交`.env`、token、客户数据、渲染后的含秘密Compose、OCI缓存、日志、卷或备份。基座构建入口的`deploy/Dockerfile.dockerignore`只放行Dockerfile与两个app源；新前端入口使用独立的`Dockerfile.frontend.dockerignore`，只再放行after校验器及apply/manifest/payload，均排除pycache/egg-info。精确集成context先由Git白名单导出再逐件核SHA，不直接使用整个运行目录；`deploy/.dockerignore`继续拒绝旧式deploy上下文的其他文件。
 - 不`down -v`、prune，不清理旧容器/镜像/卷。初始化/探针容器故意保留。仅configurator无状态一次性容器经tower批准可必要重建，保留sites/logs卷；其可写层已核验仅pycache。官方入口重建`sites/assets`镜像资产链接，不删除站点public/private资料。
+
+## C011000 前端补丁候选入口（source已受控更新，HTTP续验待审）
+
+2026-11-03后续窗口：tower已另授权仅两个本地独立合成站逐站备份更新，不能把下段构建阶段的“未部署”当最新状态。source新四件备份`20261102_235948-crm_localhost`全读验证后，仅三app定点更新至f43a277d；DB/Redis、卷/config、主M7锁及其他容器不变，更新前后12类原文与141引用完全一致。普通Sales原基础矩阵通过；列表验收三次停止涉及脚本不适用前提（Comment未审视图入口403、B共享Lead未必进入原生列表、A额外旧Lead已有明确授权），未修改权限凑绿。**source三app现按失败停写，recovery尚未更新，未执行本候选六服务重启；完整双站结果未通过。** 双账号维护READ ONLY原生/兼容/底层列表集合已全等且逐ID明确授权；共享A Lead对B可直读但默认列表不可发现为独立产品缺陷，不能称共享列表可用。统一续验helper待tower独立复核，不盲目重启。详情及全部失败证据见`docs/RECOVERY_VALIDATION.md`；未新导出release、未远端传输/更新。
+
+`Dockerfile.frontend` 是 M19 缓存隔离的独立候选配方；旧 `Dockerfile` / `manage.py build` 仅保留基座兼容路径，**不包含 C011000 补丁，不可替代新安全候选交付**。2026-11-03，M19精确`1f48ddae07a09c8f0c09aaae6b9a55779dcfdab1`独审clean/merge（旧1c66首审返工记录保留），接入`58a0fd68e630ad06ea07dd6b332c1cbb8956f071`限定clean/hold；tower另授权第一Ubuntu构建/独立none probe，未授权更新任何站点或远端。原四源/69件context receipt不变，标准构建与before/check/apply/after/guard、资产强断言通过；新index `sha256:f43a277d62eab434ba90922f36b8a75e86a99a7d0dbdede1cbb70bbe57783a6d`，config `sha256:50836b19cb4ac574f53840c100123f87f19032c22788cbd63b12f2146537a69d`。完整Linux依赖原生Vitest 34文件/326项通过，另实际bridge 1项通过（只是受控Node18包装），独立probe exited0并保留新两命名卷。标准save只读流核镜像原始摘要链和四label通过，不落tar、不load；所有48个旧容器所选状态/挂载及主活动锁最终不变。命令、完整身份与警告见 `docs/RECOVERY_VALIDATION.md`。**仍需另开本地站点更新窗口与M18固定资产真实UI验收，不能自行部署或传远端。**
+
+纯源码准备（从本 checkout，所有参数必须为已审完整40位commit）：
+
+```sh
+python -B deploy/prepare_integration.py \
+  --resource-commit faa5f0330ad54bd9f4d02bb498ea305651c95ed9 \
+  --access-commit 6b70971f0ac12b2e96b959a61a4c8346eb0868e1 \
+  --frontend-commit FINAL_REVIEWED_M19_40HEX \
+  --deployment-commit REVIEWED_DEPLOY_40HEX
+```
+
+- 新入口只从各精确 Git commit 导出普通 blob，不拼接其他工作树或未提交文件。`source-manifest.json` 记录四个commit与每件SHA；前端白名单支持精确12/15/17件历史集合，以及D020100完整21件集合（含source_edits、新payload和恢复测试）；半套/额外文件拒绝。历史manifest仍为7个payload/5个guard，D020100精确92443ca严格限定9个payload、27个source edit和5个guard（包括CommunicationArea修改与EmailEditor只读guard），全部before/after与源码SHA保持校验。source_edits随精确Git输入进入镜像，不从运行目录补拷；部署白名单仅专用Dockerfile/ignore/after校验器。旧两种context继续兼容。
+- 记录输出的绝对 `integration-<uuid>` 路径与 **source-manifest SHA256**。Windows准备后可用WSL路径重读：`python3 -B deploy/prepare_integration.py --context /mnt/p/.../integration-<uuid> --context-sha256 <原输出64位SHA>`；只校验，不构建。前端context没有原摘要、manifest漂移、缺件/多件、链接/硬链接、逐文件SHA漂移均拒绝。未来获准才附加 `--build`（必要时既有loopback `--proxy`），不可重新计算漂移后的摘要来绕过门禁。
+- 完整依赖准备：固定c3873 Framework基底→既有 `bench get-app` 与锁/CRM HEAD断言→两个扩展pip安装→固定补丁 `apply --check`→apply→全部after与guard复核（历史7/5，D020100精确92443ca为36/5）→原Framework资产preseed→标准 `bench build --app crm` 与资产强断言→team_access资产build→再次after/guard复核。应用后没有pip/yarn依赖安装，不允许手工增加reinstall。
+- 既有fb00构建日志的依赖层命中缓存，仅凭CRM HEAD/rc2版本号不能断言干净重建必然得到相同before SHA。任何before不符立即停，不改M19 manifest、不重装包凑通过；M17的39件公开证据不是完整node_modules。当前没有继承/复制fb00镜像作为构建输入，若需要改此设计，先记录决策/可重复条件并独审，不能临时静默换基线。
+- 镜像成功后才记录不可变ID和四个revision label；`build-result.json`另记原source-manifest摘要，不修改活动镜像锁。`probe_integration.py`对带C011000目录的镜像追加after/guard复核；原四app/双Framework manifest/全部资产/Node/restore CLI断言不变。
+- 后继必须在完整Linux依赖副本跑原 `yarn test:run`、M19 Vitest bridge及标准build，再独立probe、M18固定资产真实账号切换/撤权/后台与多标签UI；受控Node测试和源码重放不替代这些门槛。详见 `docs/RECOVERY_VALIDATION.md` 与 M19 `docs/FRONTEND_CACHE_C011000.md`。
 
 ## 从干净环境复现
 
