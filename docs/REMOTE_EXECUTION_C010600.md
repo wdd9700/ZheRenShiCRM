@@ -407,3 +407,24 @@ CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/
 唯一变更命令为 `sudo -n systemctl enable docker.service containerd.service`，exit 0；输出仅新增 `/etc/systemd/system/multi-user.target.wants/` 下指向既有 `/usr/lib/systemd/system/docker.service` 与 `containerd.service` 的两条 symlink。没有 `--now`、start/restart、整机重启、新建系统服务或修改既有 service 策略/配置；没有变更镜像、maintenance、DB 或测试业务。
 
 长驻容器仍为 `unless-stopped`，两历史一次性容器仍为 `no`。本次只证明开机启用标志已设置且当前容器未受影响，**未实测宿主重启，也不证明重启后的应用/socket readiness**。M9 精确 24e 候选的 fresh 安装、部分失败维护恢复、正常 stop/up 数据保持及 HTTP/Engine.IO/WebSocket 证据属于其独立验证；正式版本仍未上线，不能把本次 enable 记成候选部署或正式发布完成。
+
+## 16. 最终 24e 候选真实上线尝试：镜像加载失败，保留维护（2026-11-08）
+
+正常 v1 权限限定交付门获独审批准后，主控明确授权对既有合成试用站执行升级；不迁入客户库、不宣称完整安全认证。前置最小只读确认：旧四 app、`fb00dd79…`、runtime ready、9 长驻运行、Docker/containerd active/enabled、磁盘余25G。严格合成开关/禁邮件保持。最初旧命名启发式漏掉 Lead00010，限定只读核对后与 `docs/qa/browser-e2e-2026-11-03/evidence/OBSERVATIONS.md:77-87` 的独立 fork 合成CSV导入同ID、21:27–21:29及管理员创建来源匹配；未据命名认定真实资料，也未修改记录或放宽guard。
+
+交付精确工具 `242161c4ec0eb01825a9ee9e5ef6525770d27b7d`，本地 git archive 仅导出 deploy/remote，tar SHA256 `7959c93169613a78815db58c9eadf530d75bdd7f40998e97b2cc077e9ff2b8ec`，新 staging `/home/dev/c1108-reviewed-tools-242161`。候选在 `/home/dev/c1108-candidate-24e/candidate-release`：index `sha256:24e36e994c44fe497178f2e133e780cd2b2637a4e2d65f46bd5691400937f978`，config `sha256:41a88ded3dc8ac55cab451ff6b3c0b605968b971f28f726d38c0b1378b84b36e`。image.tar 1,576,683,520B，SHA256 `23b3fb65569912ce2bc82761af236d5ba34cf1781251cba6f5a60f0d906c1966`；release.env `836af4cfca2e25784f22de31b8c16ce4413c983c2d44c66353d985409187e984`；140层清单 `5f62d350a3094734bbb955d5975875b1c735ead6e58b6ef34ebd7b59525a0a79`。严格SSH/SCP后各文件SHA与本地一致。首轮tar传输60秒超时留下579469312B部分文件，原样改名为 `image.tar.partial-first-timeout` 保留；第二次完整传输约153秒exit0、SHA正确后才执行，不拿部分文件升级。
+
+升级前六类全部完整doc canonical摘要存于本worker ignored runtime `m17-final-before.stdout.log`：Lead10、Deal3、Organization5、Contact21、Task7、Note13，仅输出数量/摘要，不输出业务正文。调用如下唯一正常入口：
+
+```sh
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime \
+sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh upgrade-site-apps \
+  /home/dev/c1108-candidate-24e/candidate-release \
+  /home/dev/c1108-candidate-24e/candidate-release/image.tar --confirm-site-app-upgrade
+```
+
+**真实exit1，约132秒：** archive index→manifest→config及每个解压diff_id校验通过，停止写入服务，原生新备份 `20261108_013716-crm_localhost` 四件成功且可读验证PASS后停止backend；随后 `docker load` 报 **`max depth exceeded`**。未进入候选app安装/migrate/schema或上线readiness，不能宣称24e已部署。该现象发生于真实目标镜像加载，具体存储/层深根因尚未扩大诊断，不能把M9本地通过替代远端成功。
+
+工具失败收口实测：全项目停止，原锁/元数据恢复，状态为 `maintenance reason=exit-1 image=sha256:41a88ded3dc8ac55cab451ff6b3c0b605968b971f28f726d38c0b1378b84b36e stop=stopped lock=restored metadata=restored`；活动锁恢复 `fb00dd79…`。只读复核全部项目容器exited，包含DB/双Redis；保留两个正常退出的查询one-shot。frontend/scheduler/websocket退出码137是本次stop后所见，不据此推断OOM。没有自动启动旧缺app镜像、重试load、删除卷/镜像、切存储驱动或恢复覆库。原数据升级后摘要未能复核（站点停服），不把备份可读说成恢复或数据全等已验。
+
+本地原始工具输出：`P:/CRM/.tower/worktrees/wt-17/deploy/.runtime/m17-final-upgrade.stdout.log`；失败只读状态：同目录 `m17-final-failure-state.stdout.log`。均ignored，记录工具/摘要而非凭据。主控已收到即时失败报告，后续修复候选或同代恢复须另明确授权，不能使用跨代入口抢跑。当前Windows既有隧道映射仍为本地18088→远端127.0.0.1:8088，但服务维护停止，登录/CRM/日程不可作为可用入口；成功恢复后才验 `http://127.0.0.1:18088/login`、`/crm`、`/team-schedule`。宿主重启、完整权限安全矩阵与浏览器全流程边界不因此补算通过。
