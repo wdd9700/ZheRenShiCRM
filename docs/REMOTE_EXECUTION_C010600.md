@@ -438,3 +438,24 @@ check 通过 config/平台/三labels/全部diff_ids；up exit0，九长驻恢复
 恢复后重新运行同一只读摘要脚本，六类全部完整doc数量与canonical SHA、原四app集合输出与升级前日志逐字全等：Lead10 `edc6028f…94ea`、Deal3 `2ecbb35c…701c`、Organization5 `7e5a1720…5e82`、Contact21 `4fb7fe5e…6905`、Task7 `bf813074…8beb`、Note13 `4cdf635d…47f1`；严格synthetic/mute/server_script开关断言仍通过。before/after完整摘要在ignored `m17-final-before.stdout.log` / `m17-old-restore-after.stdout.log`，启动原始输出为 `m17-old-restore.stdout.log`（该日志含首ping502，整体命令exit22，不能把它伪记整组exit0；up本身exit0，后续独立ping通过）。
 
 **当前旧版保持运行，失败maintenance记录原样保留**，其中 `stop=stopped` 是失败时历史结果，不是当前实时状态；未删state或伪造ready。无install/migrate/restore、无DB覆库/卸app/权限关闭、无daemon或宿主重启。Windows既有隧道本地18088→远端127.0.0.1:8088，旧版入口 `http://127.0.0.1:18088/login`、`/crm` 已可接续；team_schedule尚未安装，不提供新日程上线承诺。24e仍未上线，等待低层兼容候选与下一明确部署指令。
+
+## 17. 两层等值候选真实升级成功并常驻（2026-11-08）
+
+主控明确接受M9两层候选与24e的fullConfig/有效rootfs内容、权限、链接等值，以及已记录目录mtime/rootheader元数据差；不重构建/本地矩阵。精确冻结：index `sha256:e17300da434bd0c251adf618c86db26c718511fec6ab6bfe2a99e7fd91bebe41`，platform `sha256:b240a3ef34502cb198f2b6abb07fe82ed542bd4032ae1fd4b1ca139299b28b60`，config `sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9`。新独立交付目录 `/home/dev/c1108-candidate-ld2/candidate-release`，tar 1,530,942,464B，SHA256 `6d67a6fd359b3fe69489e2e7e52bfbbedf7f9f289172d19751e2f732c7a0608b`；release `bce83c5d9acc14dafac0525b74fe8548ffc29eb04c77642dbc75651fa6ff1792`，两层清单 `f301343d0bf834ae563c4404adfaf8b1df0bcc811aa8e06951514dac657697e9`，manifest `e0e3c37f4598c93e6b1a9eed8b5d5303d096bc840e866c0c103992503c62b648`。900秒预算严格SSH/SCP传输约156秒exit0，四件本地/远端SHA逐项一致，未覆盖旧候选或删除旧失败证据。
+
+执行前核旧fb00六app仍运行，原B=41a8失败maintenance及原证据保留，六类before摘要与§16前基线全等。复用原已审精确242161工具：其跨代分支先启动/核DB和双Redis，再停止frontend/websocket/queue/scheduler及backend，load后候选one-shot configurator→新备份，随后才install/migrate。因此当前旧服务已up并不绕过停写；未伪ready或删state。真实命令：
+
+```sh
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime \
+sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh upgrade-site-apps-from-maintenance \
+  /home/dev/c1108-candidate-ld2/candidate-release \
+  /home/dev/c1108-candidate-ld2/candidate-release/image.tar --confirm-site-app-upgrade
+```
+
+**真实exit0，约286秒。** archive全链及两层解压diff_id校验通过，目标classic load成功；新原生备份 `20261108_034522-crm_localhost` 四件完成且可读，原备份保留。仅缺失team_schedule执行标准install-app，一次标准migrate，精确五app、七表/索引/longtext等工具schema验证PASS；DB身份、凭据及非维护site_config指纹等由标准工具保留核验。双Redis按已审config-hash/固定镜像/原数据卷契约更新健康检查并记录代次证据，不误称其容器ID不变。未init、迁客户库、删除卷、关权限或发信。
+
+独立升级后只读复核：installed_apps精确frappe/crm/resource_import/team_access/team_schedule；六类完整doc canonical摘要与before逐字全等（Lead10、Deal3、Org5、Contact21、Task7、Note13），包括§16记录的六个完整SHA。严格synthetic_only整数1、mute_emails整数1、server_script_enabled0断言保持。backend和frontend内部HTTP ping均200/pong，远端回环8088 ping200；Engine.IO polling得到有效握手，WebSocket HTTP101升级通过，**仅为transport连通，不替代认证namespace/权限验证**。
+
+最终 `ready image=sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9`，活动锁相同；六长驻app全同config，configurator exited0；9长驻运行，DB/双Redis/backend/frontend healthy，队列/scheduler/websocket不额外声称配置了healthcheck。新one-shot全部exited0并保留。再次check通过平台、三labels与全部RootFS层。**成功保持服务常驻，没有演练finally停站**。旧24e失败、旧锁/镜像/备份/工具均保留；不把既有备份可读当恢复演练。
+
+本轮原始输出在worker ignored runtime：`m17-ld2-upgrade.stdout.log`、`m17-ld2-before.stdout.log`、`m17-ld2-after.stdout.log`、`m17-ld2-final-state.stdout.log`；不含口令/cookie。Windows既有隧道仍为本地18088→服务器127.0.0.1:8088，准确入口 `http://127.0.0.1:18088/login`、`/crm`、`/team-schedule`。已通知主控交Terra做Windows最小UI验收，本worker未抢跑业务UI或新增测试数据。正常v1权限仅为限定发布批准，不宣完整安全认证；宿主重启、全部安全旁路、长期容量、Windows本轮真实UI仍各有边界，未因此补算通过。
