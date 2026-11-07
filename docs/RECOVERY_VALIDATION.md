@@ -1,5 +1,12 @@
 # 安全集成、隔离恢复与重启验收（M9 / D006）
 
+## 2026-11-08：M8正常v1核心已批准合并，M9五任务完成交最终独审
+
+- tower最新确认M8 [正常v1限定交付独审seq115](../../../comms/reviews/review-feat-team-private-activity-access-extension-b-access-v1-bounded-release-revi-r1.md)为**clean/merge**，审定生产`531bbaef50b4b674e5dc450dd311e466761c52ed`，rebase后`0f7adb4ca18d35102818426a760a0ee730d25e2e`生产树逐字相同，正式合并master `67b90ee37deefe0316fedc3bf89bccfa52049f3b`。这关闭M9 T2的正常v1权限责任门，不要求穷举全覆盖，也不是历史R8广泛安全审复活或无漏洞证明。
+- **T2完成依据**：既有先备份/安装/双迁移/健康和M7原生导入幂等证据，加e26双真实Sales本人读写、Private互拒、Shared只读、协作撤回旧新会话403、私附件字节与重启保持；87e76远端R2标准详情/列表/文本筛选/link/CRM列表/父活动/CSV、四对象旧新会话拒写后owner完整doc不变；当前531正常L2 Note协作、Task受派撤回、父Read保留时Shared→Private收回、Lead→Deal/Org/Contact，以及source28/recovery36定向HTTP。seq115批准按此正常核心范围合并；安全回退仍保安全hook/失败停维护，不启动旧不安全版本暴露私域。只引用已存证据，本次未重读大日志、运行测试或环境。
+- **完成映射**：T1固定镜像/注册/资产与资源导入保持；T2上述批准及真实核心权限链；T3同版本隔离恢复/非空公私文件与关联、正常登录读写；T4正常停启持久性、HTTP/传输socket和M17 daemon enabled/标准常驻说明；T5受控JSON/CSV关联追踪、证据决策链及seq114指定证据独审子门。五项均按原责任与最新正常v1合同满足，M9提交最终tip请求独立交付审查；**completed是等待审查，不是merged/正式发布批准**，旧seq114 clean/hold不自动升级为新tip批准。
+- **仍保留的边界**：seq115未全面验证多REST/v2、高阶保存视图、复杂历史跨根/附件别名与并发、全身份禁删/子行/快照变体、父doc/list双room、PWA全离线；既有限制不解除，不能宣传完整CRUD/实时全功能。历史R8供应商拒绝及旧失败保留，不重试或改写为已审。真实客户旧库未经核验不得迁入，不能伪标`synthetic_only=1`；其整数门不证明真实性/旧unlink来源安全。真实资料授权与安全迁移仍另定范围。低层2层材料保持下节冻结字节；远端最终上线/readiness及Windows目标登录/必要入口由M17和Windows owner按各自授权验收，**M9不宣已上线或Windows完成**。整机重启/长期压测等未验仅披露，不新增本轮门；当前没有新增必须用户决定的核心交付卡点。
+
 ## 2026-11-08：classic层深限制修复，标准2层同内容交付（本地必要门通过）
 
 - 原始远端日志`P:/CRM/.tower/worktrees/wt-17/deploy/.runtime/m17-final-upgrade.stdout.log`明确：原archive verifier全链通过→新四件原生backup `20261108_013716-crm_localhost`可读→停backend→load报`max depth exceeded`→原工具维护全停、旧lock/metadata恢复；**尚未configurator/install/migrate**。原24e config实际140个diff_id、201 history中140非empty，累计多次派生超出classic overlay2常见128层限制；本地Docker29.1.3 containerd snapshotter/overlayfs可用不等classic可load。主控后报M17已安全恢复原四app/HTTP及六类旧业务全doc保持，M9没有SSH或动远端，也不将该转报当本机实测。
@@ -138,12 +145,12 @@
 | 项 | 当前核对 | 尚缺或完成依据 |
 |---|---|---|
 | 1 固定镜像集成、app注册/资产及资源导入保留 | 已完成并勾选 | 既有统一部署与resource faa5f03/access531/五app注册保持；最终8c5/1c标准bench构建、native34/326、四suite bridge1/1及最终image原a8单SFC1/1均实际通过，完整源资产保护保持；本次未部署旧站 |
-| 2 先备份、双迁移、健康/导入与M6/M8真实权限回归 | 部分完成 | 备份/安装/双migrate、真实普通HTTP与正常L2 UI已有证据；完整独立M6/M8多入口权限矩阵未全部闭合，不以定向门替代 |
+| 2 先备份、双迁移、健康/导入与M6/M8真实权限回归 | 正常v1核心范围已完成 | 既有备份/安装/双migrate/健康/导入及e26双Sales、87e76列表CSV/活动/撤权附件、当前531正常L2 UI和source/recovery定向HTTP；M8 seq115 clean/merge及master67b90ee正式合并收口责任。安全回退不关闭hook；高级组合/历史准入仍保限制，不冒称全覆盖 |
 | 3 同版本独立恢复、原文关联/权限及正常登录读写 | 已完成并勾选 | 早期同版本cae/34fc链覆盖非空公私2文件与12类；full951同61a新七卷native_restore完整18类109refs等值、原口令及target-only正常读写撤权36请求通过。最新空物理文件和encryptedAuth0不能外推非空/解密 |
 | 4 重启持久化与可复现可靠运行说明 | 按原范围已完成 | 既有source/recovery完整18类及有限普通登录/ACL保持；精确24e r8正常stop/up后12类103refs、公私2files、users/settings保持，真实HTTP与Engine.IO/WebSocket传输通过；M17 86b9dfa §15补既有daemon enabled、稳定宿主/固定Compose及restart策略运行方案，不依赖临时hold。seq114确认本门已足；认证room等正式权限责任仍归T2 |
-| 5 受控导出、可追踪与证据决策链/独审 | 已证子项完成，合并条件保留 | 12CSV/18CSV与JSON逐字段回读、企业联系人需求商机任务/子表引用图、恢复/重启/导出证据与D006链已实证；a4361fa的seq114指定证据独审clean/hold、无P1/P2，该子门不再待审；不是M8/M9全分支批准，合并仍等T2及最终候选部署/Windows发布门 |
+| 5 受控导出、可追踪与证据决策链/独审 | 已证子项完成，最终交审 | 12CSV/18CSV与JSON逐字段回读、企业联系人需求商机任务/子表引用图、恢复/重启/导出证据与D006链已实证；a4361fa的seq114指定证据独审clean/hold、无P1/P2，该子门不再待审；T2按seq115正常核心批准收口后，本次最终tip提交M9独审，不沿用旧审或提前合并 |
 
-可靠运行说明现已由本地标准up/stop实证和M17既有Docker/containerd enabled、固定Compose及长驻unless-stopped/一次性no收敛，不续租临时WSL hold作正式托管。历史infra重启触发socket exit1/共同exit255与未归因事实保留；非计划Redis断连恢复、整机重启及长期稳定性未验，但不自动扩大为原T4或本轮v1.0新增测试门，不擅改上游/全局策略。T4及T5已证子门不再循环阻塞；M9整体仍active，剩T2正式权限责任与最终候选交付/Windows入口，clean/hold不是合并许可，不Complete/MVP/merge。
+可靠运行说明现已由本地标准up/stop实证和M17既有Docker/containerd enabled、固定Compose及长驻unless-stopped/一次性no收敛，不续租临时WSL hold作正式托管。历史infra重启触发socket exit1/共同exit255与未归因事实保留；非计划Redis断连恢复、整机重启及长期稳定性未验，但不自动扩大为原T4或本轮v1.0新增测试门，不擅改上游/全局策略。M8 seq115正常v1批准并正式合并后，M9五项按责任范围满足，现交最终独立审查；completed不等merged/上线。远端最终部署和Windows目标验收仍属各owner，不冒称完成；旧阶段active/剩T2状态由首节及本表替代，历史失败不改写。
 
 ## 先前累计状态（历史，旧红原样保留）
 
