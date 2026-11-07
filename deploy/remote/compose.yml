@@ -1,0 +1,215 @@
+name: crm-trial-c010400
+
+x-app-volumes: &app-volumes
+  - trial_sites:/home/frappe/frappe-bench/sites
+  - trial_logs:/home/frappe/frappe-bench/logs
+
+services:
+  db:
+    image: public.ecr.aws/docker/library/mariadb@sha256:f1c56f035ed268a0d7c2c2e06dc879f6319b997cb434cf822a4cfd72a7aa184d
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?generate a new trial password}
+      MARIADB_AUTO_UPGRADE: "1"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - trial_db:/var/lib/mysql
+    restart: unless-stopped
+
+  redis-cache:
+    image: public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  redis-queue:
+    image: public.ecr.aws/docker/library/redis@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - trial_redis:/data
+    restart: unless-stopped
+
+  configurator:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        ls -1 apps > sites/apps.txt &&
+        bench set-config -g db_host db &&
+        bench set-config -gp db_port 3306 &&
+        bench set-config -g redis_cache redis://redis-cache:6379 &&
+        bench set-config -g redis_queue redis://redis-queue:6379 &&
+        bench set-config -g redis_socketio redis://redis-queue:6379 &&
+        bench set-config -gp socketio_port 9000 &&
+        bench set-config -g chromium_path /usr/lib/chromium/chromium-headless-shell
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?generate a new trial password}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
+    volumes: *app-volumes
+    restart: "no"
+
+  backend:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    environment:
+      GUNICORN_THREADS: "2"
+      GUNICORN_WORKERS: "1"
+      GUNICORN_TIMEOUT: "120"
+    healthcheck:
+      test:
+        - CMD
+        - /home/frappe/frappe-bench/env/bin/python
+        - -c
+        - >-
+          import json,urllib.request;
+          response=urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/method/ping',headers={'Host':'${FRAPPE_SITE_NAME:-crm.localhost}'}),timeout=3);
+          raise SystemExit(0 if json.loads(response.read()).get('message') == 'pong' else 1)
+      start_period: 20s
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+    restart: unless-stopped
+
+  websocket:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+    restart: unless-stopped
+
+  frontend:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      NGINX_LISTEN_PORT: "8080"
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME:-crm.localhost}
+      PROXY_READ_TIMEOUT: "120"
+      CLIENT_MAX_BODY_SIZE: "50m"
+    healthcheck:
+      test:
+        - CMD
+        - /home/frappe/frappe-bench/env/bin/python
+        - -c
+        - >-
+          import json,urllib.request;
+          response=urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8080/api/method/ping',headers={'Host':'${FRAPPE_SITE_NAME:-crm.localhost}'}),timeout=3);
+          raise SystemExit(0 if json.loads(response.read()).get('message') == 'pong' else 1)
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      backend:
+        condition: service_healthy
+      websocket:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8088:8080"
+    volumes: *app-volumes
+    restart: unless-stopped
+
+  queue-short:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    command: ["bench", "worker", "--queue", "short,default"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+    restart: unless-stopped
+
+  queue-long:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+    restart: unless-stopped
+
+  scheduler:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    command: ["bench", "schedule"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+    restart: unless-stopped
+
+  create-site:
+    image: ${CRM_IMAGE:?load and lock the exact trial image}
+    pull_policy: never
+    profiles: ["setup"]
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        test "$${CRM_TRIAL_SYNTHETIC_ONLY_ACK}" = "confirmed-synthetic-only" &&
+        bench new-site --no-mariadb-socket
+        --db-root-password "$${DB_PASSWORD}"
+        --admin-password "$${ADMIN_PASSWORD}"
+        --install-app crm "$${FRAPPE_SITE_NAME}" &&
+        bench --site "$${FRAPPE_SITE_NAME}" set-config -p team_access_synthetic_only 1 &&
+        bench --site "$${FRAPPE_SITE_NAME}" set-config -p resource_import_disabled 1 &&
+        bench --site "$${FRAPPE_SITE_NAME}" set-config -p server_script_enabled 0 &&
+        bench --site "$${FRAPPE_SITE_NAME}" set-config -p mute_emails 1
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?generate a new trial password}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?generate a new trial password}
+      FRAPPE_SITE_NAME: ${FRAPPE_SITE_NAME:-crm.localhost}
+      CRM_TRIAL_SYNTHETIC_ONLY_ACK: ${CRM_TRIAL_SYNTHETIC_ONLY_ACK:-not-confirmed}
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+
+volumes:
+  trial_db:
+    name: crm_trial_c010400_db
+  trial_redis:
+    name: crm_trial_c010400_redis
+  trial_sites:
+    name: crm_trial_c010400_sites
+  trial_logs:
+    name: crm_trial_c010400_logs
+
+networks:
+  default:
+    name: crm_trial_c010400_network
