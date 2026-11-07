@@ -1,0 +1,71 @@
+app_name = "team_access"
+app_title = "Team Activity Access"
+app_publisher = "CRM Team"
+app_description = "Explicit private and shared CRM activities"
+app_email = "noreply@example.invalid"
+app_license = "AGPL-3.0"
+required_apps = ["crm"]
+
+before_install = "team_access.install.preflight"
+after_install = "team_access.install.migrate"
+before_migrate = "team_access.install.preflight"
+after_migrate = "team_access.install.migrate"
+before_uninstall = "team_access.install.prevent_uninstall"
+
+auth_hooks = ["team_access.request.guard"]
+after_request = ["team_access.request.after_request"]
+
+permission_query_conditions = {"*": "team_access.permissions.query_condition"}
+has_permission = {"*": "team_access.permissions.has_permission"}
+doc_events = {
+    "*": {
+        "before_validate": "team_access.events.validate", "validate": "team_access.events.validate",
+        "before_save": "team_access.events.validate_integrity", "before_submit": "team_access.events.validate_integrity",
+        "before_cancel": "team_access.events.validate_integrity", "before_update_after_submit": "team_access.events.validate_integrity",
+        "on_trash": "team_access.events.on_trash",
+    },
+}
+
+override_doctype_class = {
+    "CRM Lead": "team_access.parents.ActivityLead",
+    "CRM Deal": "team_access.parents.ActivityDeal",
+    "File": "team_access.files.ActivityFile",
+    "FCRM Note": "team_access.realtime.ActivityNote",
+    "CRM Task": "team_access.realtime.ActivityTask",
+    "Comment": "team_access.realtime.ActivityComment",
+    "Communication": "team_access.realtime.ActivityCommunication",
+    "ToDo": "team_access.realtime.ActivityToDo",
+    "Version": "team_access.realtime.ActivityVersion",
+    "CRM Notification": "team_access.realtime.ActivityNotification",
+    "Notification Log": "team_access.realtime.ActivityNotificationLog",
+    "CRM Call Log": "team_access.realtime.ActivityCall",
+    "Communication Link": "team_access.relations.ActivityCommunicationLink",
+    "Dynamic Link": "team_access.relations.ActivityDynamicLink",
+}
+
+override_whitelisted_methods = {
+    "frappe.realtime.can_subscribe_doc": "team_access.realtime.can_subscribe_doc",
+    "frappe.core.doctype.deleted_document.deleted_document.restore": "team_access.deleted.restore",
+    "frappe.core.doctype.deleted_document.deleted_document.bulk_restore": "team_access.deleted.bulk_restore",
+    "frappe.desk.form.load.getdoc": "team_access.docinfo.getdoc",
+    "frappe.desk.form.load.get_docinfo": "team_access.docinfo.get_docinfo",
+    "frappe.desk.form.load.get_filtered_attachments": "team_access.docinfo.get_filtered_attachments",
+    "frappe.desk.form.load.get_communications": "team_access.docinfo.get_communications",
+    "crm.api.doc.get_assigned_users": "team_access.docinfo.get_assigned_users",
+    "crm.api.activities.get_activities": "team_access.api.get_activities",
+    "crm.api.doc.get_data": "team_access.api.get_data",
+    "crm.api.doc.get_linked_docs_of_document": "team_access.api.get_linked_docs",
+    "crm.api.notifications.get_notifications": "team_access.api.get_notifications",
+    "crm.fcrm.doctype.crm_call_log.crm_call_log.get_call_log": "team_access.api.get_call_log",
+    "crm.integrations.api.add_note_to_call_log": "team_access.api.add_note_to_call_log",
+    "crm.integrations.api.add_task_to_call_log": "team_access.api.add_task_to_call_log",
+    "frappe.desk.form.linked_with.get": "team_access.api.get_linked_with",
+    "frappe.desk.notifications.get_open_count": "team_access.api.get_open_count",
+}
+
+doctype_js = {
+    "FCRM Note": "public/access.js",
+    "CRM Task": "public/access.js",
+    "Comment": "public/access.js",
+}
+web_include_js = ["/assets/team_access/access.js"]
