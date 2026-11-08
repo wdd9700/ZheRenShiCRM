@@ -47,7 +47,7 @@ body:has(.crm-workspace) { background: var(--crm-bg); color: var(--crm-text); }
   margin: 0;
 }
 .crm-standalone *, .crm-standalone *::before, .crm-standalone *::after { box-sizing: border-box; }
-.crm-standalone main, .crm-standalone .crm-workspace { max-width: 1440px; margin: auto; padding: 24px; }
+.crm-standalone main, .crm-standalone.crm-workspace { max-width: 1440px; margin: auto; padding: 24px; }
 .crm-standalone h1 { font-size: 28px; line-height: 36px; margin: 16px 0 8px; font-weight: 650; }
 .crm-standalone h2 { font-size: 20px; line-height: 28px; margin: 0 0 16px; font-weight: 650; }
 .crm-standalone h3 { font-size: 16px; line-height: 24px; }
@@ -80,6 +80,6 @@ body:has(.crm-workspace) { background: var(--crm-bg); color: var(--crm-text); }
 .crm-standalone th { background: var(--crm-raised); font-weight: 600; }
 .crm-standalone [hidden] { display: none !important; }
 @media (max-width: 640px) {
-  .crm-standalone main, .crm-standalone .crm-workspace { padding: 12px; }
+  .crm-standalone main, .crm-standalone.crm-workspace { padding: 12px; }
   .crm-standalone section, .crm-standalone .crm-card { padding: 16px; }
 }

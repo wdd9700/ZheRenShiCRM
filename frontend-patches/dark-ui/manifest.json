@@ -56,7 +56,7 @@
     {
       "target": "frontend/src/crm-theme.css",
       "before": null,
-      "after": "d05f72cb6c584348c59858b9fc41cc67c9f10be8713ba4c20cfaab1d7fb682c1",
+      "after": "9b966e04566f7d83f0f18745ed5458d64fec2a77b12ae4c2a6042dbbf828b837",
       "payload": "crm-theme.css"
     }
   ]
