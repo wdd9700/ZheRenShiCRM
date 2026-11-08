@@ -1,6 +1,6 @@
 # 哲人石CRM U030 标准组合与登录品牌
 
-状态：首轮 d573 标准构建/native326/bridge/SFC 已过并完成一次真实 UI 窗口，反馈的视觉/引导缺口已集中修复。第二批 v3 候选 6d143 已完成一次标准构建及实际产物改动定向检查；等待同一 M32 站定点视觉复验，未宣全部视觉通过。M37没有更改线上服务、数据库或部署锁。最新身份与 receipt 见文末，首轮历史保留。
+状态：最终2f92候选已完成标准构建、受影响产物定向检查、限定核心Terra视觉/正常退出及原归档验证，材料齐备请求最终独审。登录截图两次PAGE_NOT_READY未取得、可读白黑入口风格偏差及未全面多语言矩阵如实保留，不宣全视觉完美。M37没有更改线上服务、数据库或部署锁；未SSH/上线。最新身份、receipt、截图继承边界与交付包见文末，全部历史失败保留。
 
 ## 固定来源与集成决定
 
@@ -271,3 +271,59 @@ canonical/payload及根/sites共享主题最终SHA **`a80f2861ad92a100743a5ffed1
 - **`static-receipt.json` SHA `bdf4c6827b194372ea600fc05a70750d47d4d42b1ac69f58f1f6792734f2bd1f`**，含201完整动态URL及11重点URL bytes/SHA（含实际access query），不是201条浏览器HTTP请求。
 
 后继只活动页+登录必要视觉，复用M32和既有账号事件；已过CRM品牌/日轴不重整链。准备完成即READY，独立有效验收计时，不能事后延deadline。当前仅该CSS候选产物合同通过，活动页/navbar/标题/入口真实颜色与登录视觉仍待Terra；最终交付材料已具备来源/构建/测试/镜像/资产证据，但不在视觉通过前Complete或宣上线。
+
+## 最终限定核心验收归档（不重采、不外推）
+
+以下为 tower/Terra 已有工具引用，按候选分别记录；截图不是本worker重采。用户明确本轮不求所有风格完美，限定核心范围收口，不再循环登录截图或增加功能/矩阵。
+
+| 候选/场景 | 精确已有引用 | 可成立结论及边界 |
+|---|---|---|
+| 最终2f92活动页 | `visual-855eae58-f73b-47ae-a807-9021709e59d3`，CSS1280×720 / 图片1600×900 scale1.25 | h1、Framework navbar、主体暗浅清楚可读；右下白底黑字可读，保留非阻断风格偏差，不说全部颜色符合设计 |
+| 最终2f92正常注销→登录页 | `text-681b0099-abc2-4a61-ab03-4b5271b0482f` 成功提示；`text-c9a1d582-dbe8-4b89-89c0-68d6531eb2c7` /login | Terra正常退出已确认，不是仅期限收窗 |
+| 最终2f92登录视觉 | 两次 `PAGE_NOT_READY`，无成功snapshotID | **登录截图未验**，不虚构图片/ID、不写视觉通过；正常表单登录/身份/退出已有独立真实证据，不再循环截图 |
+| v4(2aa73)真实日轴 | `visual-4c3acd4f-1d42-4a6f-aecb-b1132b1a0c83` | 同屏轨道、编号1/2连接线及右rail完整标题/起止/状态无遮挡可读 |
+| v4 CRM品牌/引导/入口 | `visual-45d4eb7d-7d9a-4e3a-be4e-8d0f5ef3000a` | 哲人石CRM品牌、中性logo、引导中文与入口正常显示，不把此前残留截图当本候选最终表现 |
+| v4创建窗文案/提示 | `visual-33389130-7c4c-4922-8b9a-ed2e15cd98cd` | 中文公司介绍、深底提示细金边可读；该窗未提交，不当新增业务成功 |
+| v4退出/login | `text-361b0be6-414f-4b0a-a07f-9e00f1387341` | 对应v4正常退出；M9收窗报告有明确browser release |
+| 首轮d573 SHORT编辑 | `text-c1e669d5-da7a-4764-9475-5ab16a561c8e` | 编辑到revision2 |
+| 首轮d573 OVERLAP创建/取消 | `text-ddb543dc-89d9-4c3a-9c10-cf1b87707b12` / `text-01a1d40b-e88d-4e9c-9c05-e3cb9f21a575` | 原核心创建、取消到revision2通过，非最终2f92重跑 |
+| 首轮d573退出/后台清屏 | `text-d6ba3506-c247-45b6-bb64-4b4a0ec4d486` / `text-1b2b3622-12d1-46e3-8f75-2cd8bd3efd1f` | 对应首轮行为；不倒推每个后续候选都重跑 |
+| 首轮d573 Lead00001创建/reload | tower/Terra原功能交接；具体创建/reload snapshotID未收到 | 只引用已交接结果，不猜ID、不把v4未提交创建窗当替代证据 |
+
+继承边界：d573原主功能与后继未改的后端/原43+nav逻辑由逐来源守卫保护；v4改日轴可见标签与品牌接线后已独立截图/实际产物定向验证。2f92相对v4仅共享CSS有限变更（及由标准Vite重新生成资源标识），M37逐blob核App/UserDropdown/access7d26/标签rail/文案生产前驱不变，最终guard核后态，因此复用v4 CRM/日轴视觉及原核心功能证据，**不宣称所有操作均在2f92重做**。正常默认中文仅原生System Settings单字段，明确User.language/时区/请求偏好不被覆盖；多语言偏好整个浏览器矩阵未全面测，不泛化为全语言验收。
+
+最终M9窗口 `m37-m32-ui-685a37e3a6e24dd6be22f265c2740ebc`：Terra正常logout后提前explicit browser release，14:32:01.181676Z恢复完成/exit0，15ops/33guards PASS，8094 Listen0，app3/relay停止，原en/UTC/assets156/sitecommonSHA/infra原停状态复原，原六卷/testapp/keys/账号与合成fixture保留。报告 `P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m37-m32-ui-685a37e3a6e24dd6be22f265c2740ebc/result.json` SHA `af5126fa85ae96ecd0dd77a3efb7f959f95181b696b5d849f8fc910127bf1783`；同目录Windows proof SHA `6b91493c5cf343feac0812d0d8a63d9e4cb7b97c34c2291a1028ee130aa752ec`。Linux/Windows11资产、实际CRM query注入及完整query响应SHA、普通账号登录/活动入口/退出已实证。未SSH/线上/重建或重矩阵。
+
+按用户限定核心范围，任务2的品牌/title/apple/lang/原生login接入与任务4的审定组合构建/必要回归/Terra核心短测可准确收口；**登录视觉未取得、右下入口风格偏差、多语言全矩阵未全面测**为交付限制而非假通过。没有未解决的正常核心功能失败，不新增无限截图门。最终completed只为请求独审，非已merge/已上线。
+
+## 最终镜像归档与部署owner交接
+
+先查本worktree和M9现存材料，确认没有2f92 export；M9各UI窗没有save/export/build，旧caf父tar仅作七字段格式参考。收到M9明确ENV RELEASED后，唯一 `bash-cbd8hvju` / Windows PID33516 **87.458秒、exit0**，只 `docker image save` 已受测2f92及运行原242161归档验证器；不重build、不创建容器/卷或启动站点。
+
+冻结目录（ignored，不进Git）：
+
+`P:/CRM/.tower/worktrees/wt-37/deploy/.runtime/u030-final-2f92c460-release/`
+
+| 材料 | bytes / SHA256 |
+|---|---|
+| `image.tar` | **1540059136 bytes** / `0deba5793481799ae1774d37926def678f35d8a1372eadaf09e31d55a144ccae` |
+| `release.env` | 七字段 / `6a961af6a88356b529e34310559ee07beb09df57bf56de81cf6e8600710b9453` |
+| `image-rootfs-layers.txt` | 七个有序diff_id / `225d78e8eee4dea16a4613ac2ea372dcf288e6d2ca2f75c2ce4822a5f7a98e33` |
+| `candidate-manifest.json` | `6184ff568ed0722b47d4399bcd64ba9f04acd5904930c0ec0cc3cfca864f8292` |
+| `export-result.json` | `ab82cc45771a40d1da4d56380e1dc2b6c35f2766277748a30f684f18aa5334d8` |
+
+release身份为当前已测 index2f92/platform00481/config50a654，不是旧caf父包；resource_import/team_access/upstream字段按实际继承labels取值。**team_access label表示已核继承基线531，不掩盖request.py存在明确branding URL增量**，最终manifest另列完整UI revisions/source receipt，禁止把该label解读为整个app零修改。
+
+原 `P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m9-maintenance-242161-r7/deploy/remote/verify_image_archive.py` SHA `ac13f1f9dfecc21eb6cc6df06ae1471f0d4aa20645a9eab9906c478b992b1b4a` 未修改，实际exit0核全部blobSHA、index→唯一linux/amd64manifest→config，以及逐gzip解压diff_id与七层清单/config全等。另读归档config与受测docker inspect的完整Config逐值等、RootFS七项有序等。不是只核tar大小、标签或版本号；本机save/verify不代表已远端load。
+
+原180容器/134卷、daemon与主image lock六guard保持，无新增资源，无后台。第一Ubuntu已明确ENV RELEASED给tower/M9。所有旧候选/失败日志/备份/卷保留，不做prune或清理；本包SHA/receipt交远端部署owner `remote-usable-baseline`，此交接**不授权其SSH/上传/部署**，正式发布仍由tower另开维护窗口。
+
+### 默认中文的可逆原生设置
+
+在后续明确授权的部署窗口，先只读记录本站 `System Settings.language` 原值，核真实语言码Chinese为`zh`，通过原生System Settings表单（或同等正常DocType保存）**仅设置该字段**；保存并按既有受审流程失效本站必要网页/设置缓存，使新请求生效，不flushdb、不清所有session。若需回退，仅恢复刚记录的原language值，不把本站历史时区/业务数据恢复混为一谈。
+
+不得批量覆盖 `User.language`，也不改 `time_zone`、cookie、请求 `_lang` 或 `Accept-Language`。明确用户语言仍按Frappe原生优先级，高于站点默认；Guest浏览器明确其他语言可优先，不用before_request强制中文。没有language记录的用户才使用默认fallback；此步骤不修改认证/角色/数据权限。M32各验收窗已仅临时默认zh、原User语言和UTC保持，退出时恢复en；不能把M32临时设置误称目标线上已改。
+
+### 最终交审状态
+
+实现、精确组合构建、低层归档、必要回归及限定核心Terra验收材料已齐；任务2/4按上述范围收口。真实未验登录截图/可读非阻断入口风格偏差/未全面多语言矩阵/未远端部署保留为限制，不假通过、不以新测试无限延长。当前没有新的必须交用户决定的产品价值卡点。TowerComplete仅请求最终独审与合并，不代表正式发布已完成。
