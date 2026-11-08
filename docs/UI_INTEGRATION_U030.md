@@ -1,6 +1,6 @@
 # 哲人石CRM U030 标准组合与登录品牌
 
-状态：精确审定输入已完成第一 Ubuntu 标准组合构建，以及最终镜像的原生 34文件326测试、bridge 与原 SFC 回归。日程/文案实际产物定向检查及静态 receipt 收尾中；Terra 核心界面烟测尚未进行。没有更改线上服务、数据库或部署锁。
+状态：首轮 d573 标准构建/native326/bridge/SFC 已过并完成一次真实 UI 窗口，反馈的视觉/引导缺口已集中修复。第二批 v3 候选 6d143 已完成一次标准构建及实际产物改动定向检查；等待同一 M32 站定点视觉复验，未宣全部视觉通过。M37没有更改线上服务、数据库或部署锁。最新身份与 receipt 见文末，首轮历史保留。
 
 ## 固定来源与集成决定
 
@@ -143,3 +143,44 @@ v3 增加显式 `--onboarding-commit`，必须与 `--localization-commit` 指向
 M35 新增 `apps/team_access/team_access/public/access.js` 为第九件最终有效覆盖（两处样式，JS 权限行为不变）；根/sites 同名静态文件继续强核。新 CSS SHA `058c3019494b3718d129c2a2e4616663d934b96d4c8036de409f7d11a93578cb`，UserDropdown after `5d6ac5cadd8248880ed1e0b124f971271147d898d5869117a24fc88c9c652aa6` 均由新 dark-ui manifest 读取，不沿用首轮哈希。原 M24/M30 manifest、安全边界、legal 和认证不变。
 
 v3 仍使用原两层 caf102 基底执行一次集中标准构建，不从已叠 UI 镜像反复累加；原所有容器/卷及配置受保护。只回归本次实际改动覆盖的日程、access、M39翻译/Framework SFC；不重复已绿未受影响的 native326 或后端权限/恢复矩阵。以下结果待实际执行追加；本段不宣已构建/已部署。
+
+### v3 真实构建、首 runner 失败及同镜像定向续验
+
+精确集成源码 `073d0f23ee8ff8e2eb103296a837cc6541ec4d51`，context `deploy/.runtime/ui-3e8c9c113a1046aa93cd800cb3a32045`，receipt `c71459eddbdc0967825e26e607f90888b5634a1c44fd483e99589de44c3b815e`；六项组合离线测试 PASS，实跑三个 Framework SFC before→check/apply/verify→after、漂移及重复应用拒绝，CRM55来源/守卫、五新 wording 覆盖与原布局衔接通过。未重复未变品牌六项或其他无关矩阵。
+
+`bash-ivp52qpz` / Windows PID28716 **82.870秒、exit1**：其中唯一标准构建**实际 exit0**，新资产 build/source/Framework after 均通过；随后定向测试 **Node34/35**，首失败 `ENOENT /tmp/u030-contract/apps/team_access/team_access/public/access.js`。原因是新增样式测试读取该临时文件，而本轮 runner 把实际 artifact access.js 的复制放在 Node 之后；原 image source/asset SHA guard 已真实通过，不能归为产品源丢失。后续静态/Framework runtime 尚未跑，原 report/log/退出1 probe 保留，不倒改为全绿。
+
+只新建 runner 版本，把实际 access.js/page.js 提前复制 `/tmp`；没有改生产、测试断言或白名单，没有重新构建。`bash-nghk964i` / Windows PID4508 **46.687秒、exit0**，复用同一新镜像与本次已建两个卷为只读，read-only root + `/tmp` tmpfs/none/restartno，仅续定向合同：
+
+- 日程两个既有 Node suite **35/35 PASS**，含新 access 注入配色/路由/observer 去重、新日轴位置与原功能场景。
+- Python 静态 **5/5 PASS**，包含新 timeline→options→editor 真实 DOM 次序、原 ID 保留、默认折叠和不缩字号。只读旧公开 HTML fixture 替代测试内的 `git show` 输入，不改变断言或实际生产源码。
+- 实际 page.js 既有 DOM/fetch 受控合同 PASS；真实 CSRF/session/持久化仍归浏览器/既有后端证据，不外推。
+- M39 三个实际 Framework SFC 的 Vue parse/compileScript/compileTemplate、CRM 翻译接线、中英/服务端法语欢迎/进度表达式、按钮回调合同 PASS。
+- 实际 M39 更新词典的占位符、locale、context、服务端优先级 PASS；来源/双静态 guard 及 **78 个 HTML 静态引用**均通过。
+- 本轮按约定不重 native326、原 SFC、后端权限或恢复矩阵；这些代码未改，首轮对应证据只作历史，不伪造本轮重跑。
+
+最新候选（非线上）：
+
+| 身份 | 值 |
+|---|---|
+| tag | `crm-local:ui-3e8c9c113a1046aa93cd800cb3a32045` |
+| index | `sha256:6d14300937ea0bc818c400525138f7e21086236df074ba0c9b785a3ad0bd303d` |
+| linux/amd64 manifest | `sha256:7fa4ede1acf5d939679dc89602c27be7b0e1c2dd789ec25232f2e3429bcaaec6` |
+| config | `sha256:ee6116d442e156a9071aac570d9f9dea28bdc383a245d5782e3625fcaf700075` |
+| 层数 | **7**，原 Config 除明确 UI labels 外逐值相等 caf102 |
+
+首次构建窗保护原159容器/128卷，七guard通过，仅新增退出1测试probe及两个自有匿名卷；续验保护原160容器/130卷，六guard通过，只新增退出0非OOM probe `ab039b663d2c312b50de615db64ffb90250b132e9b451c215134788072e86223`，复用原本次两卷只读无新卷。daemon 与主 image lock 保持，无新业务运行、站点/数据/权限修改或 SSH。两阶段都无 final guard failure。第一 Ubuntu 已明确释放给 M9，由其复用已存在 M32 与 SHORT/OVERLAP 夹具做集中视觉复验；M37不再环境操作，无后台。
+
+完整旧失败 `deploy/.runtime/u030-v3-83ea2c14c5df4275ad549fc949a85b5c/result.json` SHA `bc7a543c2d7359d30529a3cd7c9a5a3c8d803226e15745c5baa13a5c7545b7c3`；成功 build log SHA `815ea85f1241c0abdeb1f95ebac3ac9405acceeb011ab85b8d1b0fe5b9229e26`。新续验 `deploy/.runtime/u030-v3-resume-e29a0407b9bc452fba766f384aeaf1bd/result.json` SHA `70afd8c7ac0870247a68697bb74c240633f0f151921ef25d6bfcb136bcf2a95e`，`concentrated-targeted.log` SHA `44a3e1b19c606b53e44d24387f4a3fcd59dade03c5a6356a0019e4d0f126bc1c`；同目录 `static-receipt.json` SHA **`62d25c8126d7e6667088bcd934bd87ee77b256b9f1c80ccbda4249cc0d878111`**。
+
+| 最新静态 URL | SHA256 |
+|---|---|
+| `/assets/crm/frontend/assets/index-BDrf0DB4.js` | `2c12cdf7f20515a160cf58615e01a528b40d823eb01f9e32181ad1d430a7ec3e` |
+| `/assets/crm/frontend/assets/index-CkYIMfiN.css` | `d56439b25f3b047cf85706c48ddccc97933df98d8f32a3de993e62510db48ca6` |
+| `/assets/team_access/access.js` | `3f366ec57cdbf7be911a80d7e3a634964d29bd0adbad536d70659418a01be34c` |
+| `/assets/team_access/page.js` | `188a4163fdeb7173b4c7a0f08cc9948c2c8ad9f7edc722fdab4535b3edb49931` |
+| `/assets/team_schedule/crm-theme.css` | `058c3019494b3718d129c2a2e4616663d934b96d4c8036de409f7d11a93578cb` |
+| `/assets/team_schedule/team-schedule.js` | `b416b3adbd39a6235fe0f3b847a3bd47b1a5df16499a020a8fb4bff934f5b8ba` |
+| `/assets/team_schedule/team-schedule.css` | `23e1e6673b8f8d0bba20c29fe8f85ef5d9ae9a14375c994250d5984ffc64b75b` |
+
+login CSS、standalone词典与 PWA 名称资产和首轮表中相同；完整十件 URL/bytes/SHA 都在新 receipt。框架本次变更三件来源后哈希见 M39 manifest，源码守卫在真实 build 和最终测试前后核过，不把文件编译等同页面视觉。仍待 Terra 实际 1280 首屏截图/引导中文/标记和私域按钮对比度复验；已有正常核心场景不重新扩矩阵，线上未动。
