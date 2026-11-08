@@ -1,0 +1,17 @@
+[
+  {
+    "target": "ui/src/components/Onboarding/GettingStartedBanner.vue",
+    "before": "795182f9bdac1fd9c69611c3d6085de57305be9518358fe0306b628d58afa1a8",
+    "after": "6354fa9c2af04feb4219ba70b61acd72a8997c951d79e02ed111884c4db0611f"
+  },
+  {
+    "target": "ui/src/components/Onboarding/HelpModal.vue",
+    "before": "ff8d375fee29d1afb101c8542c1ffe16d7748897e95d688fd5815481007a120c",
+    "after": "59d4949f0c3ab2c1c33d2944253fb933205c373583514d5baff3a12ab533480d"
+  },
+  {
+    "target": "ui/src/components/Onboarding/OnboardingSteps.vue",
+    "before": "2802a2a186cb2595ef7d27845c68aaf45cd6a15216bbc9dade53b8a5c2b83e3c",
+    "after": "cca7a6941c478f8a703d6a89eeca2567c1f755d754fb853c1e991591176a3840"
+  }
+]
