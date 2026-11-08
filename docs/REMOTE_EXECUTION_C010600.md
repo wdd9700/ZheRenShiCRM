@@ -510,3 +510,11 @@ M37 f4f2cd1的35d0冻结包上传到 `/home/dev/c1109-candidate-35d0/candidate-r
 M43随后通过Windows官方Registry HTTPS一次获取完整制品，主控批准SCP/标准load：tar196,956,160B，双端SHA `feb4ef11bc19fee9e39c5579e85c0c481a6aec03f7d0819b68cdbf4ddd59dc19`，保存在新staging `certbot-official.tar`。目标load成功ID `sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d`；实际11有序diff_ids和所有原始Config字段与官方config全等。Docker26 inspect额外补充旧式空/false字段，因此最初严格整个Config对象相等断言不等，后按原始字段逐项核实通过，未篡改原config。
 
 RepoDigests实际为空，原 `certbot/certbot@sha256:1dc5…` inspect明确No such image；没有伪造tag/RepoDigest或改已审manage引用，未越过preflight。精确结果已交M43做最小config-pinned兼容并审定。该制品已到达不表示签证或HTTPS已成功，公网80阻碍仍保持。
+
+### 19.3 离线寻址兼容真实无网 preflight 通过
+
+M43 `3ec8f0919062e33084918ffdef080cb1dbda490c` 获seq144限定clean/merge后，主控仅授权最小无网preflight。Git archive导出deploy/https与runbook，81,920B，SHA256 `06db9f2155a92a525e3e900e77ab34e3b44eb0d4772050f7a6f2856302eaa7e5`；上传全新 `/home/dev/c1109-reviewed-https-3ec8f09/source.tar` 并核相同SHA，未覆盖旧staging或将新manage安装为系统活动版本。
+
+仅执行 `sudo -n /usr/bin/python3 /home/dev/c1109-reviewed-https-3ec8f09/deploy/https/manage.py preflight`，真实exit0（约7秒含小包传输）。脚本核宿主固定/usr/bin/python3兼容3.6、nginx>=1.19.3、已load官方config f0cfa005及全部11有序diffids；随后以network none、只tmpfs、read-only/cap-drop/no-new-privileges短命容器运行，实报 **Python3.12.10 / certbot5.4.0 / crm-https preflight: OK**。宿主既有Python3.6.8/nginx1.24.0未更换；容器由本次--rm结束，不触原卷。
+
+本次没有重新pull/load、重部署35d0、业务写入、签证、公网80探测、443/timer激活或数据库/权限修改。签证工具运行前置已通过；公网80可达阻碍及云安全组待确认状态仍在，**不将preflight通过冒充证书签发或公网HTTPS可用**。
