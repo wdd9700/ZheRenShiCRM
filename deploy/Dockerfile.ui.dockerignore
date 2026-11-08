@@ -16,6 +16,8 @@
 !frontend-patches/localization/**
 !frontend-patches/branding/
 !frontend-patches/branding/**
+!frontend-patches/onboarding-localization/
+!frontend-patches/onboarding-localization/**
 !apps/
 !apps/resource_import/
 !apps/resource_import/resource_import/
@@ -25,6 +27,8 @@
 !apps/team_access/team_access/
 !apps/team_access/team_access/www/
 !apps/team_access/team_access/www/team-activities.html
+!apps/team_access/team_access/public/
+!apps/team_access/team_access/public/access.js
 !apps/team_schedule/
 !apps/team_schedule/team_schedule/
 !apps/team_schedule/team_schedule/www/

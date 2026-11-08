@@ -131,3 +131,15 @@ Sol 对 `d478ffbe004ea7fd7412f7949a228b532704aa09` 的预审指出：精确 caf1
 4. 私域活动/导入页只读检查中文与主题，确认字段 value、请求枚举与时区显示未变；不要重复完整后端权限/恢复矩阵。
 
 上述是待执行清单，不是已通过。真实入口、账号保护文件路径及窗口收尾由 M9/tower交 Terra；遇失败保留首异常，按具体原因修复，不跳安全门。当前没有新增必须交用户拍板的价值取舍；正式线上部署仍不在本轮授权内。
+
+## 集中视觉/引导修复第二批（v3，构建前）
+
+首轮 d573 的 M32 UI 窗口已按固定期限收尾，M9明确释放环境：原语言 en、UTC、assets 与 infra 恢复；合成 SHORT active/OVERLAP cancelled 记录保留。首轮真实页面发现的品牌标记、低对比、引导硬编码与日程首屏布局问题由对应 owner 集中修复，不把首轮构建绿等同视觉验收。
+
+本批输入：M35 `6e5c0473349b4f2f8914328af446660b1761427d`、M39 `23a36d60198adb8f2b16148ec197adf0bafc3181`、M38 新布局文案 `c558f997fecc7f1a4517b3716673bcdf76d63582`，三者均已主控确认 Sol clean/merge。不得继续使用旧 M38 `50e0dd2` 整文件覆盖新布局：其日程 HTML/JS before 与新 M35 不同，原样覆盖会退回旧结构。新文案由 M38 owner 依据新 M35 移植原中文 delta，新的两组有序 SHA 固化于 `deploy/ui_wording_manifest.json`；另外三组未变。
+
+v3 增加显式 `--onboarding-commit`，必须与 `--localization-commit` 指向同一审定 M39（词典与 Framework 翻译一起交付）。CRM 保原55来源/守卫，Framework 只接受 `apps/frappe` 根下三个独立 SFC：GettingStartedBanner、HelpModal、OnboardingSteps。准备和最终 guard 校验独立根、明确三目标 before/after；只复制补丁脚本，不整目录覆盖 Framework。构建先核原 Framework before，再执行原生补丁 check/apply/verify，最后在资产构建前后核 after。灰按钮与本地化在同一 Banner after，禁止另叠样式补丁。
+
+M35 新增 `apps/team_access/team_access/public/access.js` 为第九件最终有效覆盖（两处样式，JS 权限行为不变）；根/sites 同名静态文件继续强核。新 CSS SHA `058c3019494b3718d129c2a2e4616663d934b96d4c8036de409f7d11a93578cb`，UserDropdown after `5d6ac5cadd8248880ed1e0b124f971271147d898d5869117a24fc88c9c652aa6` 均由新 dark-ui manifest 读取，不沿用首轮哈希。原 M24/M30 manifest、安全边界、legal 和认证不变。
+
+v3 仍使用原两层 caf102 基底执行一次集中标准构建，不从已叠 UI 镜像反复累加；原所有容器/卷及配置受保护。只回归本次实际改动覆盖的日程、access、M39翻译/Framework SFC；不重复已绿未受影响的 native326 或后端权限/恢复矩阵。以下结果待实际执行追加；本段不宣已构建/已部署。

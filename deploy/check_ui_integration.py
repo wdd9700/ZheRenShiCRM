@@ -60,11 +60,26 @@ class IntegrationTests(unittest.TestCase):
                     module = load_module('ui_replay_' + name.replace('-', '_'), patches / name / 'apply.py')
                     with self.assertRaises(ValueError):
                         module.apply(crm)
+                framework = bench / 'apps/frappe'
+                verification.verify_framework(framework, patches, applied=False)
+                onboarding = load_module('u030_onboarding', patches / 'onboarding-localization/apply.py')
+                onboarding.apply(framework, 'check')
+                onboarding.apply(framework)
+                onboarding.apply(framework, 'verify')
+                verification.verify_framework(framework, patches)
+                with self.assertRaises(ValueError):
+                    onboarding.apply(framework)
+                protected_framework = framework / 'ui/src/components/Onboarding/HelpModal.vue'
+                framework_bytes = protected_framework.read_bytes()
+                protected_framework.write_bytes(framework_bytes + b'\n')
+                with self.assertRaises(RuntimeError):
+                    verification.verify_framework(framework, patches)
+                protected_framework.write_bytes(framework_bytes)
                 guard = load_module('u030_wording_guard', self.context / 'deploy/ui_build_guard.py')
                 guard.B, guard.U = bench, self.context
                 guard.apply_wording()
                 manifest = json.loads((self.context / 'ui-source-manifest.json').read_bytes())
-                self.assertEqual(len(manifest['overlays']), 8)
+                self.assertEqual(len(manifest['overlays']), 9)
                 for name, digest in manifest['overlays'].items():
                     self.assertEqual(verification.sha((bench / name).read_bytes()), digest)
                 with self.assertRaises(RuntimeError):
@@ -142,12 +157,13 @@ class IntegrationTests(unittest.TestCase):
         _, manifest = preparation.load(self.context, RECEIPT)
         source = dict(Id=preparation.BASE_IMAGE, RootFS={'Layers': ['base-one', 'base-two']}, Config={'User': 'frappe', 'Labels': {'inherited': 'unchanged'}})
         labels = {
-            'inherited': 'unchanged', 'crm.ui.integration': 'u030-v2',
+            'inherited': 'unchanged', 'crm.ui.integration': 'u030-v3',
             'crm.ui.base': preparation.BASE_CONFIG, 'crm.ui.order': ','.join(preparation.UI_ORDER),
             'crm.ui.dark.revision': manifest['revisions']['dark-ui'],
             'crm.ui.localization.revision': manifest['revisions']['localization'],
             'crm.ui.branding.revision': manifest['revisions']['branding'],
             'crm.ui.wording.revision': manifest['revisions']['wording'],
+            'crm.ui.onboarding.revision': manifest['revisions']['onboarding-localization'],
         }
         candidate = dict(Id='sha256:' + 'a' * 64, RootFS={'Layers': ['one'] * 6}, Config={'User': 'frappe', 'Labels': labels})
         result = preparation.ROOT / '.runtime' / (self.context.name + '-build-result.json')

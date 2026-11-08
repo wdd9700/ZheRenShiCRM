@@ -56,7 +56,7 @@ WORDING_TARGETS = frozenset({
 
 def wording_contract(directory):
     contract = json.loads((directory / 'ui_wording_manifest.json').read_bytes())
-    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != '9f284b0d310b5ebd8f3570b66f216a23c793ef25' or set(contract['targets']) != WORDING_TARGETS:
+    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != '6e5c0473349b4f2f8914328af446660b1761427d' or set(contract['targets']) != WORDING_TARGETS:
         raise RuntimeError('Wording contract identity or target whitelist differs')
     for entry in contract['targets'].values():
         if set(entry) != {'before', 'after'}:
@@ -64,6 +64,34 @@ def wording_contract(directory):
         digest(entry['before'])
         digest(entry['after'])
     return contract
+
+
+FRAMEWORK_TARGETS = frozenset({
+    'ui/src/components/Onboarding/GettingStartedBanner.vue',
+    'ui/src/components/Onboarding/HelpModal.vue',
+    'ui/src/components/Onboarding/OnboardingSteps.vue',
+})
+
+
+def framework_entries(patches):
+    entries = json.loads((patches / 'onboarding-localization/manifest.json').read_bytes())
+    if not isinstance(entries, list) or len(entries) != 3 or {entry.get('target') for entry in entries} != FRAMEWORK_TARGETS:
+        raise RuntimeError('Unexpected Framework onboarding target whitelist')
+    for entry in entries:
+        if set(entry) != {'target', 'before', 'after'}:
+            raise RuntimeError('Unexpected Framework manifest schema')
+        relative(entry['target'])
+        digest(entry['before'])
+        digest(entry['after'])
+    return entries
+
+
+def verify_framework(root, patches, applied=True):
+    for entry in framework_entries(patches):
+        target = ordinary(root / entry['target'], root)
+        if sha(target.read_bytes()) != entry['after' if applied else 'before']:
+            raise RuntimeError('Framework source mismatch: ' + entry['target'])
+    print('PASS: three exact Framework onboarding sources (' + ('after' if applied else 'before') + ')')
 
 
 def entries(patches):

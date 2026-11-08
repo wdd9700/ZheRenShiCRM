@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 
-from verify_ui_integration import chain, ordinary, sha, verify, wording_contract
+from verify_ui_integration import chain, ordinary, sha, verify, verify_framework, wording_contract
 
 B = Path('/home/frappe/frappe-bench')
 U = Path('/home/frappe/u030')
@@ -26,6 +26,7 @@ def source_manifest():
 
 def snapshot():
     source_manifest()
+    verify_framework(B / 'apps/frappe', PATCHES, applied=False)
     paths = set()
     for name in ('full951-manifest.json', 'm29-a512-manifest.json', 'final-source-manifest.json', 'print-a174-manifest.json'):
         data = json.loads((Path('/home/frappe') / name).read_bytes())
@@ -77,6 +78,7 @@ def check(assets=False):
     for name, digest in expected.items():
         if sha(ordinary(B / name, B).read_bytes()) != digest:
             raise RuntimeError('Five-app source/guard drift: ' + name)
+    verify_framework(B / 'apps/frappe', PATCHES)
     canonical = B / 'apps/team_schedule/team_schedule/public/crm-theme.css'
     if canonical.read_bytes() != (PATCHES / 'dark-ui/payload/crm-theme.css').read_bytes():
         raise RuntimeError('Missing or changed canonical shared theme')
