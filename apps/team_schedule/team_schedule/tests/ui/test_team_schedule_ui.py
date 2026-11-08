@@ -59,8 +59,15 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         ):
             self.assertIn("/assets/team_schedule/crm-theme.css", filename.read_text(encoding="utf-8"))
         access = (root / "apps/team_access/team_access/www/team-activities.html").read_text(encoding="utf-8")
-        for value in ("FCRM Note", "CRM Task", "CRM Lead", "CRM Deal", "Private", "Shared"):
-            self.assertIn(f'<option value="{value}">', access)
+        for value, label in (("FCRM Note", "备注"), ("CRM Task", "任务"),
+                             ("CRM Lead", "需求线索"), ("CRM Deal", "商机"),
+                             ("Private", "私密"), ("Shared", "共享")):
+            self.assertIn(f'<option value="{value}">{label}</option>', access)
+        self.assertLess(access.index("crm-zh-cn.js"), access.index("team_access/page.js"))
+        for value, label in (("Busy", "占用"), ("Free", "空闲")):
+            self.assertIn(f'<option value="{value}">{label}</option>', page)
+        resource = (root / "apps/resource_import/resource_import/www/resource-import.html").read_text(encoding="utf-8")
+        self.assertIn("['序号','姓名','公司名称','联系方式','公司产品、服务','需要的产品、服务']", resource)
 
     def test_primary_timeline_precedes_collapsed_options_and_editor_without_shrinking_body(self):
         import re

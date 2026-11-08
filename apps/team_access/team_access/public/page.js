@@ -3,6 +3,7 @@
   if (!root) return
   const el = (id) => document.getElementById(`activity-${id}`)
   const status = (message) => { el('status').textContent = message }
+  const visibilityText = (value) => window.PhilosopherCRMText?.enums?.[value] || ({Private: '私密', Shared: '共享'}[value]) || value
   let current = null
   function saveError(category, code) {
     const http = Number.isInteger(code) && code >= 100 && code <= 599 ? `（HTTP ${code}）` : ''
@@ -70,7 +71,7 @@
         const li = document.createElement('li')
         const button = document.createElement('button')
         button.type = 'button'
-        button.textContent = `${row.title} — ${row.custom_team_visibility || 'Private'} — ${row.owner}`
+        button.textContent = `${row.title} — ${visibilityText(row.custom_team_visibility || 'Private')} — ${row.owner}`
         button.onclick = () => edit(row)
         li.append(button)
         el('list').append(li)
@@ -109,7 +110,7 @@
     }
     if (document.custom_team_visibility === 'Shared' && !window.confirm('确认发布当前正文给父记录的所有现有和未来读者？不授予编辑权，也不公开既往私密版本或附件。含私有附件的记录不能发布。')) return
     if ((document.custom_team_collaborator && document.custom_team_collaborator !== current?.custom_team_collaborator) || (document.assigned_to && document.assigned_to !== current?.assigned_to)) {
-      if (!window.confirm('确认授权此人读写Private正文及既往历史？关联父记录必须保持可读；对方不能再授权他人。')) return
+      if (!window.confirm('确认授权此人读写私密正文及既往历史？关联父记录必须保持可读；对方不能再授权他人。')) return
     }
     try {
       const saved = await call('save_activity', { document }, true)

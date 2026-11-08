@@ -282,7 +282,7 @@ test('init renders literal HTML in ICS text without creating executable elements
       return jsonResponse({message: {
         receipt: 'literal-receipt', expires_in: 900,
         items: [{
-          index: 0, action: 'create', code: null, allowed_resolutions: [], expected_revision: null,
+          index: 0, action: 'create', code: 'WRITE_FAILED', allowed_resolutions: [], expected_revision: null,
           preview: {
             title: literalTitle, description: literalDescription,
             start_utc: '2026-11-04T09:07:00Z', end_utc: '2026-11-04T09:42:00Z',
@@ -303,6 +303,8 @@ test('init renders literal HTML in ICS text without creating executable elements
   const rendered = environment.document.getElementById('ics-preview-table').textContent;
   assert.match(rendered, /<script>globalThis\.compromised = true<\/script>/);
   assert.match(rendered, /<img src="https:\/\/invalid\.example\/private-canary"/);
+  assert.match(rendered, /操作／诊断码/);
+  assert.match(rendered, /WRITE_FAILED；服务端未能写入该项/);
   assert.equal(environment.document.querySelectorAll('script').length, 0);
   assert.equal(environment.document.querySelectorAll('img').length, 0);
   assert.equal(globalThis.compromised, undefined);
@@ -362,10 +364,10 @@ test('cancel success clears the previous edit result while preserving revision a
   await environment.document.getElementById('edit-schedule').click();
   setValues(environment.document, {'schedule-title': 'updated title'});
   await fire(environment.document.getElementById('schedule-form'), 'submit');
-  assert.match(environment.document.getElementById('schedule-status').textContent, /已更新日程，当前revision=4/);
+  assert.match(environment.document.getElementById('schedule-status').textContent, /已更新日程，当前版本：4/);
   await environment.document.getElementById('cancel-schedule').click();
   assert.equal(environment.document.getElementById('schedule-status').textContent, '');
-  assert.match(environment.document.getElementById('detail-status').textContent, /日程已取消，revision=5/);
+  assert.match(environment.document.getElementById('detail-status').textContent, /日程已取消，版本：5/);
   assert.equal(methodCalls(calls, '.cancel')[0].payload.expected_revision, 4);
   assert.match(environment.document.getElementById('session-status').textContent, /后续显式请求已成功/);
   assert.doesNotMatch(environment.document.getElementById('session-status').textContent, /请刷新页面/);
@@ -401,7 +403,9 @@ test('CRM changed message clears Cancelled detail and drafts and rejects late li
   await environment.document.getElementById('schedule-list').querySelectorAll('button')[0].click();
   assert.equal(environment.document.getElementById('detail-panel').hidden, false);
   assert.match(environment.document.getElementById('detail-content').textContent, /private cancelled title/);
-  assert.match(environment.document.getElementById('detail-content').textContent, /Cancelled/);
+  assert.match(environment.document.getElementById('detail-content').textContent, /已取消/);
+  assert.equal(cancelled.status, 'Cancelled');
+  assert.equal(cancelled.availability, 'Busy');
   setValues(environment.document, {
     'editing-name': 'private-draft-id',
     'editing-revision': '5',
@@ -644,7 +648,7 @@ test('10/25-minute events retain exact heights with visible independent numbers 
   assert.match(rail.textContent, /09:00.*09:10/);
   assert.match(rail.textContent, /二十五分钟电话/);
   assert.match(rail.textContent, /09:00.*09:25/);
-  assert.match(rail.textContent, /Cancelled/);
+  assert.match(rail.textContent, /已取消/);
   const blocks = viewport.querySelectorAll('.timeline-block');
   assert.equal(blocks.find(block => block.title.includes('十分钟')).style.height, '12px');
   assert.equal(blocks.find(block => block.title.includes('二十五')).style.height, '30px');
@@ -659,7 +663,8 @@ test('10/25-minute events retain exact heights with visible independent numbers 
   assert.equal(gets.length, 1);
   await rail.querySelectorAll('button')[0].click();
   assert.equal(gets.length, 2);
-  assert.match(markers.find(marker => marker.className.includes('cancelled')).attributes['aria-label'], /Cancelled/);
+  assert.match(markers.find(marker => marker.className.includes('cancelled')).attributes['aria-label'], /已取消/);
+  assert.equal(items[2].status, 'Cancelled');
   await fire(environment.document, 'visibilitychange');
   assert.equal(container.children.length, 0);
   assert.equal(container.querySelector('.timeline-label-rail'), null);

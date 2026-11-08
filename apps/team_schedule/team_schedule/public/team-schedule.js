@@ -6,7 +6,7 @@
     AUTH_REQUIRED: '登录已失效，请重新登录。',
     FORBIDDEN: '当前身份或权限已变化，旧数据已清除。',
     NOT_FOUND: '记录不存在或当前身份无权访问，旧数据已清除。',
-    INVALID_INPUT: '输入不符合要求；请检查分钟、时区、DST与字段内容。',
+    INVALID_INPUT: '输入不符合要求；请检查分钟、时区、夏令时与字段内容。',
     REVISION_CONFLICT: '版本冲突：他人已先修改。旧详情和编辑已清除，请重新加载后再决定。',
     IDEMPOTENCY_CONFLICT: '创建请求标识已用于不同内容，请清空表单后重试。',
     LIMIT_EXCEEDED: '数据或扫描量超过限制，未返回不完整结果。',
@@ -295,8 +295,10 @@
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
     const client = createClient({fetchImpl: window.fetch.bind(window), csrfToken});
     const catalog = window.PhilosopherCRMText || {};
-    const enumText = value => catalog.enums?.[value] || value;
+    const enumFallback = {Busy: '占用', Free: '空闲', Active: '进行中', Cancelled: '已取消', Read: '只读', Edit: '可编辑'};
+    const enumText = value => catalog.enums?.[value] || enumFallback[value] || value;
     const timelineText = (key, fallback) => catalog.timeline?.[key] || fallback;
+    const dateText = (key, fallback) => catalog.dates?.[key] || fallback;
     const state = {
       epoch: 0,
       listGeneration: 0,
@@ -382,7 +384,7 @@
       select.replaceChildren();
       const empty = document.createElement('option');
       empty.value = '';
-      empty.textContent = '请选择';
+      empty.textContent = dateText('select', '请选择');
       select.append(empty);
       for (const offset of offsets || []) {
         const option = document.createElement('option');
@@ -415,7 +417,7 @@
         if (error.code === 'AMBIGUOUS_LOCAL_TIME' && error.field) {
           assertOperation(state, epoch);
           showOffsetChoices(prefix, error.field, error.offsetMinutes);
-          throw new ExpectedError('该当地时间有双重DST解释，请选择' + (error.field === 'start' ? '开始' : '结束') + '时间的offset后重新提交。');
+          throw new ExpectedError('该当地时间有两个夏令时解释，请选择' + (error.field === 'start' ? '开始' : '结束') + '时间的UTC偏移量后重新提交。');
         }
         throw error;
       }
@@ -504,7 +506,7 @@
         const user = row.querySelector('.member-user').value.trim();
         const access = row.querySelector('.member-access').value;
         if (!user) throw new ExpectedError('成员用户ID不能为空。');
-        if (seen.has(user)) throw new ExpectedError('成员不能重复，也不能把owner加入子表。');
+        if (seen.has(user)) throw new ExpectedError('成员不能重复，也不能把所有者加入成员列表。');
         seen.add(user);
         result.push({user, access});
       }
@@ -643,9 +645,9 @@
         ['结束', formatUtc(schedule.end_utc, timezone)],
         ['UTC开始／结束', schedule.start_utc + ' 至 ' + schedule.end_utc],
         ['源时区', schedule.source_timezone],
-        ['owner', schedule.owner],
+        ['所有者', schedule.owner],
         ['占用／状态', enumText(schedule.availability) + '／' + enumText(schedule.status)],
-        ['revision', schedule.revision],
+        ['版本', schedule.revision],
         ['成员', (schedule.members || []).map(member => member.user + '（' + enumText(member.access) + '，' + (member.occupies ? '已接受占用' : '未接受占用') + '）').join('\n') || '无']
       ];
       for (const [label, value] of values) {
@@ -707,7 +709,7 @@
       } catch (error) {
         if (error instanceof StaleOperation || epoch !== state.epoch || generation !== state.listGeneration) return;
         if (error instanceof ExpectedError) message('list-status', error.message, true);
-        else if (error.code === 'AMBIGUOUS_LOCAL_TIME' || error.code === 'INVALID_INPUT') message('list-status', '无法明确解析该日期午夜（可能存在时区歧义或不存在的时间），请使用自定义窗口检查输入并明确选择DST offset。', true);
+        else if (error.code === 'AMBIGUOUS_LOCAL_TIME' || error.code === 'INVALID_INPUT') message('list-status', '无法明确解析该日期午夜（可能存在时区歧义或不存在的时间），请使用自定义窗口检查输入并明确选择夏令时UTC偏移量。', true);
         else fail(error, 'list-status');
       }
     }
@@ -740,7 +742,7 @@
         state.nextCursor = result.next_cursor || null;
         state.listQuery = query;
         renderSchedules();
-        succeeded('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC offset。' + (state.nextCursor ? '仍有更多日程，当前时间轴不是完整结果，请加载更多。' : '已加载当前窗口全部结果。'));
+        succeeded('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC偏移量。' + (state.nextCursor ? '仍有更多日程，当前时间轴不是完整结果，请加载更多。' : '已加载当前窗口全部结果。'));
       } catch (error) {
         if (error instanceof StaleOperation || epoch !== state.epoch || generation !== state.listGeneration) return;
         fail(error, 'list-status');
@@ -787,7 +789,7 @@
       if (!overlaps.length) return true;
       const text = overlaps.map(interval => formatUtc(interval.start_utc, timezone) + ' 至 ' + formatUtc(interval.end_utc, timezone)).join('\n');
       assertOperation(state, epoch);
-      return window.confirm('本次时间与以下本人Busy区间交叠：\n' + text + '\n这只是查询快照，不会锁定时间。仍要保存吗？');
+      return window.confirm('本次时间与以下本人占用区间交叠：\n' + text + '\n这只是查询快照，不会锁定时间。仍要保存吗？');
     }
 
     async function saveSchedule(event) {
@@ -837,7 +839,7 @@
         state.selected = saved;
         renderDetails();
         message('detail-status', '');
-        succeeded('schedule-status', (editingName ? '已更新' : '已创建') + '日程，当前revision=' + saved.revision + '。');
+        succeeded('schedule-status', (editingName ? '已更新' : '已创建') + '日程，当前版本：' + saved.revision + '。');
         if (state.listQuery) await fetchList(state.listQuery, false, epoch);
       } catch (error) {
         if (epoch !== state.epoch) return;
@@ -864,7 +866,7 @@
       $('schedule-submit').textContent = '保存日程修改';
       clearOffset('schedule', 'start');
       clearOffset('schedule', 'end');
-      message('schedule-status', '正在编辑revision=' + schedule.revision + '；保存将携带该版本。');
+      message('schedule-status', '正在编辑版本：' + schedule.revision + '；保存将携带该版本。');
       $('schedule-form').scrollIntoView({behavior: 'smooth', block: 'start'});
     }
 
@@ -877,7 +879,7 @@
         const result = await client.post('cancel', {name: schedule.name, expected_revision: schedule.revision});
         if (epoch !== state.epoch) return;
         acceptMutation(result.schedule);
-        succeeded('detail-status', '日程已取消，revision=' + result.schedule.revision + '。');
+        succeeded('detail-status', '日程已取消，版本：' + result.schedule.revision + '。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'detail-status');
       }
@@ -892,7 +894,7 @@
         const result = await client.post('set_members', {name: schedule.name, expected_revision: schedule.revision, members});
         if (epoch !== state.epoch) return;
         acceptMutation(result.schedule);
-        succeeded('detail-status', '成员权限已保存，revision=' + result.schedule.revision + '。');
+        succeeded('detail-status', '成员权限已保存，版本：' + result.schedule.revision + '。');
       } catch (error) {
         if (epoch !== state.epoch) return;
         if (error instanceof ExpectedError) message('detail-status', error.message, true);
@@ -912,7 +914,7 @@
         });
         if (epoch !== state.epoch) return;
         acceptMutation(result.schedule);
-        succeeded('detail-status', '本人占用状态已保存，revision=' + result.schedule.revision + '。');
+        succeeded('detail-status', '本人占用状态已保存，版本：' + result.schedule.revision + '。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'detail-status');
       }
@@ -949,7 +951,7 @@
         const body = makeTable($('busy-results'), ['类型／用户', '脱敏时间段（开始至结束）']);
         for (const item of result.busy || []) {
           const row = document.createElement('tr');
-          cell(row, 'Busy：' + item.user);
+          cell(row, '占用：' + item.user);
           cell(row, (item.intervals || []).map(interval => formatUtc(interval.start_utc, timezone) + ' 至 ' + formatUtc(interval.end_utc, timezone)).join('\n') || '窗口内无占用').className = 'detail-text';
           body.append(row);
         }
@@ -987,7 +989,7 @@
       event.preventDefault();
       const sourceId = $('existing-source-id').value.trim();
       if (!sourceId) {
-        message('source-status', '请输入此前明确显示的source_id。', true);
+        message('source-status', '请输入此前明确显示的来源ID。', true);
         return;
       }
       state.ics.sourceId = sourceId;
@@ -1024,7 +1026,7 @@
     }
 
     function renderIcsPreview() {
-      const body = makeTable($('ics-preview-table'), ['index', 'action／code', '源标题', '源说明', '源时间', '状态／占用', '目标revision', '逐项覆盖']);
+      const body = makeTable($('ics-preview-table'), ['序号', '操作／诊断码', '源标题', '源说明', '源时间', '状态／占用', '目标版本', '逐项覆盖']);
       for (const item of state.ics.items) {
         const row = document.createElement('tr');
         cell(row, item.index);
@@ -1066,7 +1068,7 @@
         state.ics.expiresIn = result.expires_in;
         state.ics.items = result.items || [];
         renderIcsPreview();
-        succeeded('ics-status', '预览完成，receipt有效' + result.expires_in + '秒。逐项检查后再独立确认应用。');
+        succeeded('ics-status', '预览完成，预览凭证有效' + result.expires_in + '秒。逐项检查后再独立确认应用。');
       } catch (error) {
         if (epoch === state.epoch) fail(error, 'ics-status');
       }
@@ -1086,7 +1088,7 @@
           resolutions
         }, 'team_schedule.ics.api');
         if (epoch !== state.epoch) return;
-        const body = makeTable($('ics-result-table'), ['index', 'result', 'code', 'schedule', 'revision']);
+        const body = makeTable($('ics-result-table'), ['序号', '结果', '诊断码', '日程', '版本']);
         for (const item of result.items || []) {
           const row = document.createElement('tr');
           cell(row, item.index);

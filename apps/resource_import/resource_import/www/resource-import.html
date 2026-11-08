@@ -21,8 +21,8 @@
     <h2 id="upload-heading">1. 上传CSV</h2>
     <p class="muted">UTF-8（可含BOM），最多1MiB / 500行。六列表头可重排；产品、需求、联系方式原文及来源会保存在需求线索。重复资料不覆盖既有数据。</p>
     <p>表头：序号、姓名、公司名称、联系方式、公司产品、服务、需要的产品、服务（含逗号的标题请用CSV引号）。</p>
-    <p class="error">管理员导入（本轮仅合成数据）：创建企业/联系人将对现有Sales User角色开放，包括姓名、企业及解析后的联系方式。私域原文只保存在Lead并不使共享联系人变为私域。本页尚不支持仅建立私域Lead的模式；不接受共享请勿导入。</p>
-    <p><label><input id="shared-consent" type="checkbox"> 我明确同意创建或复用团队共享企业/联系人，并理解这些业务资料对现有Sales User角色开放。</label></p>
+    <p class="error">管理员导入（本轮仅合成数据）：创建企业/联系人将对现有销售用户（Sales User）角色开放，包括姓名、企业及解析后的联系方式。私域原文只保存在需求线索（Lead）中，并不使共享联系人变为私域。本页尚不支持仅建立私域需求线索的模式；不接受共享请勿导入。</p>
+    <p><label><input id="shared-consent" type="checkbox"> 我明确同意创建或复用团队共享企业/联系人，并理解这些业务资料对现有销售用户（Sales User）角色开放。</label></p>
     <label for="csv-file">资源CSV文件 </label><input id="csv-file" type="file" accept=".csv,text/csv">
     <div><button id="template" type="button">下载空白模板</button><button id="preview" type="button" disabled>预览（不写入）</button></div>
   </section>

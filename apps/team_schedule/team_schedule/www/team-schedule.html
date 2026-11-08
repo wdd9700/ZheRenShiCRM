@@ -43,8 +43,8 @@
         <div><label for="list-start">窗口开始</label><input id="list-start" type="datetime-local" step="60" required></div>
         <div><label for="list-end">窗口结束</label><input id="list-end" type="datetime-local" step="60" required></div>
       </div>
-      <div id="list-start-offset-row" class="offset-choice" hidden><label for="list-start-offset">窗口开始的DST offset</label><select id="list-start-offset"></select></div>
-      <div id="list-end-offset-row" class="offset-choice" hidden><label for="list-end-offset">窗口结束的DST offset</label><select id="list-end-offset"></select></div>
+      <div id="list-start-offset-row" class="offset-choice" hidden><label for="list-start-offset">窗口开始的夏令时UTC偏移量</label><select id="list-start-offset"></select></div>
+      <div id="list-end-offset-row" class="offset-choice" hidden><label for="list-end-offset">窗口结束的夏令时UTC偏移量</label><select id="list-end-offset"></select></div>
       <button class="primary" type="submit">加载列表</button>
     </form>
     </details>
@@ -75,15 +75,15 @@
         </div>
         <div>
           <label for="schedule-availability">占用状态</label>
-          <select id="schedule-availability"><option value="Busy">Busy（占用）</option><option value="Free">Free（空闲）</option></select>
+          <select id="schedule-availability"><option value="Busy">占用</option><option value="Free">空闲</option></select>
         </div>
       </div>
       <div id="schedule-start-offset-row" class="offset-choice" hidden>
-        <label for="schedule-start-offset">开始时间存在两个DST解释，请明确选择当地减UTC的offset</label>
+        <label for="schedule-start-offset">开始时间有两个夏令时解释，请明确选择当地时间相对UTC的偏移量</label>
         <select id="schedule-start-offset"></select>
       </div>
       <div id="schedule-end-offset-row" class="offset-choice" hidden>
-        <label for="schedule-end-offset">结束时间存在两个DST解释，请明确选择当地减UTC的offset</label>
+        <label for="schedule-end-offset">结束时间有两个夏令时解释，请明确选择当地时间相对UTC的偏移量</label>
         <select id="schedule-end-offset"></select>
       </div>
       <label for="schedule-description">说明（纯文本，最多4000字）</label>
@@ -104,13 +104,13 @@
     <div id="detail-content"></div>
     <div id="participation-panel" hidden>
       <h3>本人占用</h3>
-      <p>只有你本人能接受或撤回占用；Read/Edit详情权限不等于忙闲授权。</p>
+      <p>只有你本人能接受或撤回占用；只读／可编辑详情权限不等于忙闲授权。</p>
       <label class="inline"><input id="occupies" type="checkbox"> 我将接受该日程占用我的时间</label>
       <button id="save-participation" type="button">保存本人占用</button>
     </div>
     <div id="member-panel" hidden>
-      <h3>成员Read/Edit权限</h3>
-      <p>仅owner可保存成员。移除成员会立即撤销详情及占用权限；这里不能替成员接受占用。</p>
+      <h3>成员只读／可编辑权限</h3>
+      <p>仅日程所有者可保存成员。移除成员会立即撤销详情及占用权限；这里不能替成员接受占用。</p>
       <div id="member-rows"></div>
       <button id="add-member" type="button">添加成员</button>
       <button id="save-members" class="primary" type="button">保存成员权限</button>
@@ -144,8 +144,8 @@
         <div><label for="busy-timezone">显示时区</label><select id="busy-timezone" class="timezone-select" required></select></div>
         <div><label for="min-minutes">共同空闲最短分钟数</label><input id="min-minutes" type="number" min="1" max="10080" step="1" value="20" required></div>
       </div>
-      <div id="busy-start-offset-row" class="offset-choice" hidden><label for="busy-start-offset">忙闲窗口开始的DST offset</label><select id="busy-start-offset"></select></div>
-      <div id="busy-end-offset-row" class="offset-choice" hidden><label for="busy-end-offset">忙闲窗口结束的DST offset</label><select id="busy-end-offset"></select></div>
+      <div id="busy-start-offset-row" class="offset-choice" hidden><label for="busy-start-offset">忙闲窗口开始的夏令时UTC偏移量</label><select id="busy-start-offset"></select></div>
+      <div id="busy-end-offset-row" class="offset-choice" hidden><label for="busy-end-offset">忙闲窗口结束的夏令时UTC偏移量</label><select id="busy-end-offset"></select></div>
       <button class="primary" type="submit">查询忙闲与共同空闲</button>
     </form>
     <p id="busy-status" class="status" role="status" aria-live="polite"></p>
@@ -161,7 +161,7 @@
       <button class="primary" type="submit">创建导入来源</button>
     </form>
     <form id="existing-source-form">
-      <label for="existing-source-id">已有来源ID（刷新后可手动输入此前显示的source_id）</label>
+      <label for="existing-source-id">已有来源ID（刷新后可手动输入此前显示的来源ID）</label>
       <input id="existing-source-id" required>
       <button type="submit">使用已有来源</button>
       <p class="muted">这里不恢复任何本地业务缓存；预览和应用时仍由服务端重新校验来源归属与权限，失败不会自动新建来源。</p>
@@ -175,7 +175,7 @@
     <p id="ics-status" class="status" role="status" aria-live="polite"></p>
     <div id="ics-preview-panel" hidden>
       <h3>逐项预览</h3>
-      <p>仅标记为local_conflict且服务端允许的项目可选择覆盖。勾选只组成resolution，不会自动写入。</p>
+      <p>仅标记为本地修改冲突且服务端允许的项目可选择覆盖。勾选仅表示选择覆盖，不会自动写入。</p>
       <div id="ics-preview-table" class="scroll"></div>
       <label class="inline"><input id="ics-confirm" type="checkbox"> 我已逐项检查，独立确认应用安全项及已勾选的覆盖项</label>
       <button id="ics-apply" class="primary" type="button" disabled>确认应用导入</button>
