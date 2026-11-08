@@ -76,7 +76,7 @@ class IntegrationTests(unittest.TestCase):
                     verification.verify_framework(framework, patches)
                 protected_framework.write_bytes(framework_bytes)
                 guard = load_module('u030_wording_guard', self.context / 'deploy/ui_build_guard.py')
-                guard.B, guard.U = bench, self.context
+                guard.B, guard.U, guard.PATCHES = bench, self.context, self.context / 'frontend-patches'
                 guard.apply_wording()
                 manifest = json.loads((self.context / 'ui-source-manifest.json').read_bytes())
                 self.assertEqual(len(manifest['overlays']), 9)
@@ -113,7 +113,7 @@ class IntegrationTests(unittest.TestCase):
             target.write_bytes(target.read_bytes() + b'\n')
             before = {path.relative_to(bench).as_posix(): path.read_bytes() for path in bench.rglob('*') if path.is_file()}
             guard = load_module('u030_wording_negative', self.context / 'deploy/ui_build_guard.py')
-            guard.B, guard.U = bench, self.context
+            guard.B, guard.U, guard.PATCHES = bench, self.context, self.context / 'frontend-patches'
             with self.assertRaises(RuntimeError):
                 guard.apply_wording()
             after = {path.relative_to(bench).as_posix(): path.read_bytes() for path in bench.rglob('*') if path.is_file()}
