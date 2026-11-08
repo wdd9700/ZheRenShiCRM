@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><title>哲人石CRM · 连接设置</title><link rel="stylesheet" href="settings.css"></head>
+<body><main><h1>哲人石CRM</h1><p>连接团队服务端。账号和密码只在 CRM 登录页输入，不在客户端设置中保存。</p>
+<form id="connection"><label>连接模式<select name="mode"><option value="external">已有外部 SSH 隧道（明确自行核验）</option><option value="ssh">客户端管理严格 SSH 隧道</option><option value="https">受信 HTTPS 入口</option></select></label>
+<p>隧道入口固定为 http://127.0.0.1:18088；占用时不会换端口或结束其他进程。外部隧道请自行确认来源。</p>
+<fieldset><legend>客户端管理 SSH</legend><label>服务器主机<input name="host" autocomplete="off" maxlength="253" placeholder="由管理员提供"></label><label>SSH 用户（个人专用）<input name="user" autocomplete="off" maxlength="64"></label><label>服务器回环端口<input name="remotePort" type="number" min="1" max="65535" value="8088"></label><label>个人私钥绝对路径（仅保存路径，不读取/复制）<input name="identityFile" autocomplete="off" maxlength="512"></label><label>已核验 known_hosts 绝对路径<input name="knownHostsFile" autocomplete="off" maxlength="512"></label><p>仅使用 Windows 内置 OpenSSH，严格主机密钥校验，BatchMode 公钥认证；不弹密码框，不启用 agent，不自动接受新主机密钥。加密私钥需另行选择可用的个人认证方案，客户端不保存口令。</p></fieldset>
+<fieldset><legend>HTTPS</legend><label>入口 origin（不含路径）<input name="httpsOrigin" placeholder="https://crm.example.invalid" autocomplete="off" maxlength="512"></label><label class="check"><input name="trustedHttps" type="checkbox">我已从管理员核验此 HTTPS 地址，确认登录资料将发送至此服务端</label></fieldset>
+<button type="submit">保存连接设置</button><button type="button" id="open">打开 CRM 登录</button></form>
+<p>修改入口会切换服务端及 Web 存储身份；不会删除旧数据。同一用户同时只运行一个客户端。退出前保存表单，服务端会话可能过期。</p>
+<section><h2>客户端更新</h2><p id="update-state">读取状态…</p><button id="check">检查更新</button><button id="download">确认下载</button><button id="install">确认安装并重启</button></section>
+<pre id="status" role="status" aria-live="polite"></pre></main><script src="settings-ui.cjs"></script></body></html>

@@ -1,0 +1,34 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const root = path.resolve(__dirname, '..');
+const stage = path.join(root, '.validation', 'acceptance-source');
+fs.mkdirSync(stage, { recursive: true });
+for (const name of ['src', 'release']) fs.cpSync(path.join(root, name), path.join(stage, name), { recursive: true });
+fs.copyFileSync(path.join(root, 'installer.nsh'), path.join(stage, 'installer.nsh'));
+const settingsPath = path.join(stage, 'src', 'settings.cjs');
+const settings = fs.readFileSync(settingsPath, 'utf8');
+fs.writeFileSync(settingsPath, settings.replace("const APP_ID = 'com.philosophersstone.crm';", "const APP_ID = 'com.philosophersstone.crm.acceptance';").replace("const DATA_DIRECTORY = 'PhilosopherStoneCRM';", "const DATA_DIRECTORY = 'PhilosopherStoneCRM-Acceptance';"));
+for (const name of ['acceptance-main.cjs', 'acceptance-preload.cjs', 'fixture.html', 'fixture.js']) fs.copyFileSync(path.join(root, 'test', 'acceptance', name), path.join(stage, 'src', name));
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+pkg.main = 'src/acceptance-main.cjs';
+pkg.build.appId = 'com.philosophersstone.crm.acceptance';
+pkg.build.executableName = 'PhilosopherStoneCRM-Acceptance';
+pkg.build.productName = '哲人石CRM 验收专用';
+pkg.build.artifactName = 'PhilosopherStoneCRM-Acceptance-Setup-${version}-${arch}.${ext}';
+pkg.build.nsis.shortcutName = '哲人石CRM 验收专用';
+pkg.build.nsis.createDesktopShortcut = false;
+pkg.build.nsis.createStartMenuShortcut = false;
+pkg.build.directories.output = path.join(root, '.validation', 'acceptance-dist');
+fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify(pkg, null, 2));
+fs.copyFileSync(path.join(root, 'package-lock.json'), path.join(stage, 'package-lock.json'));
+const npm = process.platform === 'win32' ? path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js') : null;
+if (!npm || !fs.existsSync(npm)) throw new Error('本脚本需要本机 Node 随附 npm-cli.js');
+const install = spawnSync(process.execPath, [npm, 'ci', '--omit=dev', '--ignore-scripts', '--registry=https://registry.npmjs.org'], { cwd: stage, stdio: 'inherit', shell: false });
+if (install.status !== 0) process.exit(install.status || 1);
+const builder = path.join(root, 'node_modules', 'electron-builder', 'out', 'cli', 'cli.js');
+for (const version of ['1.0.0', '1.0.1']) {
+  const result = spawnSync(process.execPath, [builder, '--projectDir', stage, '--win', 'nsis', '--x64', '--publish', 'never', '--config.extraMetadata.version=' + version, '--config.directories.output=' + path.join(root, '.validation', 'acceptance-' + version)], { cwd: root, stdio: 'inherit', shell: false });
+  if (result.status !== 0) process.exit(result.status || 1);
+}

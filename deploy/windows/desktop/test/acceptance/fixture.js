@@ -1,0 +1,9 @@
+'use strict';
+const status = document.querySelector('#status');
+function database() { return new Promise((resolve, reject) => { const request = indexedDB.open('W020-upgrade', 1); request.onupgradeneeded = () => request.result.createObjectStore('sentinels'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
+async function writeIDB() { const db = await database(); try { await new Promise((resolve, reject) => { const tx = db.transaction('sentinels', 'readwrite'); tx.objectStore('sentinels').put('W020-indexedDB-中文', 'upgrade'); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); } finally { db.close(); } }
+async function readIDB() { const db = await database(); try { return await new Promise((resolve, reject) => { const request = db.transaction('sentinels').objectStore('sentinels').get('upgrade'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); } finally { db.close(); } }
+async function run(fn) { try { status.textContent = JSON.stringify(await fn(), null, 2); } catch (e) { status.textContent = 'FAIL: ' + e.message; } }
+document.querySelector('#seed').onclick = () => run(async () => { localStorage.setItem('upgrade', 'W020-localStorage-中文'); await writeIDB(); return window.acceptance.seed(); });
+document.querySelector('#blob').onclick = () => { const bytes = '\uFEFF姓名,结果\r\n合成验收,保留升级哨兵\r\n'; const url = URL.createObjectURL(new Blob([bytes], { type: 'text/csv;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = '合成验收.csv'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 10000); };
+document.querySelector('#verify').onclick = () => run(async () => window.acceptance.report({ localStorage: localStorage.getItem('upgrade'), indexedDB: await readIDB(), node: typeof process !== 'undefined' || typeof require !== 'undefined' }));
