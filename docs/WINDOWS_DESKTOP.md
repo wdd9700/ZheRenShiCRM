@@ -144,5 +144,20 @@ Electron 的 userData/分区与 Edge profile 独立，**不扫描、不导入、
 ## 已有验证与待验
 
 - 核心 checkpoint `927aa34`：Node 内置测试19项全部通过，含设置保留/迁移/未来与坏配置拒绝、安全 IPC、origin/下载限制、严格SSH参数/忙端口拒绝、OTA disabled、签名状态/Subject/pin/路径拒绝、PowerShell错误/超时/坏输出、SHA/半包/缓存替换/取消/flush失败；真实 Windows PowerShell 对未签文件的拒绝已运行。
-- Electron CLI 实测 `v45.2.3`；官方精确 registry 安装成功。阶段四包 NSIS 均 exit0，ASAR 生产源逐字节比较与 fuse 检查通过；包含 Electron/Chromium 许可证。阶段包默认图标将被最终自有图标包替换，不作最终对外交付。
+- 后续核心 `83aaccd` 修复独审 seq135 两个P2（合法确认外链、真实 updater 缓存配置），新增实际锁定 updater 离线集成，**22/22通过、0跳过**。构建/验收脚本冻结 `44b08d5`，该增量未改核心。
+- Electron CLI 实测 `v45.2.3`；官方精确 registry 安装成功。最终品牌四包 NSIS 均 exit0，`inspect-artifacts.cjs` 核版本/独立 package身份/ASAR生产源逐字节/fuse/OTA配置与默认禁用/许可证全部通过。原始 runtime zip 的官方已知 SHA256已重验，未改 fuses 的旧 runtime 不作为输入。构建日志没有默认图标警告，保留 Electron/Chromium 许可证。真实 Windows Authenticode 查询四安装器均为 `NotSigned`（枚举2），不宣称已签名。
+- 最终打包过程中 acceptance 的相对 beforePack hook 被 builder 的工作区边界守卫拒绝；将生成配置指向 **stage 内复制脚本的绝对路径** 后，欠的两包成功。没有放宽边界守卫或重写打包器。标准 GitHub超时与该次拒绝均保留，不用后继成功抹去历史。
+
+### 最终工件（当前源码核心83aaccd / 构建脚本44b08d5）
+
+根目录 `deploy/windows/desktop/`；这些工件 gitignored，仅本机交付，不提交安装器。
+
+| 工件 | 字节 | SHA256 |
+|---|---:|---|
+| `dist/PhilosopherStoneCRM-Setup-1.0.0-x64.exe` | 121672488 | `bbab9b31d5e71fd6cafb81e9ee21986f4a80fee163e03f6f48047ec9c7ab0e30` |
+| `dist-next/PhilosopherStoneCRM-Setup-1.0.1-x64.exe` | 121672690 | `5a417df1881a55c84a580512d567cd0a7c309f3e16e9d9b1ea8dcb1cf74fffdf` |
+| `.validation/acceptance-1.0.0/PhilosopherStoneCRM-Acceptance-Setup-1.0.0-x64.exe` | 121672171 | `6cbd6f462204f5bd6266945870c638104b3678bc9ea0ddf4468f4740469cc10e` |
+| `.validation/acceptance-1.0.1/PhilosopherStoneCRM-Acceptance-Setup-1.0.1-x64.exe` | 121672110 | `ef14376a78895482a3b62f80509988780adc56954ebf3091c04f8c1e8cfbadac` |
+
+完整 ASAR/EXE/安装器摘要、源字节比较集合、fuse 值与版本在 gitignored `.validation/artifact-inspection.json`；可用 `node scripts/inspect-artifacts.cjs` 重算。实际两版操作后用 `node scripts/compare-acceptance.cjs` 只读比较合成两报告，要求 N 实际下载两次、N+1 不重新下载/重 seed。未签安装器可能触发 Windows 来源/SmartScreen 警告，不应关闭系统安全保护。
 - GUI 真安装、两版实际覆盖存储保留、标准 CRM 连接与生产身份最小启动仍待授权操作者结果；不把受控测试或构建通过说成安装通过。真实证书/托管/受信 OTA 成功链未有，不伪称已上线。
