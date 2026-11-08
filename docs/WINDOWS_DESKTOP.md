@@ -160,4 +160,17 @@ Electron 的 userData/分区与 Edge profile 独立，**不扫描、不导入、
 | `.validation/acceptance-1.0.1/PhilosopherStoneCRM-Acceptance-Setup-1.0.1-x64.exe` | 121672110 | `ef14376a78895482a3b62f80509988780adc56954ebf3091c04f8c1e8cfbadac` |
 
 完整 ASAR/EXE/安装器摘要、源字节比较集合、fuse 值与版本在 gitignored `.validation/artifact-inspection.json`；可用 `node scripts/inspect-artifacts.cjs` 重算。实际两版操作后用 `node scripts/compare-acceptance.cjs` 只读比较合成两报告，要求 N 实际下载两次、N+1 不重新下载/重 seed。未签安装器可能触发 Windows 来源/SmartScreen 警告，不应关闭系统安全保护。
-- GUI 真安装、两版实际覆盖存储保留、标准 CRM 连接与生产身份最小启动仍待授权操作者结果；不把受控测试或构建通过说成安装通过。真实证书/托管/受信 OTA 成功链未有，不伪称已上线。
+
+### 实际 GUI 阻碍与最短续作
+
+Terra 已加载当前 Windows 桌面技能并完整读取 API reference，但此 worker 和主控会话都缺必需的 `js` / `js_reset` 工具，**没有启动任何安装器、没有写哨兵、没有覆盖升级或登录**。Terra 独立确认 production/acceptance preflight 都为 `safeForFreshInstall=true`，并复核三份交接安装包 SHA256 一致；这是检查时点事实，不是安装或数据保留成功。主控明确暂停实际 GUI，不用 shell 静默安装、模拟点击、内置浏览器、新系统用户或提权绕过工具边界。
+
+在具备 Windows 桌面工具的新会话/重载会话中接续（不需重构建）：
+
+1. 进入 `P:\CRM\.tower\worktrees\wt-41\deploy\windows\desktop`；按上表核三份将使用安装器的 SHA256，再运行两种 preflight。出现未知路径/注册就停止，不删除/覆盖。
+2. 在真实 Windows GUI 打开 `.validation/acceptance-1.0.0/PhilosopherStoneCRM-Acceptance-Setup-1.0.0-x64.exe`，按前节六步完成专属安装、首次写哨兵、HTTP/Blob下载、保存N报告、正常退出、N+1覆盖与冷启动只验证。
+3. 执行 `node scripts/compare-acceptance.cjs`，应 PASS，检查两版本设置摘要/固定profile/partition/localStorage/IndexedDB/持久合成Cookie/下载摘要全部保持。未生成两份真实报告前，此脚本无法也不应通过。
+4. production preflight仍无冲突才用 `dist/PhilosopherStoneCRM-Setup-1.0.0-x64.exe` 真GUI装到专属 `.validation/installed-production`，启动设置、核OTA disabled，正常连接已核验外部隧道18088→标准CRM登录，不读Edge会话/不借管理员私钥。
+5. 将 GUI 观察与合成两报告回传主控，补本页证据，任务2/4再勾选。当前任务仍未Complete，实际启动与覆盖保留未验。
+
+真实证书/托管/受信 OTA 成功链仍未有；这是生产 OTA 的外部发布条件，不伪称已上线。普通技术实现无需新增用户价值取舍，当前实际验收阻碍是工具可用性。
