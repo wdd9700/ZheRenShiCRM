@@ -357,3 +357,21 @@ M43独占修改deploy/remote/trial.sh以保持HTTPS/socket配置，M37本轮不�
 原180容器/134卷及daemon/mainlock八guard保持；仅新none/restartno probe `2e5b75054fd9c64a5ee4eb4ed12d1185ae33875a4ea597ce02ce9c1575403dd2` 退出0非OOM与两个自有匿名卷保留，未业务运行。结果 `deploy/.runtime/common-ui-build-r2-b7b7ba02eddc4a5aa0db6e844e9656ea/result.json` SHA `f0378a871cf61a491b29f14edd320ad03289488656db9ae3d8ed26f5dece2d9c`；build log SHA `519cec4d13c0df887ff2b473e7cf3f0285fbf3a8668ba1fcec027410e54a66d7`；artifact log SHA `11548f58105c6712a71bd9a164ca50cfd6504be86483ca533e23238151d38894`。
 
 同目录 `static-receipt.json` SHA **`6f87b250a4ab3a5cf282e7b7b349ff9f3325d93dc9425b5289641724bb530856`**，201条动态URL/11重点asset；新入口 `/assets/crm/frontend/assets/index-DO9vnRFq.js` SHA `f2f4adbae397d35bb4b28f71c03d9cce800b0652e3edcdf0b253504acec4fc54`（598675B），CSS index-BSWanVSZ保持原SHA03755f81。其余共享主题/rail/access版本与独立页资产不变。此为产物测试，不当通知/搜索/筛选实际HTTPS用户界面已验，等待M17真实部署后Terra定点短验。
+
+### M42统一交付包与环境释放（未部署）
+
+tower在源码/接入审clean后明确授权导出。本轮构建产物测试通过后，只保存同一新镜像，不重build。`bash-wloosn2g` / Windows PID71980 **86.088秒exit0**：标准save、原归档验证器全blob/index→唯一amd64manifest→config/逐gzip解压13diff_id、归档完整Config与受测inspect一致均PASS。
+
+冻结目录：`P:/CRM/.tower/worktrees/wt-37/deploy/.runtime/common-ui-final-35d0b0bd-release/`
+
+| 文件 | bytes / SHA256 |
+|---|---|
+| `image.tar` | **1548928000 bytes** / `45db442cc3c1614fcc8cafe9d56960fc22199f7d88b1ebcfc3ec6ce24eb39fe9` |
+| `release.env` | 七字段 / `dac7d52073d4252a4e42960860a3fa73f6241c2a5064a382e42eb7a0e8af6fe1` |
+| `image-rootfs-layers.txt` | 13有序diff_id / `f3ec8f1e58f827572bbf1c3a0753c64080de2b75e7b588b61a5fe1d87a6622b4` |
+| `candidate-manifest.json` | `98a93883e0998cc65a32022a7fb0f9486f245253536b6e23d8a2b23c039b7204` |
+| `export-result.json` | `a3dc655c1cf9f8d6805e64ee00b6044c56c69a859d586b89491bb957a909c534` |
+
+manifest明确parent2f92、commonUI95e5ce6/integration0efd1fc、来源receipt82d57798、static receipt6f87b250、未部署/HTTPS目标短验待做，不复用旧2f92 digest冒充新包。原181容器/136卷、daemon/mainlock六guard保持，无新资源；唯一新增测试probe与其两卷来自此前build验证，退出0并保留。所有本轮环境任务已结束，第一Ubuntu已明确ENV RELEASED给tower/M9，无后台。
+
+新包与201URL receipt已直接交M17部署owner，部署必须按tower后续窗口与M43独审新工具执行以保HTTPS/socket overlay；原242161仅归档verifier出处，不冒称仍是未修改部署工具。M37本轮无SSH/上传/目标服务器操作，本地未启浏览器/站点；M17部署后由Terra在真实HTTPS仅通知/相关常用入口短验，未验前不宣全站汉化或本轮目标UI通过。原默认zh/显式用户语言优先和2f92既有限制继续保留，不为本轮再次改DB/重矩阵。
