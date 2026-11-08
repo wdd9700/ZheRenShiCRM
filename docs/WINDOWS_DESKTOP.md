@@ -2,7 +2,7 @@
 
 ## 状态与决策
 
-2026-11-09：既有安全壳/两版NSIS工件保留；新源码增加独立 Ed25519 应用签名 OTA 与固定HTTPS入口初始化机制，待独审及真实入口就绪后统一打包。**没有生成生产私钥、没有启用OTA渠道或猜定直连HTTPS地址；现有EXE尚不含此轮新代码。实际GUI安装/覆盖保数据仍因工具缺失未验。** 缺 Windows Authenticode 证书不再被当作应用签名OTA的必要前置，但Windows未知发布者/SmartScreen边界仍存在。
+2026-11-09：既有安全壳/两版NSIS工件保留；Ed25519核心与坏缓存修复已获seq140 clean。**已按明确授权在独占ACL本机专用目录生成正式Ed25519密钥，公开根已固定但OTA仍disabled；没有签发生产manifest、没有启用渠道或猜定直连HTTPS地址。现有EXE未重包，尚不含新代码/公钥，实际GUI安装/覆盖保数据仍因工具缺失未验。** 缺 Windows Authenticode 证书不再被当作应用签名OTA必要前置，Windows未知发布者/SmartScreen边界仍存在。
 
 - 用户明确要求真实 EXE、覆盖升级保留客户端数据、预留 OTA，Windows 优先；继续复用团队集中 CRM Web，不新增本地业务数据库。服务端数据、权限和升级归服务端流程，不由安装器迁移。
 - 暂选 Electron **45.2.3** + electron-builder **26.18.0** + electron-updater **6.8.11**，Node **22.20.0** / npm **11.6.3**。官方 registry 的 engines 已核，精确版本及 integrity 锁在 `deploy/windows/desktop/package-lock.json`。Edge PWA 不能交付独立 NSIS EXE；Tauri 会增加当前未验证的 Rust/WebView2 构建链，暂不采用。Electron 可替换但体积与升级成本较高。
@@ -96,7 +96,7 @@ node scripts/inspect-artifacts.cjs
 
 - **Ed25519 应用签名**：证明更新清单及安装包是固定私钥持有者授权；不需要先购买 Windows 代码签名证书。
 - **Authenticode/SmartScreen**：Windows 认可的发布者身份、系统警告/信誉属于另一层。Ed25519 成功不会把 EXE 变成公信 Windows 已签文件，仍可能显示未知发布者。不能关闭系统保护来冒充已认证。
-- 当前 `release/ota-policy.json` 仍为 `{"enabled":false}`；没有生产公钥/获批私钥生成/有效 HTTPS OTA 托管，仍不启用渠道。测试密钥从未写入正式 policy。Web 服务升级、CRM HTTPS 入口、EXE OTA 三者独立。
+- 当前 `release/ota-policy.json` 固定正式Ed25519公钥/keyId，但仍 `enabled:false`、没有feedUrl；可信HTTPS OTA托管尚未上线，不启用渠道。测试密钥从未写入正式policy。Web服务升级、CRM HTTPS入口、EXE OTA三者独立。
 - **此前表中四个 EXE 属于核心83aaccd检查点，不含本轮新增 Ed25519/固定HTTPS源代码；保留原字节，不把旧包说成新功能已打包。** 等本轮代码独审及真实 HTTPS 入口就绪后统一最终构建，不逐项重复打包。
 
 ### 推荐：pinned-key-ed25519
@@ -142,15 +142,29 @@ node scripts/inspect-artifacts.cjs
 
 ### 私钥生成、离线签发与备份
 
-**生产私钥尚未生成。** 主控仅认可建议路径 `C:\Users\74090\AppData\Local\PhilosopherStoneCRM-ReleaseKeys`，尚未授权实际创建/写生产密钥。后续单独明确生成后才运行（当前不要执行）：
+**正式Ed25519发布密钥已按用户/主控明确授权生成一套（2026-11-09）。** 使用 seq140已审定的原脚本；目标目录此前不存在，脚本新建成功，未覆盖任何旧目录或文件。已执行的命令（勿重复，已有目录会拒绝）：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/generate-release-key.ps1 -Directory 'C:\Users\74090\AppData\Local\PhilosopherStoneCRM-ReleaseKeys'
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/generate-release-key.ps1 -Directory 'C:\Users\74090\AppData\Local\PhilosopherStoneCRM-ReleaseKeys'
 ```
 
-脚本只接受明确本机绝对目录，拒绝已有目录/文件与链接祖先；先创建受保护独占ACL（当前用户+SYSTEM，禁止继承）再由Node生成Ed25519。私钥PKCS8 PEM仅写 `private-key.pem`、不stdout、不进参数正文、不写Git/包/服务器；公钥写 `public-key.pem`，`key-id.txt` 保存公开标识。文件继承专用ACL；签发前再次检查所有密钥目录ACL主体/owner。管理员或同一用户被控制不在此边界保证内，私钥PEM本身不是加密备份。
+存储路径：`C:\Users\74090\AppData\Local\PhilosopherStoneCRM-ReleaseKeys`，仅含 `private-key.pem` / `public-key.pem` / `key-id.txt`。未读取或输出私钥正文；生成后只读取公开公钥和keyId计算公开身份。目录ACL已实测为受保护、不继承、owner当前用户，Allow主体仅当前用户与SYSTEM；三文件从该目录继承同两主体，均无reparse标志。已审 `checkKeyDirectory` 校验PASS。私钥没有进入repo、ASAR/安装器或服务器，未借用SSH key，没有签发任何生产manifest或虚假更新。
 
-用户应把私钥另存授权的离线加密介质，保留keyId/公钥指纹和已用最高sequence，限制发布机/备份访问；不要放项目、OneDrive或服务器。没有备份丢失私钥只能可信人工重新分发，不能让服务器换钥。此轮实际生成过的仅 `.validation/key-test-*` 的明确测试密钥，测试结束已经清理；不会生成测试policy到生产配置。
+公开身份：
+
+```text
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAql0KJJbJPvweE0CtfXkTxUoHCss7pJHF6i566RZnSL4=
+-----END PUBLIC KEY-----
+```
+
+- keyId：`746b9e5a91bea9de29f8eb061a2536e7`
+- 公钥SPKI DER完整fingerprint：`SHA256:746b9e5a91bea9de29f8eb061a2536e77916c909d61e7ecd83e2dc2c02999836`
+- `release/ota-policy.json` 已准备固定上述公钥、keyId、`minSequence:1`，但仍 **`enabled:false`**，尚无feedUrl，不能启用或声称OTA可用。旧EXE未重包，不含本次公钥配置。
+
+脚本拒绝已有目录/文件与链接祖先，先建立独占ACL再生成Ed25519。签发前仍核全部密钥目录ACL主体/owner；生产私钥后续仅供已审本机离线签发CLI使用。管理员或同一用户被控制不在此保证内，私钥PEM本身不是加密备份。
+
+**用户保管：** 把整个专用目录另备份到本人控制的离线加密介质，妥善保管加密口令；同时记录公钥fingerprint/keyId及已用最高sequence。不要上传Git、聊天附件、OneDrive、CRM服务器或发给团队，不把私钥放入安装包；本任务没有自动复制备份或向新位置外发。丢失私钥且无备份只能走可信人工重新分发；若泄露，应停止签发并人工建立新根。正常未泄露轮换必须由当前根签署含新公钥的新客户端，不接受服务器自报新key。此前明确测试密钥已经清理，正式policy不使用测试公钥。
 
 离线签发（私钥目录只作为路径，不在命令行传密钥正文）：
 
@@ -252,3 +266,15 @@ Terra 已加载当前 Windows 桌面技能并完整读取 API reference，但此
 Sol seq137 对 `7001e8e` 指出唯一P2：已下载缓存损坏后虽然安装正确拒绝，但原 `existsSync` 令同一签名发布在同实例或重启后始终跳过重新下载。现改为先验证受控缓存；仅普通单链接文件的**大小/摘要不符**允许完整重新获取，仍先验原清单及高水位。新随机 `.part` 必须通过普通文件/实际size/SHA256校验，再复核目标缓存仍是受控普通文件后原子替换；下载/验包失败保留原坏缓存和高水位，清理仅本人该随机临时文件。链接、目录、路径变化、权限/I/O、签名或高水位错误不作为可恢复坏包吞掉；不会递归清用户目录或删高水位。安装前及真实NSIS同步入口的再次验签/实际文件校验保持。
 
 定向测试命令：`node --test --test-name-pattern='damaged ordinary cache|failed replacement|cache recovery rejects|post-download package substitution|real locked NsisUpdater|high-water rejects' deploy/windows/desktop/test/pinned-update.test.cjs`，**6/6 PASS、0跳过**。新增覆盖同实例同长度坏包/新控制器重启后截断包的同序号原清单重试，确认真实重新下载、恢复ready后才可安装；下载中断/新包hash错误不替换原文件、不改高水位；已有硬链接/目录及下载间目标换链接全部拒绝，不触无关哨兵。原坏包拒安装、回退与真实锁定NSIS同步守卫亦定向通过。仅重跑受影响范围，未重复旧GUI/密钥/网络矩阵。生产key/feed/HTTPS配置和旧四EXE字节均未改变，未重包、未生成生产私钥；GUI工具block仍保留。
+
+### 可选 `/updates/windows/` 最小公开静态合同
+
+已直接通过TowerSend交给M43 `sol-public-ip-https-entry`，只作为可信HTTPS设计的静态发布需求，不授权本轮发布虚构更新：
+
+- 固定最终可信HTTPS origin + `/updates/windows/` 尾斜杠；三个资源均直接200，不能3xx/跨源跳转，保持正常TLS。该feed地址尚未填写，不以CRM入口政策代替OTA政策。
+- 目录只允许 `manifest.json`（原UTF8字节，≤16KiB）、`manifest.sig`（原64字节binary）和 `PhilosopherStoneCRM-Setup-<x.y.z>-x64.exe`（完整per-user x64、≤512MiB）。清单格式/签名及文件绑定见上文；不需要未签latest.yml或服务端下发公钥。
+- `Content-Type` 建议依次为 `application/json; charset=utf-8`、`application/octet-stream`、`application/octet-stream`，可带准确Content-Length；关闭压缩/转码/JSON美化/换行改写，客户端要求identity原字节。manifest+sig用no-cache或短缓存，版本EXE不可变并长期缓存。
+- 先不可变发布真实EXE并核完整size/hash，再成对原子切换已由本机正式CLI签发的manifest+sig。读到不匹配配对只拒绝/重试，不推进高水位。发行序号只增不复用，真实包尚未准备就不签假manifest。
+- 使用独立白名单静态目录，不映射仓库、key目录、CRM客户业务/public/private/files目录；只公开签名发布产物。**私钥永不传服务器**，无需SSH key进客户端。公钥来自可信人工分发的客户端，不信服务器自报新根。
+
+本轮仅正式密钥生成、ACL实测、公开根固定和文档/合同交接；未签包/manifest、未公网发布、未重包、未执行GUI或更改全局安全设置。已审生成脚本无stdout；`checkKeyDirectory`及公开SPKI/keyId一致性校验通过，目录/三文件ACL仅当前用户+SYSTEM。OTA disabled仍被正常控制器拒绝，后续真正渠道启用与覆盖升级仍需各自证据。
