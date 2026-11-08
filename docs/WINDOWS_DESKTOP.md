@@ -48,6 +48,21 @@ node scripts/inspect-artifacts.cjs
 
 `npm ci` 按 lock 安装；Electron 安装脚本下载官方发布运行时，builder 按需下载官方 Electron/NSIS/7zip 构建工具缓存。不切换镜像绕过拒绝、不安装全局 NSIS/SDK、不改系统服务。`--publish never` 不发布任何工件；构建文件白名单仅 `src/**`、`package.json` 和固定 OTA policy，不打包 `.env`、密钥、测试或构建日志。生产包启用 ASAR 完整性、OnlyLoadAppFromAsar；关闭 RunAsNode、NODE_OPTIONS、Node CLI inspect fuse。
 
+最终品牌构建第一次在标准 GitHub 下载步骤遇 `ETIMEDOUT 20.205.243.166:443`（274秒），没有换源或关闭 TLS。主控允许使用 builder 官方 `electronDist` 本地输入，复用此前已获准下载的**原始官方归档**，不使用改名/修改 fuse 的旧打包目录。`node scripts/verify-electron-cache.cjs` 从确切官方 URL 对应缓存读取 `electron-v45.2.3-win32-x64.zip`，与精确 Electron npm 包内 `checksums.json`（受 lock integrity 保护）比对，复制后再次核 SHA256：158182975 字节，`489cd061908e697394b004298bf5ffd345c935d10e8ca197ba819f019ab2dec0`。
+
+有此已验缓存时可复现本地输入（路径按 checkout 绝对位置替换，不接受未知归档）：
+
+```powershell
+node scripts/verify-electron-cache.cjs
+$archive = (Resolve-Path .validation/electron-v45.2.3-win32-x64.zip).Path
+npm run dist -- --config.electronDist="$archive"
+npm run dist:next -- --config.electronDist="$archive"
+node scripts/build-acceptance.cjs --local-electron
+node scripts/inspect-artifacts.cjs
+```
+
+这是同版本官方分发的标准可配置输入，不是改装 Electron、跳过校验或自造安装器。缺失或 hash 不符立即拒绝；没有缓存时按正常官方下载路径准备。实际 NSIS 默认目录由锁定 AppInfo 的 `executableName` 决定：生产 `%LOCALAPPDATA%\Programs\PhilosopherStoneCRM`，验收为 `...\PhilosopherStoneCRM-Acceptance`；preflight 同时检查这些真实路径及旧兼容命名。早期仅据中文名 fallback 推断“默认目录碰撞”遗漏了 executableName 优先，已纠正，不作为已证缺陷。
+
 输出：
 
 - `dist/PhilosopherStoneCRM-Setup-1.0.0-x64.exe` 与 `.blockmap`

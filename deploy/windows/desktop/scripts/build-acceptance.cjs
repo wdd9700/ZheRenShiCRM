@@ -25,6 +25,14 @@ pkg.build.nsis.shortcutName = '哲人石CRM 验收专用';
 pkg.build.nsis.createDesktopShortcut = false;
 pkg.build.nsis.createStartMenuShortcut = false;
 pkg.build.directories.output = path.join(root, '.validation', 'acceptance-dist');
+pkg.build.beforePack = path.join(stage, 'scripts', 'prepare-release.cjs');
+if (process.argv.includes('--local-electron')) {
+  const fileName = 'electron-v45.2.3-win32-x64.zip';
+  const archive = path.join(root, '.validation', fileName);
+  const digest = require('node:crypto').createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
+  if (digest !== require('../node_modules/electron/checksums.json')[fileName]) throw new Error('Local official Electron archive checksum mismatch');
+  pkg.build.electronDist = archive;
+}
 fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify(pkg, null, 2));
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
 lock.name = pkg.name;

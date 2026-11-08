@@ -1,0 +1,24 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { createHash } = require('node:crypto');
+const root = path.resolve(__dirname, '..');
+(async () => {
+  const version = require('../node_modules/electron/package.json').version;
+  if (version !== '45.2.3') throw new Error('Unexpected Electron package version');
+  const fileName = `electron-v${version}-win32-x64.zip`;
+  const url = `https://github.com/electron/electron/releases/download/v${version}/${fileName}`;
+  const { Cache } = await import(pathToFileURL(path.join(root, 'node_modules', '@electron', 'get', 'dist', 'Cache.js')).href);
+  const source = new Cache(process.env.electron_config_cache).getPathForFileInCache(url, fileName);
+  if (!source) throw new Error('No cached official archive; refusing alternate sources');
+  const expected = require('../node_modules/electron/checksums.json')[fileName];
+  if (!/^[a-f0-9]{64}$/.test(expected)) throw new Error('Missing locked Electron package checksum');
+  const hash = createHash('sha256'); for await (const chunk of fs.createReadStream(source)) hash.update(chunk);
+  if (hash.digest('hex') !== expected) throw new Error('Cached official archive checksum mismatch');
+  const destination = path.join(root, '.validation', fileName); fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.copyFileSync(source, destination);
+  const copied = createHash('sha256'); for await (const chunk of fs.createReadStream(destination)) copied.update(chunk);
+  if (copied.digest('hex') !== expected) throw new Error('Copied archive checksum mismatch');
+  console.log(JSON.stringify({ version, officialUrl: url, source, destination, bytes: fs.statSync(destination).size, sha256: expected, checksumSource: 'exact electron npm package checksums.json, protected by package-lock integrity', unpackedRuntimeNotUsed: true }, null, 2));
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
