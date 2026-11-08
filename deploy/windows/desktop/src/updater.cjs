@@ -8,7 +8,7 @@ function trustedUpdateUrl(value, policy) {
 }
 function buildUpdateConfig(rawPolicy) {
   const policy = validatePolicy(rawPolicy);
-  return { updaterCacheDirName: 'philosopher-stone-crm-updater', ...(policy ? { provider: 'generic', url: policy.feedUrl, publisherName: [policy.publisherName] } : {}) };
+  return { updaterCacheDirName: 'philosopher-stone-crm-updater', ...(policy && policy.trust !== 'pinned-key-ed25519' ? { provider: 'generic', url: policy.feedUrl, publisherName: [policy.publisherName] } : {}) };
 }
 function createStrictUpdater(policy, { appAdapter, netSession } = {}) {
   const { NsisUpdater } = require('electron-updater');
@@ -44,6 +44,7 @@ function createStrictUpdater(policy, { appAdapter, netSession } = {}) {
 class UpdateController {
   constructor(rawPolicy, { factory = createStrictUpdater, verifier = verifyInstaller, confirm, flush } = {}) {
     this.policy = validatePolicy(rawPolicy);
+    if (this.policy?.trust === 'pinned-key-ed25519') throw new Error('pinned-key 必须使用独立更新控制器');
     this.verifier = verifier;
     this.confirm = confirm;
     this.flush = flush;
@@ -115,4 +116,9 @@ function loadPolicy(resources) {
   const file = path.join(resources, 'ota-policy.json');
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return { enabled: false }; throw new Error('OTA 发行策略无法读取，拒绝启用'); }
 }
-module.exports = { trustedUpdateUrl, buildUpdateConfig, createStrictUpdater, UpdateController, loadPolicy };
+function createUpdateController(rawPolicy, options) {
+  const policy = validatePolicy(rawPolicy);
+  if (policy?.trust === 'pinned-key-ed25519') return new (require('./pinned-updater.cjs').PinnedUpdateController)(policy, options);
+  return new UpdateController(rawPolicy, options);
+}
+module.exports = { trustedUpdateUrl, buildUpdateConfig, createStrictUpdater, UpdateController, createUpdateController, loadPolicy };

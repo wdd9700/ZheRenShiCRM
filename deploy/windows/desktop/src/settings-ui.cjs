@@ -5,7 +5,7 @@ const updateState = document.querySelector('#update-state');
 async function action(fn) { try { status.textContent = ''; return await fn(); } catch (error) { status.textContent = error.message; } }
 async function refresh() {
   const state = await window.desktop.updateStatus();
-  updateState.textContent = state.state === 'disabled' ? 'OTA 未配置，已禁用。当前安装包未签名，不代表生产 OTA 已可用。' : `更新状态：${state.state}${state.version ? ' · ' + state.version : ''}`;
+  updateState.textContent = state.state === 'disabled' ? 'OTA 未配置，已禁用。当前安装包未签名，不代表生产 OTA 已可用。' : `更新状态：${state.state}${state.version ? ' · ' + state.version : ''} · ${state.trust === 'pinned-key-ed25519' ? 'Ed25519 应用签名（不等于 Windows 发布者认证）' : 'Authenticode 发布者验签'}`;
   document.querySelector('#check').disabled = state.state === 'disabled';
   document.querySelector('#download').disabled = state.state !== 'available';
   document.querySelector('#install').disabled = state.state !== 'ready';

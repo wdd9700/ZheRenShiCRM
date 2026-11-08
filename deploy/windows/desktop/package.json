@@ -24,7 +24,8 @@
     "files": ["src/**", "package.json"],
     "extraResources": [
       { "from": "release/ota-policy.json", "to": "ota-policy.json" },
-      { "from": "release/app-update.yml", "to": "app-update.yml" }
+      { "from": "release/app-update.yml", "to": "app-update.yml" },
+      { "from": "release/connection-policy.json", "to": "connection-policy.json" }
     ],
     "beforePack": "./scripts/prepare-release.cjs",
     "asar": true,

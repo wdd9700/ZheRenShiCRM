@@ -5,7 +5,7 @@ const path = require('node:path');
 const { APP_ID, DATA_DIRECTORY, PARTITION, SettingsStore, connectionOrigin } = require('./settings.cjs');
 const { SETTINGS_URL, remotePreferences, authorizedSettings, allowedNavigation, secureWindow, secureSession } = require('./security.cjs');
 const { Tunnel } = require('./tunnel.cjs');
-const { UpdateController, loadPolicy } = require('./updater.cjs');
+const { UpdateController, createUpdateController, loadPolicy } = require('./updater.cjs');
 app.setAppUserModelId(APP_ID);
 const data = path.join(app.getPath('appData'), DATA_DIRECTORY);
 fs.mkdirSync(path.join(data, 'browser'), { recursive: true });
@@ -38,7 +38,7 @@ async function flush() {
   }
 }
 async function confirmUpdate(kind, version) {
-  const result = await dialog.showMessageBox(settingsWindow, { type: 'question', buttons: ['取消', kind === 'install' ? '已保存，安装并重启' : '下载'], defaultId: 0, cancelId: 0, title: '哲人石CRM 客户端更新', message: kind === 'install' ? `安装 ${version} 并重启？请先保存所有 CRM 表单。` : `下载客户端 ${version}？`, detail: '仅接受发行策略指定证书的有效 Windows 签名。安装前会再次检查文件；保留客户端数据不代表会话永不过期。' });
+  const result = await dialog.showMessageBox(settingsWindow, { type: 'question', buttons: ['取消', kind === 'install' ? '已保存，安装并重启' : '下载'], defaultId: 0, cancelId: 0, title: '哲人石CRM 客户端更新', message: kind === 'install' ? `安装 ${version} 并重启？请先保存所有 CRM 表单。` : `下载客户端 ${version}？`, detail: (updates?.policy?.trust === 'pinned-key-ed25519' ? '使用客户端固定 Ed25519 公钥验证发行清单和安装包；这不是 Windows 发布者认证，仍可能显示未知发布者。' : '仅接受发行策略指定证书的有效 Windows 签名。') + ' 安装前会再次检查文件；保留客户端数据不代表会话永不过期。' });
   return result.response === 1;
 }
 async function connect() {
@@ -90,8 +90,14 @@ else {
   app.whenReady().then(() => {
     store = new SettingsStore(data);
     try { store.load(); } catch { dialog.showErrorBox('配置无法读取', '原配置文件已保留，拒绝覆盖；请联系管理员备份并检查 settings.json。'); app.quit(); return; }
-    try { updates = new UpdateController(loadPolicy(app.isPackaged ? process.resourcesPath : path.join(__dirname, '..', 'release')), { confirm: confirmUpdate, flush }); }
-    catch { dialog.showErrorBox('OTA 策略无效', '拒绝启用更新；原程序仍可使用，请联系发行管理员。'); updates = new UpdateController({ enabled: false }); }
+    try {
+      const resources = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..', 'release');
+      const { readConnectionPolicy, initializeConnection } = require('./connection-policy.cjs');
+      initializeConnection(store, readConnectionPolicy(resources));
+      updates = createUpdateController(loadPolicy(resources), { confirm: confirmUpdate, flush, dataDirectory: data, currentVersion: app.getVersion() });
+      if (store.value.connection.mode === 'https' && store.value.connection.trustedHttps) setImmediate(() => connect().catch(() => { showSettings(); dialog.showErrorBox('连接未就绪', '请检查服务端可信 HTTPS 入口；不会降级 HTTP 或忽略证书错误。'); }));
+    }
+    catch { dialog.showErrorBox('发行配置无效', '拒绝启用更新或新入口配置；原数据已保留，请联系发行管理员。'); updates = new UpdateController({ enabled: false }); }
     handle('settings:read', () => ({ connection: store.value.connection, version: app.getVersion() }));
     handle('settings:save', connection => {
       if (crmWindow || tunnel.child || connecting) throw new Error('请关闭 CRM 并退出客户端后再修改连接；不会终止未知进程');

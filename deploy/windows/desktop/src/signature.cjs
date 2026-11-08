@@ -8,6 +8,9 @@ function validatePolicy(raw) {
   if (!raw || raw.enabled !== true) return null;
   const url = new URL(raw.feedUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/')) throw new Error('OTA 必须使用固定 HTTPS 发布目录');
+  const base = { feedUrl: url.href, origin: url.origin };
+  if (raw.trust === 'pinned-key-ed25519') return require('./signed-manifest.cjs').validatePinnedPolicy(raw, base);
+  if (raw.trust !== undefined && raw.trust !== 'authenticode') throw new Error('未知 OTA 信任策略');
   if (typeof raw.publisherName !== 'string' || !raw.publisherName.trim() || raw.publisherName.length > 512) throw new Error('OTA 缺少完整发布者 Subject');
   if (!Array.isArray(raw.certificateSha256) || raw.certificateSha256.length === 0 || !raw.certificateSha256.every(value => /^[a-fA-F0-9]{64}$/.test(value))) throw new Error('OTA 缺少证书 SHA256 pin');
   return { feedUrl: url.href, origin: url.origin, publisherName: raw.publisherName, certificateSha256: raw.certificateSha256.map(value => value.toUpperCase()) };

@@ -2,7 +2,7 @@
 
 ## 状态与决策
 
-2026-11-08：已实现安全薄壳、持久设置、严格 SSH 与默认关闭的 OTA，已实际构建两版 x64 NSIS 安装器。**GUI 安装、覆盖升级与真实 CRM 连接正在交接验证，尚不能称为已验收。当前没有生产签名证书或 OTA 托管，产物未签名，不是生产 OTA 已就绪。** 最终产物摘要与 GUI 证据在本页末尾补充；早期默认 Electron 图标包只是阶段产物。
+2026-11-09：既有安全壳/两版NSIS工件保留；新源码增加独立 Ed25519 应用签名 OTA 与固定HTTPS入口初始化机制，待独审及真实入口就绪后统一打包。**没有生成生产私钥、没有启用OTA渠道或猜定直连HTTPS地址；现有EXE尚不含此轮新代码。实际GUI安装/覆盖保数据仍因工具缺失未验。** 缺 Windows Authenticode 证书不再被当作应用签名OTA的必要前置，但Windows未知发布者/SmartScreen边界仍存在。
 
 - 用户明确要求真实 EXE、覆盖升级保留客户端数据、预留 OTA，Windows 优先；继续复用团队集中 CRM Web，不新增本地业务数据库。服务端数据、权限和升级归服务端流程，不由安装器迁移。
 - 暂选 Electron **45.2.3** + electron-builder **26.18.0** + electron-updater **6.8.11**，Node **22.20.0** / npm **11.6.3**。官方 registry 的 engines 已核，精确版本及 integrity 锁在 `deploy/windows/desktop/package-lock.json`。Edge PWA 不能交付独立 NSIS EXE；Tauri 会增加当前未验证的 Rust/WebView2 构建链，暂不采用。Electron 可替换但体积与升级成本较高。
@@ -90,30 +90,83 @@ node scripts/inspect-artifacts.cjs
 
 仅客户端拥有、当前 URL 受信的 CRM webContents 可发起同 origin HTTP attachment 或同 origin blob 下载；原生保存对话框默认用户 Downloads，不进安装树，不自动打开/执行。其它来源的下载拒绝。此限制不等于下载内容无害；用户仍应检查导出文件。
 
-## OTA：能力、配置与明确未就绪项
+## OTA：应用签名与 Windows 发布者认证分离
 
-当前 `release/ota-policy.json` 为 `{"enabled":false}`；UI 显示“OTA 未配置，已禁用”，不自动检查、下载或安装。Web 服务端更新与客户端 EXE OTA 是两个独立流程。
+2026-11-09 用户明确授权以公私钥实现应用级 OTA；**早期“OTA 必须等待 Authenticode 证书”仅是原策略的选择，不是技术上的唯一方案，现已纠正。** 新增 `pinned-key-ed25519` 策略，使用 Node 内置成熟 Ed25519 能力，不增加密码学依赖、不自行实现算法。原 Authenticode 策略独立保留，不在失败时切换成另一种策略。两种方案都 fail-closed。
 
-只有发行管理员准备好有效 Authenticode 公信签名证书、HTTPS 托管及发布授权后，才可在**构建源**中修改策略并重新构建：
+- **Ed25519 应用签名**：证明更新清单及安装包是固定私钥持有者授权；不需要先购买 Windows 代码签名证书。
+- **Authenticode/SmartScreen**：Windows 认可的发布者身份、系统警告/信誉属于另一层。Ed25519 成功不会把 EXE 变成公信 Windows 已签文件，仍可能显示未知发布者。不能关闭系统保护来冒充已认证。
+- 当前 `release/ota-policy.json` 仍为 `{"enabled":false}`；没有生产公钥/获批私钥生成/有效 HTTPS OTA 托管，仍不启用渠道。测试密钥从未写入正式 policy。Web 服务升级、CRM HTTPS 入口、EXE OTA 三者独立。
+- **此前表中四个 EXE 属于核心83aaccd检查点，不含本轮新增 Ed25519/固定HTTPS源代码；保留原字节，不把旧包说成新功能已打包。** 等本轮代码独审及真实 HTTPS 入口就绪后统一最终构建，不逐项重复打包。
+
+### 推荐：pinned-key-ed25519
+
+发行构建固定政策示意（占位不能启用）：
 
 ```json
 {
   "enabled": true,
+  "trust": "pinned-key-ed25519",
   "feedUrl": "https://updates.example.invalid/crm/",
-  "publisherName": "CN=完整真实发布者, O=真实组织",
-  "certificateSha256": ["64位真实签名证书DER的SHA256十六进制摘要"]
+  "keyId": "真实SPKI公钥SHA256前32位十六进制",
+  "publicKey": "-----BEGIN PUBLIC KEY-----\n真实Ed25519公钥\n-----END PUBLIC KEY-----\n",
+  "minSequence": 1
 }
 ```
 
-`beforePack` 每次从同一策略生成并打包 `resources/app-update.yml`（JSON 格式是合法 YAML），包含固定 `updaterCacheDirName: philosopher-stone-crm-updater`，启用时也包含一致的 feed/publisher。此文件是 updater 6.8.11 下载缓存初始化的实际必需输入，不可只传构造器 URL 就省略；默认 disabled 仍不实例化 updater。真实锁定依赖的离线缓存初始化与严格验签调用已有定向测试。
+公钥仅来自可信人工分发的构建，不从服务器接收新公钥；`keyId` 不是信任替代品，实际固定完整 Ed25519 SPKI 公钥。初次客户端/公钥必须通过已可信的人工渠道分发。正常轮换用当前信任根签署包含新公钥的新客户端，且序号继续单调增加；不能仅让服务器声明一个新 key。如果旧私钥已经泄露，不能再依赖它安全授权轮换，应走新的可信人工分发。
 
-以上是占位示例，不是可用渠道。完整证书 Subject 精确匹配；证书轮换须预先审定 pin 列表。发布源仅固定 HTTPS 同 origin 且同目录，元数据/文件/重定向均受限；不允许页面/普通设置改 feed/publisher，不打包 PFX、密码、发布 token。固定 latest/stable、x64、完整单 EXE，不支持 web installer、预发布、降级或跨发布站跳转。
+固定 feed 只取 `manifest.json` **原始 UTF-8 字节**（最大16KiB）与 `manifest.sig`（原始64字节 detached签名）。先用客户端固定公钥对原始字节验 Ed25519，成功后才 UTF-8解码、JSON解析、信任字段。签名是对落盘原字节，不是客户端重新序列化的 JSON。
 
-**避免 updater 6.8.11 的默认 fail-open：** 该版本缺 `publisherName`/`app-update.yml` 时可跳过验签，默认 PowerShell verifier 某些能力异常也会放行。本实现继承 `NsisUpdater` 强制调用自定义严格 verifier，而非依赖磁盘配置是否有 publisher。验证用固定系统绝对路径 WindowsPowerShell、`execFile`/`shell:false`、EncodedCommand + LiteralPath；仅当 `Get-AuthenticodeSignature` 状态为 **Valid**、返回被验路径相等、完整 Subject 和证书 SHA256 pin 匹配才通过。启动失败、超时、stderr、JSON/缺字段/身份/签名不符一律拒绝。不自签冒充公信，不以 SHA512 代替签名。
+清单仅允许以下确切字段，平台/架构/文件名与版本必须精确绑定：
 
-`autoDownload=false`、`autoInstallOnAppQuit=false`、`allowDowngrade=false`。用户先检查、明确确认下载；完整下载检查大小、SHA512、签名与验签前后文件哈希。安装另需原生“已保存，安装并重启”确认；先 flush/备份成功，再重验签名+SHA512/缓存路径，最终同步安装入口还检查路径/哈希。出错保留旧版，不自动安装。HTTPS/TLS 真实渠道、受信签名完整成功链尚未测试；受控负例和真实本机未签文件拒绝不等同生产 OTA 演练。
+```json
+{
+  "format": "philosopher-crm-ota-v1",
+  "keyId": "固定公钥的标识",
+  "version": "1.0.1",
+  "sequence": 1,
+  "platform": "win32",
+  "arch": "x64",
+  "file": "PhilosopherStoneCRM-Setup-1.0.1-x64.exe",
+  "size": 121672690,
+  "sha256": "64位真实安装包小写SHA256"
+}
+```
 
-发布时先不可变上传签名 EXE + blockmap 并核大小/摘要，再原子发布 latest.yml（包含准确 version、files.url/sha512/size）；单调提高版本。不能让旧版本元数据引用被覆盖的新字节。保留旧已签安装器及客户端冷备份，但 **NSIS/updater 不提供健康自动回滚**：坏版本优先发更高版本的兼容修复；只有单独验证兼容的冷快照/程序配对才人工回退，不用旧 Chromium 直接打开新版 profile。
+只允许严格稳定版 x.y.z、正安全整数 sequence、固定 basename、完整 per-user x64 EXE、最多512MiB；清单不接受任意 URL、包路径、额外字段、服务器自报密钥或安装命令。大小/摘要均覆盖实际安装器完整字节。策略最低序号与 userData `ota-high-water.json` 防版本/序号回退，同序号不同清单摘要/密钥拒绝。**高水位仅在完整安装包签名绑定+size/hash全部通过后原子提交**，半包、坏包、验签失败或取消下载不推进；同序号相同原清单可合法重试，损坏的高水位拒绝覆盖。
+
+下载用 Node HTTPS，固定 origin 和发布目录、正常证书验证、拒绝所有 HTTP重定向（包括同源）、拒压缩变换、限制响应字节/空闲15秒/总时限300秒。先下载唯一随机 `.part`，核实际size/SHA256后才提升到由sequence+manifestHash+basename命名的受控缓存；失败只清本人该临时文件，不删除用户数据。**不读取或信任未签 latest.yml**。
+
+仍复用锁定 `electron-updater 6.8.11` 的 NSIS安装入口，而不另造更新平台：只有已验清单与包才能 `prepareVerified`，经真实 `getOrCreateDownloadHelper` / `setDownloadedFile` 建立本地安装状态；没有 updater 网络元数据参与该策略。安装需用户“已保存，安装并重启”确认及flush/设置备份成功，然后再次验原清单签名、版本/高水位、缓存实际路径、文件类型、size和SHA256；真实同步 `doInstall` 在spawn之前又复核一遍。没有 `verifyUpdateCodeSignature=false`：未绑定清单的默认签名入口明确抛错，独立 override 只能在验证绑定通过后返回成功。`autoDownload=false`、`autoInstallOnAppQuit=false`、`allowDowngrade=false` 不变。
+
+### 私钥生成、离线签发与备份
+
+**生产私钥尚未生成。** 主控仅认可建议路径 `C:\Users\74090\AppData\Local\PhilosopherStoneCRM-ReleaseKeys`，尚未授权实际创建/写生产密钥。后续单独明确生成后才运行（当前不要执行）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/generate-release-key.ps1 -Directory 'C:\Users\74090\AppData\Local\PhilosopherStoneCRM-ReleaseKeys'
+```
+
+脚本只接受明确本机绝对目录，拒绝已有目录/文件与链接祖先；先创建受保护独占ACL（当前用户+SYSTEM，禁止继承）再由Node生成Ed25519。私钥PKCS8 PEM仅写 `private-key.pem`、不stdout、不进参数正文、不写Git/包/服务器；公钥写 `public-key.pem`，`key-id.txt` 保存公开标识。文件继承专用ACL；签发前再次检查所有密钥目录ACL主体/owner。管理员或同一用户被控制不在此边界保证内，私钥PEM本身不是加密备份。
+
+用户应把私钥另存授权的离线加密介质，保留keyId/公钥指纹和已用最高sequence，限制发布机/备份访问；不要放项目、OneDrive或服务器。没有备份丢失私钥只能可信人工重新分发，不能让服务器换钥。此轮实际生成过的仅 `.validation/key-test-*` 的明确测试密钥，测试结束已经清理；不会生成测试policy到生产配置。
+
+离线签发（私钥目录只作为路径，不在命令行传密钥正文）：
+
+```powershell
+node scripts/release-tools.cjs sign '<专用安全密钥目录>' '<PhilosopherStoneCRM-Setup-1.0.1-x64.exe的完整路径>' 1.0.1 1 '<全新输出目录>'
+```
+
+真实脚本核独占ACL与keyId、读取离线私钥，构造size/SHA256绑定清单并签原始字节，只输出 `manifest.json` / `manifest.sig` 到全新目录，拒覆盖，不输出私钥。先把对应 EXE 不可变上传核摘要，再发布严格配对清单与签名；中途读到不匹配配对只会拒绝并可重试，不提交高水位。不得覆盖旧版本 EXE 为新字节，也不在客户端安装目录存私钥。
+
+### 可选：原 Authenticode 策略
+
+选择 `trust: "authenticode"`（旧配置省略trust仍按该策略）时，确实需要有效公信签名证书、HTTPS feed、完整 `publisherName` Subject 和 `certificateSha256` pin。固定 feed/publisher 只来自发行构建，原严格PowerShell Valid+path+Subject+pin、下载后及安装前SHA512复核保持。updater 6.8.11 的缺 publisher/config/PowerShell能力 fail-open 不会被采用；无证书在**此策略**仍拒绝，不自动变成pinned-key。
+
+`beforePack` 生成 `resources/app-update.yml` 供真实6.8.11缓存初始化；固定 `updaterCacheDirName`。仅Authenticode模式放 provider/url/publisher，pinned-key模式只需缓存名称，不用其 feed 元数据。默认未配置仍不实例化更新器。
+
+两种策略都没有健康自动回滚：坏版本优先发更高版本兼容修复，保留专属profile冷备份。不能用旧Chromium直接读取新profile而承诺安全降级。生产HTTPS签名渠道和真正NSIS OTA安装仍未实际演练；真实密码学/ACL/锁定依赖状态测试不代替GUI、托管或生产密钥交付。
 
 ## 覆盖升级与隔离验收步骤
 
@@ -173,4 +226,23 @@ Terra 已加载当前 Windows 桌面技能并完整读取 API reference，但此
 4. production preflight仍无冲突才用 `dist/PhilosopherStoneCRM-Setup-1.0.0-x64.exe` 真GUI装到专属 `.validation/installed-production`，启动设置、核OTA disabled，正常连接已核验外部隧道18088→标准CRM登录，不读Edge会话/不借管理员私钥。
 5. 将 GUI 观察与合成两报告回传主控，补本页证据，任务2/4再勾选。当前任务仍未Complete，实际启动与覆盖保留未验。
 
-真实证书/托管/受信 OTA 成功链仍未有；这是生产 OTA 的外部发布条件，不伪称已上线。普通技术实现无需新增用户价值取舍，当前实际验收阻碍是工具可用性。
+上述“不需重构建”仅指既有核心83aaccd检查点旧包的GUI续作。**本轮新Ed25519和HTTPS入口代码必须等审定/入口就绪后统一构建新包再验，不能用旧包认证新能力。** 生产应用签名密钥、公钥固定和HTTPS OTA托管尚未配置；Windows公信代码签名不是应用签名策略的必要前置。普通技术实现无需新增用户价值取舍，实际GUI仍受工具可用性阻碍。
+
+## 直连现有服务器的最新方向
+
+用户最新明确要求直接连接 `8.133.190.46`，不把本地SSH中转作为最终产品UX。M17正在核安全HTTPS入口条件，目前**尚无经证据验证可用的HTTPS真实IP/域名地址**。因此当前 `release/connection-policy.json` 为 `{"enabled":false}`，不猜 `https://8.133.190.46`、不改成公网HTTP、不忽略证书错误、不传播或打包dev管理私钥。旧严格SSH选项仅作兼容，不继续扩张为新默认流程。
+
+就绪并经主控确认实际TLS入口后，发行构建可固定单独的CRM连接政策（与OTA feed/policy完全不同）：
+
+```json
+{
+  "enabled": true,
+  "httpsOrigin": "https://实际经核验的入口"
+}
+```
+
+`beforePack` 验证其为无路径/凭据的HTTPS origin。仅当 `settings.json` 尚不存在时，客户端把该发行政策初始化成可信HTTPS默认连接；已有设置、旧origin与Cookie/缓存不覆盖、不迁移、不清理。已有用户应在设置中明确选择新入口、核验并保存后重新登录；原服务端数据仍在同一服务端数据库，不能把origin切换说成数据迁移。新设置或已明确保存的HTTPS连接启动时自动健康检查并打开标准登录，失败返回本地设置、拒绝降级TLS。
+
+此轮没有创建任何用户本机连接配置、没有读取SSH私钥正文或旧浏览器资料、没有向服务器开放8088或修改公网入口。已请求M17停止为客户端传播管理员机器路径；最终真实HTTPS默认值等M17与主控证据后再填。
+
+本轮定向验证：`npm test` **37/37 PASS、0跳过**；包含真实 Ed25519原字节正负例、错误key/签名/包替换、版本/序号回退、半包网络失败后合法重试、用户取消/flush失败、真实锁定NsisUpdater缓存准备与同步安装守卫（spawn仅spy，未执行任何未知包）、测试专用ACL密钥生成和真实离线签发CLI、HTTPS新profile初始化/旧origin不覆盖。`node --check` 全部JS/CJS、默认配置 `prepare-release` 和 `git diff --check` 通过。无生产密钥生成、无公网发布/SSH操作、无新包构建或GUI安装；这些边界未用测试结果替代。
