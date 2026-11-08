@@ -21,6 +21,7 @@ def source_manifest():
 
 
 def snapshot():
+    source_manifest()
     paths = set()
     for name in ('full951-manifest.json', 'm29-a512-manifest.json', 'final-source-manifest.json', 'print-a174-manifest.json'):
         data = json.loads((Path('/home/frappe') / name).read_bytes())

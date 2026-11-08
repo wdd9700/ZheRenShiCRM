@@ -40,6 +40,7 @@ python3 -B deploy/prepare_ui_integration.py \
 branding 固定来源是从既有 caf102 归档选择性读取的公开源码，不读取 sites 或凭据：`frontend/index.html` SHA `6bb6dd5f737d7070264ed49e0fff78a049cc61c73b0c171d63419e0b866cd190`；`crm/hooks.py` SHA `0bb0b7f5974dce7e01844337902e4a5b66f5609cd8bc57b62f558c0846f70d55`。原始文件以 fixtures 保存并继续保留上游版权、publisher 和许可证。没有改 Python 包名、app_name、认证方法或任何权限 hook。
 
 - 固定 HTML 的 title、Apple 安装名称为“哲人石CRM”；lang 来自 M36 透传的本次实际 `boot.philosopher_language`，并 HTML escape，不固定压成中文；没有实际值时才 fallback `zh`。
+- `frontend/vite.config.js` 为第五个精确品牌目标，仅把 PWA manifest 的 name/short_name 两处变为“哲人石CRM”；registerType、workbox、start_url、icons、依赖、alias 均保持原字节，避免只改 Apple 名称而遗留 Windows/PWA 安装名。
 - Framework 原生 `update_website_context` 在 login 控制器执行后处理展示 context；只作用 `path == 'login'`。保留原登录/重置密码/LDAP/OAuth/CSRF 结构，不替换 Framework 登录模板或登录 JS。
 - 登录 title/app_name 用原生 `_`，共享 canonical theme 及局部 login CSS 通过 context head_html 加载；CSS 仅定位真实 `.page-card`、`.form-control` 等展示节点。没有 DOM 扫描、文本替换或认证行为改写。
 - Framework base.html 的 Built on Frappe 注释及所有法律归属不变。品牌展示不代表重新授权第三方代码。

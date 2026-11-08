@@ -31,6 +31,12 @@ RUN --network=none mkdir -p sites/assets && \
     env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py assets && \
     bench version
 
+ARG DARK_UI_REVISION
+ARG LOCALIZATION_REVISION
+ARG BRANDING_REVISION
 LABEL crm.ui.integration="u030-v1" \
       crm.ui.base="sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9" \
-      crm.ui.order="c011000,l3-scheduling,dark-ui,localization,branding"
+      crm.ui.order="c011000,l3-scheduling,dark-ui,localization,branding" \
+      crm.ui.dark.revision="${DARK_UI_REVISION}" \
+      crm.ui.localization.revision="${LOCALIZATION_REVISION}" \
+      crm.ui.branding.revision="${BRANDING_REVISION}"

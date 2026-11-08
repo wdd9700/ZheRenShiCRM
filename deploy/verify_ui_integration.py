@@ -10,7 +10,7 @@ ORDER = ('c011000', 'l3-scheduling', 'dark-ui', 'localization', 'branding')
 TARGETS = {
     'dark-ui': frozenset({'frontend/src/App.vue', 'frontend/src/index.css', 'frontend/src/components/UserDropdown.vue', 'frontend/src/crm-theme.css'}),
     'localization': frozenset({'crm/www/crm.py', 'frontend/src/translation.js', 'frontend/src/philosopher-zh-cn.json'}),
-    'branding': frozenset({'frontend/index.html', 'crm/hooks.py', 'crm/ui_branding.py', 'crm/public/css/login-theme.css'}),
+    'branding': frozenset({'frontend/index.html', 'frontend/vite.config.js', 'crm/hooks.py', 'crm/ui_branding.py', 'crm/public/css/login-theme.css'}),
 }
 
 

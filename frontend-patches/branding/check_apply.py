@@ -33,7 +33,7 @@ class BrandingTests(unittest.TestCase):
 
     def test_check_apply_verify_and_replay_refusal(self):
         before = self.snapshot()
-        self.assertEqual(module.apply(self.root, check=True), 4)
+        self.assertEqual(module.apply(self.root, check=True), 5)
         self.assertEqual(before, self.snapshot())
         module.apply(self.root)
         module.apply(self.root, verify_after=True)
@@ -46,6 +46,10 @@ class BrandingTests(unittest.TestCase):
         hooks = (self.root / 'crm/hooks.py').read_text(encoding='utf-8')
         self.assertIn('app_publisher = "Frappe Technologies Pvt. Ltd."', hooks)
         self.assertIn('app_license = "AGPLv3"', hooks)
+        pwa = (self.root / 'frontend/vite.config.js').read_text(encoding='utf-8')
+        self.assertIn("name: '哲人石CRM'", pwa)
+        self.assertIn("short_name: '哲人石CRM'", pwa)
+        self.assertEqual(pwa.replace('哲人石CRM', 'Frappe CRM'), (HERE / 'fixtures/frontend__vite.config.js').read_text(encoding='utf-8'))
 
     def test_drift_and_missing_target_fail_before_writes(self):
         target = self.root / 'frontend/index.html'

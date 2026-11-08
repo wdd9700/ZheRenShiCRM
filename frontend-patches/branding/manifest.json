@@ -36,6 +36,22 @@
       ]
     },
     {
+      "target": "frontend/vite.config.js",
+      "before": "fef8ed2ee0238c77c0c71ee26c64af63b3e03f40e1203de596ca1f78749cc906",
+      "after": "e71aef2460155e444e0c75c2fc4fd4ff7c9343bdec39cd68196fbfaa7c7af18a",
+      "fixture": "fixtures/frontend__vite.config.js",
+      "edits": [
+        {
+          "anchor": "          name: 'Frappe CRM',",
+          "replacement": "          name: '哲人石CRM',"
+        },
+        {
+          "anchor": "short_name: 'Frappe CRM'",
+          "replacement": "short_name: '哲人石CRM'"
+        }
+      ]
+    },
+    {
       "target": "crm/hooks.py",
       "before": "0bb0b7f5974dce7e01844337902e4a5b66f5609cd8bc57b62f558c0846f70d55",
       "after": "d990af9f542193f335edc6d14e316012955cc742deb621098965f5ea09ac3c9f",

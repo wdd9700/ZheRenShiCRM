@@ -19,7 +19,7 @@ PATCH_FILES = {
     'l3-scheduling': frozenset('README.md apply.py check_apply.py expected/AppSidebar.fixed-crm.diff fixtures/AppSidebar.c011000-resume.vue fixtures/AppSidebar.fixed-crm.vue manifest.json sfc_check.mjs'.split()),
     'dark-ui': frozenset('apply.py check_apply.py fixtures/App.vue fixtures/UserDropdown.vue fixtures/index.css manifest.json payload/crm-theme.css prerequisites.json'.split()),
     'localization': frozenset('README.md apply.py manifest.json runtime.test.cjs test_localization.py zh-CN.json'.split()),
-    'branding': frozenset('.gitattributes apply.py check_apply.py fixtures/crm__hooks.py fixtures/frontend__index.html manifest.json payload/login-theme.css payload/ui_branding.py'.split()),
+    'branding': frozenset('.gitattributes apply.py check_apply.py fixtures/crm__hooks.py fixtures/frontend__index.html fixtures/frontend__vite.config.js manifest.json payload/login-theme.css payload/ui_branding.py'.split()),
 }
 DARK_OVERLAYS = frozenset({
     'apps/resource_import/resource_import/www/resource-import.html',
@@ -128,11 +128,26 @@ def build(context, receipt):
     if source['Id'] != BASE_IMAGE or len(source['RootFS']['Layers']) != 2:
         raise RuntimeError('Local lowdepth base identity/layer count differs')
     tag = 'crm-local:' + context.name
-    subprocess.run(['docker', 'build', '--network=none', '--pull=false', '--progress=plain', '-t', tag, '-f', str(context / 'deploy/Dockerfile.ui'), str(context)], check=True)
+    labels = {'crm.ui.dark.revision': manifest['revisions']['dark-ui'], 'crm.ui.localization.revision': manifest['revisions']['localization'], 'crm.ui.branding.revision': manifest['revisions']['branding']}
+    command = ['docker', 'build', '--network=none', '--pull=false', '--progress=plain']
+    for argument, name in (('DARK_UI_REVISION', 'dark-ui'), ('LOCALIZATION_REVISION', 'localization'), ('BRANDING_REVISION', 'branding')):
+        command += ['--build-arg', argument + '=' + manifest['revisions'][name]]
+    command += ['-t', tag, '-f', str(context / 'deploy/Dockerfile.ui'), str(context)]
+    subprocess.run(command, check=True)
     image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', tag], text=True))[0]
-    if len(image['RootFS']['Layers']) > 16:
-        raise RuntimeError('UI image unexpectedly exceeds lowdepth layer budget')
+    if not re.fullmatch('sha256:[0-9a-f]{64}', image['Id']) or not 1 <= len(image['RootFS']['Layers']) <= 16:
+        raise RuntimeError('UI image identity or lowdepth layer budget differs')
+    labels.update({'crm.ui.integration': 'u030-v1', 'crm.ui.base': BASE_CONFIG, 'crm.ui.order': ','.join(ORDER)})
+    expected_config = dict(source['Config'], Labels=dict(source['Config']['Labels'], **labels))
+    if image['Config'] != expected_config:
+        raise RuntimeError('UI image runtime Config or provenance labels drifted')
+    result = dict(source_manifest_sha256=receipt, manifest=manifest, candidate_tag=tag, candidate_inspect=image)
+    destination = ROOT / '.runtime' / (context.name + '-build-result.json')
+    with destination.open('x', encoding='utf-8') as stream:
+        json.dump(result, stream, indent=2, sort_keys=True)
+        stream.write('\n')
     print('Candidate only; no runtime activation:', tag, image['Id'])
+    print('Build result:', destination)
     return image
 
 
