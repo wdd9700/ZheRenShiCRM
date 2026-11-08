@@ -531,6 +531,7 @@
       const query = state.listQuery;
       const timezone = query ? query.timezone : 'UTC';
       let segments = state.items.map(schedule => ({schedule}));
+      let dayViewport = null;
       if (query?.day) {
         const layout = layoutTimeline(state.items, query.startUtc, query.endUtc);
         segments = layout.segments;
@@ -555,6 +556,7 @@
           tick.append(label);
           axis.append(tick);
         }
+        const markerSlots = [];
         for (const [index, segment] of segments.entries()) {
           const schedule = segment.schedule;
           const button = makeButton(segment.height < 40 ? '' : (index + 1) + '. ' + schedule.title, () => viewSchedule(schedule.name));
@@ -564,12 +566,35 @@
           button.style.top = segment.top + 'px';
           button.style.height = segment.height + 'px';
           button.style.left = (segment.column / segment.columns * 100) + '%';
-          button.style.width = 'calc(' + (100 / segment.columns) + '% - 4px)';
+          button.style.width = 'calc(' + (100 / segment.columns) + '% - 44px)';
           track.append(button);
+          const left = segment.column / segment.columns;
+          const right = (segment.column + 1) / segment.columns;
+          let markerTop = segment.top;
+          for (const slot of markerSlots) {
+            if (left < slot.right && right > slot.left && markerTop < slot.bottom) markerTop = slot.bottom;
+          }
+          markerSlots.push({left, right, bottom: markerTop + 28});
+          const marker = makeButton(String(index + 1), () => viewSchedule(schedule.name));
+          marker.className = 'timeline-marker' + (schedule.status === 'Cancelled' ? ' cancelled' : '');
+          marker.setAttribute('aria-label', button.title + ' · ' + enumText(schedule.status));
+          marker.style.top = markerTop + 'px';
+          marker.style.left = 'calc(' + (right * 100) + '% - 38px)';
+          const connector = document.createElement('span');
+          connector.className = 'timeline-connector';
+          connector.setAttribute('aria-hidden', 'true');
+          connector.style.top = segment.top + 'px';
+          connector.style.height = (markerTop - segment.top + 12) + 'px';
+          connector.style.left = 'calc(' + (right * 100) + '% - 22px)';
+          track.append(connector, marker);
         }
+        axis.style.marginBottom = Math.max(32, ...markerSlots.map(slot => slot.bottom - layout.height + 16)) + 'px';
         axis.append(track);
         scroll.append(axis);
-        container.append(zone, scroll);
+        dayViewport = document.createElement('div');
+        dayViewport.className = 'timeline-day-viewport';
+        dayViewport.append(scroll);
+        container.append(zone, dayViewport);
         scroll.scrollTop = Math.max(0, (segments[0]?.top ?? 8 * 72) - 48);
       }
       const labels = document.createElement('ol');
@@ -577,7 +602,8 @@
       for (const [index, segment] of segments.entries()) {
         const schedule = segment.schedule;
         const row = document.createElement('li');
-        const button = makeButton((index + 1) + '. ' + schedule.title + ' · ' + timelineText('view', '查看详情'), () => viewSchedule(schedule.name));
+        if (schedule.status === 'Cancelled') row.className = 'cancelled';
+        const button = makeButton((index + 1) + '. ' + schedule.title + (schedule.status === 'Cancelled' ? ' · ' + enumText(schedule.status) : '') + ' · ' + timelineText('view', '查看详情'), () => viewSchedule(schedule.name));
         const metadata = document.createElement('span');
         metadata.className = 'timeline-event-meta';
         const continuation = [segment.continuesBefore ? timelineText('continuesBefore', '承接前日') : '', segment.continuesAfter ? timelineText('continuesAfter', '延续次日') : ''].filter(Boolean).join(' · ');
@@ -590,7 +616,15 @@
         empty.textContent = timelineText('empty', '所选日期没有日程');
         container.append(empty);
       }
-      container.append(labels);
+      if (dayViewport) {
+        const rail = document.createElement('aside');
+        rail.className = 'timeline-label-rail';
+        rail.setAttribute('aria-label', '当日日程编号、标题与时间');
+        const heading = document.createElement('h3');
+        heading.textContent = '日程 · 编号对应时间块';
+        rail.append(heading, labels);
+        dayViewport.append(rail);
+      } else container.append(labels);
     }
 
     function renderDetails() {

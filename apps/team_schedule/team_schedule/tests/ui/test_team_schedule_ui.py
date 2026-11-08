@@ -97,6 +97,12 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         self.assertIn('.crm-standalone .schedule-header h1 { flex: 1; margin: 0; }', css)
         self.assertNotRegex(css, r'(?:\{|;)\s*order\s*:')
         self.assertIn('font: 16px/1.5', (PUBLIC_DIR / "crm-theme.css").read_text(encoding="utf-8"))
+        self.assertIn('.timeline-day-viewport { display: grid;', css)
+        self.assertIn('grid-template-columns: minmax(340px, 1fr) 320px', css)
+        self.assertIn('.timeline-scroll, .timeline-label-rail { height: clamp(', css)
+        self.assertIn('font-size: 16px; line-height: 22px;', css)
+        self.assertIn('.timeline-connector::before', css)
+        self.assertIn('min-height: 0;', css)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for UI interaction tests")
     def test_node_interaction_and_request_contracts(self):

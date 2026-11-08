@@ -479,7 +479,7 @@ test('day view resolves both local midnights, renders true short blocks, continu
   await environment.document.getElementById('list-more').click();
   await flush();
   assert.equal(methodCalls(calls, '.list')[1].payload.cursor, 'next');
-  assert.ok(container.querySelectorAll('.timeline-block').some(block => block.style.width === 'calc(50% - 4px)'));
+  assert.ok(container.querySelectorAll('.timeline-block').some(block => block.style.width === 'calc(50% - 44px)'));
   assert.match(environment.document.getElementById('list-status').textContent, /全部结果/);
   assert.equal(container.querySelector('.timeline-incomplete'), null);
   const sender = new environment.window.BroadcastChannel('crm-account-boundary-c011000');
@@ -565,16 +565,22 @@ test('activity access injections use explicit neutral foreground/background with
   const vm = require('node:vm');
   const links = [], notices = [];
   const editor = {dataset: {}, closest: () => null, parentNode: {insertBefore: node => notices.push(node)}};
+  let writes = 0, observers = 0;
+  function makeNode(tag) {
+    let cssText = '';
+    const style = {get cssText() { return cssText; }, set cssText(value) { writes += 1; cssText = value; }};
+    return {tag, style, children: [], getAttribute(name) { return this[name]; }, querySelectorAll() { return this.children; }, append(child) { this.children.push(child); }};
+  }
   const document = {
-    querySelectorAll: () => [editor],
+    querySelectorAll: selector => selector === '.team-access-notice' ? notices : [editor],
     getElementById: id => links.find(link => link.id === id),
-    createElement: tag => ({tag, style: {}, children: [], append(child) { this.children.push(child); }}),
+    createElement: makeNode,
     body: {append: node => links.push(node)}
   };
   let annotate, observed;
   const window = {};
   const source = fs.readFileSync(path.join(__dirname, '../../../../team_access/team_access/public/access.js'), 'utf8');
-  const context = {document, window, MutationObserver: class {constructor(callback) { annotate = callback; } observe(target, options) { observed = {target, options}; }}};
+  const context = {document, window, MutationObserver: class {constructor(callback) { observers += 1; annotate = callback; } observe(target, options) { observed = {target, options}; }}};
   vm.runInNewContext(source, context);
   assert.equal(notices.length, 1);
   assert.equal(links.length, 1);
@@ -588,8 +594,74 @@ test('activity access injections use explicit neutral foreground/background with
   assert.match(notices[0].textContent, /Comment.*Private/);
   assert.equal(observed.target, document.body);
   assert.equal(observed.options.subtree, true);
+  const previousWrites = writes;
   annotate();
+  assert.equal(writes, previousWrites);
+  links[0].style.cssText = 'background:#fff';
+  notices[0].style.cssText = 'background:#fef3c7';
   vm.runInNewContext(source, context);
+  assert.match(links[0].style.cssText, /background:var\(--crm-raised,#292D34\)/);
+  assert.match(notices[0].style.cssText, /background:var\(--crm-surface,#202329\)/);
+  assert.equal(observers, 1);
+  const afterRepair = writes;
+  annotate();
+  assert.equal(writes, afterRepair);
+  vm.runInNewContext(source, context);
+  assert.equal(writes, afterRepair + 2);
+  assert.equal(observers, 1);
   assert.equal(notices.length, 1);
   assert.equal(links.length, 1);
+  const foreign = makeNode('a');
+  foreign.id = 'team-access-link'; foreign.href = '/unrelated'; foreign.style.cssText = 'color:purple';
+  links[0] = foreign;
+  vm.runInNewContext(source, context);
+  assert.equal(foreign.style.cssText, 'color:purple');
+  assert.equal(observers, 1);
+});
+
+test('10/25-minute events retain exact heights with visible independent numbers and same-viewport title/time rail', async () => {
+  const items = [
+    timelineItem('ten', '2026-11-01T09:00:00Z', '2026-11-01T09:10:00Z', '十分钟拜访'),
+    timelineItem('twenty-five', '2026-11-01T09:00:00Z', '2026-11-01T09:25:00Z', '二十五分钟电话'),
+    {...timelineItem('cancelled', '2026-11-01T09:10:00Z', '2026-11-01T09:15:00Z', '已撤安排'), status: 'Cancelled'},
+    timelineItem('adjacent', '2026-11-01T09:15:00Z', '2026-11-01T09:20:00Z', '接续短事项')
+  ];
+  const gets = [];
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items, next_cursor: null}});
+    if (url.endsWith('.get')) { gets.push(payload.name); return jsonResponse({message: {schedule: items.find(item => item.name === payload.name)}}); }
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  const container = environment.document.getElementById('schedule-list');
+  const viewport = container.querySelector('.timeline-day-viewport');
+  const rail = viewport.querySelector('.timeline-label-rail');
+  assert.equal(viewport.querySelector('.timeline-scroll').parentNode, rail.parentNode);
+  assert.match(rail.textContent, /十分钟拜访/);
+  assert.match(rail.textContent, /09:00.*09:10/);
+  assert.match(rail.textContent, /二十五分钟电话/);
+  assert.match(rail.textContent, /09:00.*09:25/);
+  assert.match(rail.textContent, /Cancelled/);
+  const blocks = viewport.querySelectorAll('.timeline-block');
+  assert.equal(blocks.find(block => block.title.includes('十分钟')).style.height, '12px');
+  assert.equal(blocks.find(block => block.title.includes('二十五')).style.height, '30px');
+  const markers = viewport.querySelectorAll('.timeline-marker');
+  assert.deepEqual(markers.map(marker => marker.textContent), ['1', '2', '3', '4']);
+  assert.equal(markers[0].tagName, 'BUTTON');
+  assert.equal(markers[0].type, 'button');
+  assert.equal(viewport.querySelectorAll('.timeline-connector').length, 4);
+  const sameColumn = markers.filter(marker => marker.style.left === markers[1].style.left);
+  for (let i = 1; i < sameColumn.length; i += 1) assert.ok(parseFloat(sameColumn[i].style.top) >= parseFloat(sameColumn[i - 1].style.top) + 28);
+  await markers[1].click();
+  assert.equal(gets.length, 1);
+  await rail.querySelectorAll('button')[0].click();
+  assert.equal(gets.length, 2);
+  assert.match(markers.find(marker => marker.className.includes('cancelled')).attributes['aria-label'], /Cancelled/);
+  await fire(environment.document, 'visibilitychange');
+  assert.equal(container.children.length, 0);
+  assert.equal(container.querySelector('.timeline-label-rail'), null);
+  assert.equal(container.querySelector('.timeline-marker'), null);
 });
