@@ -465,3 +465,24 @@ sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh upgrade-site-app
 主控明确授权新增唯一合成普通账号 `v1-ui-acceptance-20261107195038@example.invalid`，用标准框架User insert及fresh get重读验证：业务角色恰Sales User、enabled System User、send_welcome_email=0；创建前核mute_emails与synthetic_only仍严格整数1。没有额外管理员/System Manager角色、没有修改任何既有账号密码/角色，不删除旧用户，也未通过API创建Lead/日程。
 
 随机强口令仅内存生成，凭据写入本worker独立ignored runtime文件；文件创建时关闭Windows ACL继承并仅当前用户FullControl，写后再核ACL通过。密码未输出stdout、Tower消息或Git，受保护文件准确路径已单独交Terra用于正式目标18088正常UI验收；文档不复制凭据。新增账号仅为验收夹具，UI验证结果由Terra独立记录，不把创建/角色检查冒充已通过业务UI。
+
+## 18. M37 最终 UI/品牌/中文镜像正式更新（2026-11-08）
+
+M37 最终4d59623获限定交付独审clean/merge，主控明确批准服务端/exe同步推进。本轮复用caf102五app ready、健康与空间基线，不重建、不做schema迁移/权限大矩阵，不重查已证合成来源。默认System Settings.language原已zh，未重复保存，也未改User语言/时区/密码/业务或网络。
+
+冻结包上传到新独立 `/home/dev/c1108-candidate-2f92/candidate-release`，900秒预算约157秒exit0。四件远端SHA与冻结值全部相同：image.tar 1,540,059,136B `0deba5793481799ae1774d37926def678f35d8a1372eadaf09e31d55a144ccae`；7字段release `6a961af6a88356b529e34310559ee07beb09df57bf56de81cf6e8600710b9453`；7层清单 `225d78e8eee4dea16a4613ac2ea372dcf288e6d2ca2f75c2ce4822a5f7a98e33`；manifest `6184ff568ed0722b47d4399bcd64ba9f04acd5904930c0ec0cc3cfca864f8292`。index `sha256:2f92c460d47948bf6f030e23b24687b82ca3a92c4af4b8a200da7de7ac97db1b`，config `sha256:50a654164666adafc4f35c7a14b950b13cfba43363ce977aaa315461a0fd7987`。team_access label531是已核继承基线，明确含request.py固定access query品牌增量，不将其说成整个app零改。
+
+```sh
+CRM_TRIAL_DOCKER_SUDO=1 CRM_TRIAL_RUNTIME_DIR=/home/dev/crm-trial/deploy/remote/.runtime \
+sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh update-site-image \
+  /home/dev/c1108-candidate-2f92/candidate-release \
+  /home/dev/c1108-candidate-2f92/candidate-release/image.tar --confirm-site-image-update
+```
+
+**标准image-only真实exit0，约146秒。** 停写前完整业务摘要已存；工具全archive链核通过，停止写服务，新原生四件备份 `20261108_225903-crm_localhost` 完成且可读，然后load/重建同镜像应用/readiness/ready。没有install/migrate/schema变更，旧镜像/备份/工具与失败历史保留，不宣备份恢复实测。
+
+升级后六类全部完整doc数量+canonical SHA与本轮before逐字全等，原五app集合不变。独立核ready与活动锁均新50a654；六长驻应用及configurator均精确新config，前六运行、configurator退出0，restart0/OOMfalse，backend/frontend healthy；无healthcheck服务不虚报healthy。回环8088 ping200/pong；System Settings.language仍zh，未写。
+
+仅普通测试账号正常HTTP登录/读取/logout，无浏览器和业务写入：真实CRM HTML包含最终 `index-1L7LpzFF.js`及完整 `/assets/team_access/access.js?v=7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`；按最终static-receipt对11重点URL（登录主题、CRM入口JS/CSS、品牌manifest、裸/带query access、活动脚本、共享主题/中文脚本、日程JS/CSS）逐件实测HTTP200、bytes/SHA完全相同。不是只核裸asset或磁盘文件，不把资源SHA当视觉截图。凭据仍仅既有受保护ignored文件，未输出秘密。
+
+**服务保持常驻**，Windows既有18088→远端127.0.0.1:8088，入口 `/login`、`/crm`、`/team-activities`、`/team-schedule`。已交主控安排Terra简短真实目标确认，本worker未并行UI。登录视觉截图未取得、活动入口局部白黑风格偏差、未全面多语言矩阵与权限限定批准边界均保留，不宣全视觉完美/完整安全认证。本轮原始证据在ignored `m17-2f92-{before,upgrade,after,static,final-state}.stdout.log`。
