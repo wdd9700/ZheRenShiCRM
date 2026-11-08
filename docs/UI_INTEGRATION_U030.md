@@ -339,3 +339,9 @@ M37按后续授权恢复active；本轮不新增功能/本地站点或浏览器�
 最终增量guard完整重建原五app/source、M35/M38/M39、品牌56/Framework3/request版本后态预期，只显式覆四新SFC和catalog；原Framework32映射、所有standalone资产保持。仅标准 `bench build --app crm`，不重326或权限/恢复矩阵。候选Config仅新增commonUI来源labels、RootFS前七层必须等父且总层数≤16。实际build/测试仍等待M42审定，本段不宣通过。
 
 M43独占修改deploy/remote/trial.sh以保持HTTPS/socket配置，M37本轮不改该文件或其他远端流程。后继部署必须引用M43新审定工具来源，不误标仍是原242161；镜像归档验证合同不变。最终由M17真实服务器部署后Terra在HTTPS相关入口短验，不启动本地浏览器/站点。
+
+### M42首次标准路径首异常与最小修正
+
+接入源码 `6c8a9d1` 已获独审clean/hold（无finding，hold是产物/部署/HTTPS短验门）。首实际build `bash-nn5bi7ca` **31.778秒exit1**：原2f92完整guard、四SFCcheck/apply/verify、catalog迁移均通过，随后输入guard按manifest读取`/home/frappe/common-ui/deploy/...`，但Dockerfile将verifier扁平复制到了common-ui根，缺deploy目录而失败。**尚未bench/Vite或产候选/probe**，原finally资源守卫保持，旧失败不抹除。
+
+只修标准COPY布局：三件已白名单deploy文件按原相对路径精确复制到`common-ui/deploy/`，所有命令也引用相同路径，补明确布局合同测试；没有跳输入SHA检查、改M42源码/词典或扩大目标集合。后续新context重试同一范围，不能把这个集成路径故障当M42翻译缺陷。

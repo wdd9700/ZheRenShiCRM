@@ -20,6 +20,12 @@ class CommonIntegrationTests(unittest.TestCase):
         shutil.copytree(CONTEXT, self.context)
         self.addCleanup(shutil.rmtree, self.context)
 
+    def test_recipe_preserves_exported_input_relative_paths(self):
+        recipe = (self.context / 'deploy/Dockerfile.common-ui').read_text()
+        self.assertIn('deploy/Dockerfile.common-ui deploy/Dockerfile.common-ui.dockerignore deploy/verify_common_ui.py /home/frappe/common-ui/deploy/', recipe)
+        self.assertNotIn('/home/frappe/common-ui/verify_common_ui.py', recipe)
+        self.assertIn('/home/frappe/common-ui/deploy/verify_common_ui.py sources', recipe)
+
     def test_exact_deployed_before_and_patch_catalog_order(self):
         _, manifest = preparation.load(self.context, RECEIPT)
         with tempfile.TemporaryDirectory() as temporary:
