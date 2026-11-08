@@ -244,3 +244,30 @@ Sol对精确 `920d65f28b79d9c3b6bc78ceffa4e91adee45015` clean/hold（无finding�
 M35 `2ce92464b695e0330d75e9b91932ef70e0cadde1` 已获Sol clean/merge，tower授权一次最小候选构建。canonical/payload精确新SHA `a80f2861ad92a100743a5ffed19d0f4c20c96374bad3cdec18ebb6715b8c9d71`，仅活动路由Framework palette/nav和独立页标题浅字规则。M37已逐Gitblob核对该提交相对fc25460的五项文案生产前驱、access7d26字节、App/index/UserDropdown三个patch合同全等；因此仅将有序wording contract的base_revision登记为新精确dark commit，五组before/after不变，M38仍用9498389，不另造文案replay或退回rail。
 
 本轮保审定920d品牌/request接线生产字节和M39 23a，原43/nav及全部guard不放宽。标准build后只验证CSS受影响两项既有静态合同、最终source/asset guard与完整动态receipt；不重Node36/native326/权限或恢复矩阵。v4真实CRM/日轴截图已由Terra完成；其正常logout由M9最新收窗消息确认（13:29:33Z），仅用于v4那一窗，不能追改此前第二窗注销未知。下一窗口只活动页及登录必要视觉，READY与计时规则保持。当前未构建本CSS候选，以下证据待追加。
+
+### CSS-only候选构建与交付材料
+
+精确集成登记提交 `9e8b82f`（仅两个base_revision精确常量及说明，原920d品牌/request逻辑不变），M35 2ce9246/M39 23a/M38 9498389。context `deploy/.runtime/ui-ebc790fba433470789113948e69f50fd`，receipt **`b79b28749c00e44c6dbeb010f28f2e30b22a446f7a4a015f256ab5304385eae3`**。准备器对五文案新dark前驱逐字节核同原before，未跳哈希或要求文案owner无意义replay。
+
+唯一 `bash-iibj6zya` / Windows PID52924 **85.307秒、exit0**。标准CRM/access/schedule资产build实际0，Vite6.93秒；最终镜像复制真实生产字节执行两个已有CSS受影响合同（shared theme/catalog/raw option；Framework活动页route palette/nav/显式标题前景）**2/2 PASS**，前后来源与完整资产guard通过。没有重Node36/native326、旧核心UI或权限/恢复矩阵。
+
+| 当前候选身份 | 值 |
+|---|---|
+| tag | `crm-local:ui-ebc790fba433470789113948e69f50fd` |
+| index | `sha256:2f92c460d47948bf6f030e23b24687b82ca3a92c4af4b8a200da7de7ac97db1b` |
+| linux/amd64 manifest | `sha256:00481a4d427e238f71e41e00338c36eb86f180132577f01913b2f3a822533753` |
+| config | `sha256:50a654164666adafc4f35c7a14b950b13cfba43363ce977aaa315461a0fd7987` |
+| 层数/运行Config | **7**；除预期provenance labels外原Config逐值保持 |
+
+canonical/payload及根/sites共享主题最终SHA **`a80f2861ad92a100743a5ffed19d0f4c20c96374bad3cdec18ebb6715b8c9d71`**（7187B），原56CRM/Framework3/43nav、access版本7d26与request后态、标签rail及五文案守卫保持。新入口JS `/assets/crm/frontend/assets/index-1L7LpzFF.js` SHA `8a196fe0ea1df4f5fb5593fd5e11e441c9ebf29d3da6f3e0ba72d6f6306480e9`；CSS `/assets/crm/frontend/assets/index-BSWanVSZ.css` SHA `03755f815a2b02c796480d9d6575b629408aeed2971f66bb7f2e624439b8a150`。原脚本query完整URL仍为7d26，实际注入逻辑未改。
+
+原 **174容器/132卷**、daemon与主锁八guard保持，仅新增退出0非OOM probe `36ac5464fbe163bafda4857c71be8f88a5d15b3f70dcdf1dbbc7f01a222b713b`及两个自有匿名卷（保留），无站点/业务写入、SSH或线上操作。无后台，第一Ubuntu明确ENV RELEASED已交tower/M9。
+
+证据目录 `deploy/.runtime/u030-css-4bcbf9ec62e44c8c9d32154922c94b6e/`：
+
+- `result.json` SHA `08b39ad8cb5dd50f6b0f5a9290a9e2862d2d8c80fd81011d37a76059f6987867`
+- `standard-build.log` SHA `b37b76fa485db50380454882928452cb1e480bcc3057ac6e5cd1f7eb824ebf99`
+- `css-only-targeted.log` SHA `1c045c1923bc1c14823b943181d03c17db4db824657b3cd3d2dbfc365ccaf1ac`
+- **`static-receipt.json` SHA `bdf4c6827b194372ea600fc05a70750d47d4d42b1ac69f58f1f6792734f2bd1f`**，含201完整动态URL及11重点URL bytes/SHA（含实际access query），不是201条浏览器HTTP请求。
+
+后继只活动页+登录必要视觉，复用M32和既有账号事件；已过CRM品牌/日轴不重整链。准备完成即READY，独立有效验收计时，不能事后延deadline。当前仅该CSS候选产物合同通过，活动页/navbar/标题/入口真实颜色与登录视觉仍待Terra；最终交付材料已具备来源/构建/测试/镜像/资产证据，但不在视觉通过前Complete或宣上线。
