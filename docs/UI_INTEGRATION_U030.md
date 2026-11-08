@@ -56,3 +56,11 @@ branding 固定来源是从既有 caf102 归档选择性读取的公开源码，
 已运行 `python -B frontend-patches/branding/check_apply.py`：4 tests PASS，覆盖固定 fixture check/apply/after、重复应用拒绝、漂移/缺目标/未知 HEAD/既有新增目标拒绝、法律字段保留及仅 login context 展示和语言不覆盖。此处使用受控 HEAD，不冒称真实 Linux 构建或浏览器成功。
 
 最终组合来源、receipt、Linux 构建、必要既有原生回归、最终镜像身份和 Terra 烟测结果将在实际执行后追加；未完成前不宣可上线。当前无必须交用户拍板的新增价值/授权卡点，普通技术选择可逆；线上更新仍是独立授权门。
+
+### 接入预审 P1 修复记录
+
+Sol 对 `d478ffbe004ea7fd7412f7949a228b532704aa09` 的预审指出：精确 caf102 基底没有 `crm/public/css`，原 branding 预检会在 `parent.resolve(strict=True)` 失败；旧测试提前创建该目录，掩盖真实构建阻断。这是实际生产路径缺陷，旧离线绿不能证明原构建可用。
+
+修复只允许 `crm/public/css/login-theme.css` 的固定父目录缺失，解析已存在的 `crm/public` 并保留逃逸、链接、reparse、硬链接及普通文件检查。`--check` 不创建目录；全部来源/哈希预检通过后，应用阶段才创建这一层固定目录并暂存文件。暂存失败清理本次创建的空目录，不删除已有目录或资源。没有添加广义 `mkdir -p`、强制补丁或放宽目标白名单。
+
+同一 caf102 归档目录元数据重新选择性核对：`crm/public` 存在（uid 1000/gid 0/mode 0755），`crm/public/css` 不存在。组合测试不再人为 mkdir css，以真实缺父目录起点运行。品牌测试增至 6 项并通过，补充只读预检保持缺目录、应用后创建目录、非目录父级/未登记父级/逃逸拒绝、暂存失败保持原字节且移除新空目录。组合回归及窄审状态以随后记录为准，仍未执行实际构建。

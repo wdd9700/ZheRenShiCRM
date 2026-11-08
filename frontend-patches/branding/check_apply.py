@@ -18,11 +18,12 @@ class BrandingTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
+        (self.root / 'crm/public').mkdir(parents=True)
         self.entries = json.loads((HERE / 'manifest.json').read_text(encoding='utf-8'))['targets']
         for entry in self.entries:
             target = self.root / entry['target']
-            target.parent.mkdir(parents=True, exist_ok=True)
             if entry.get('fixture'):
+                target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes((HERE / entry['fixture']).read_bytes())
         self.head = patch.object(module.subprocess, 'check_output', return_value=module.COMMIT + '\n')
         self.head.start()
@@ -33,9 +34,13 @@ class BrandingTests(unittest.TestCase):
 
     def test_check_apply_verify_and_replay_refusal(self):
         before = self.snapshot()
+        css_directory = self.root / 'crm/public/css'
+        self.assertFalse(css_directory.exists())
         self.assertEqual(module.apply(self.root, check=True), 5)
         self.assertEqual(before, self.snapshot())
+        self.assertFalse(css_directory.exists())
         module.apply(self.root)
+        self.assertTrue(css_directory.is_dir())
         module.apply(self.root, verify_after=True)
         with self.assertRaises(ValueError):
             module.apply(self.root)
@@ -73,6 +78,31 @@ class BrandingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.apply(self.root)
         self.assertEqual(before, self.snapshot())
+
+    def test_missing_parent_whitelist_and_non_directory_refusal(self):
+        with self.assertRaises(ValueError):
+            module.checked_target(self.root, 'crm/public/unlisted/login-theme.css')
+        with self.assertRaises(ValueError):
+            module.checked_target(self.root, '../outside-file')
+        (self.root / 'crm/public/css').write_bytes(b'not a directory')
+        before = self.snapshot()
+        with self.assertRaises(ValueError):
+            module.apply(self.root, check=True)
+        self.assertEqual(before, self.snapshot())
+
+    def test_staging_failure_removes_only_new_empty_directory(self):
+        before = self.snapshot()
+        original_open = Path.open
+        def failing_open(path, *args, **kwargs):
+            if path.name == 'login-theme.css.branding-tmp':
+                raise OSError('controlled staging failure')
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', failing_open):
+            with self.assertRaises(OSError):
+                module.apply(self.root)
+        self.assertFalse((self.root / 'crm/public/css').exists())
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse(list(self.root.rglob('*.branding-tmp')))
 
     def test_context_hook_is_display_only_and_locale_native(self):
         fake = types.ModuleType('frappe')

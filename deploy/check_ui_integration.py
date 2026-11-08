@@ -39,7 +39,8 @@ class IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             crm = Path(temporary) / 'crm'
             shutil.copytree(BASELINE / 'apps/crm', crm)
-            (crm / 'crm/public/css').mkdir(parents=True, exist_ok=True)
+            self.assertTrue((crm / 'crm/public').is_dir())
+            self.assertFalse((crm / 'crm/public/css').exists())
             with patch('subprocess.check_output', return_value=verification.CRM_COMMIT + '\n'):
                 verification.verify(crm, patches, 'l3-scheduling')
                 for name in ('dark-ui', 'localization', 'branding'):

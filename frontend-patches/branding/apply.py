@@ -29,6 +29,29 @@ def transform(current, entry):
     return updated
 
 
+def checked_target(root, relative):
+    target = root / relative
+    for item in (target, *target.parents):
+        if item.is_symlink() or (item.exists() and getattr(item.lstat(), 'st_file_attributes', 0) & 0x400):
+            raise ValueError('Linked branding source refused')
+    parent = target.parent
+    if parent.exists():
+        if not parent.is_dir():
+            raise ValueError('Branding parent must be a directory')
+        ancestor = parent.resolve(strict=True)
+    else:
+        if relative != 'crm/public/css/login-theme.css':
+            raise ValueError('Missing branding parent is outside the directory whitelist')
+        ancestor = parent.parent.resolve(strict=True)
+        if not ancestor.is_dir():
+            raise ValueError('Branding ancestor must be a directory')
+    if not ancestor.is_relative_to(root):
+        raise ValueError('Parent escapes CRM')
+    if target.exists() and (not target.is_file() or target.stat().st_nlink != 1):
+        raise ValueError('Branding target must be an ordinary file')
+    return target
+
+
 def apply(root, check=False, verify_after=False):
     root = root.resolve(strict=True)
     if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() != COMMIT:
@@ -39,15 +62,7 @@ def apply(root, check=False, verify_after=False):
         raise ValueError('Branding target whitelist mismatch')
     changes = []
     for entry in entries:
-        target = root / entry['target']
-        parent = target.parent.resolve(strict=True)
-        if not parent.is_relative_to(root):
-            raise ValueError('Parent escapes CRM')
-        for item in (target, *target.parents):
-            if item.is_symlink() or (item.exists() and getattr(item.lstat(), 'st_file_attributes', 0) & 0x400):
-                raise ValueError('Linked branding source refused')
-        if target.exists() and (not target.is_file() or target.stat().st_nlink != 1):
-            raise ValueError('Branding target must be an ordinary file')
+        target = checked_target(root, entry['target'])
         current = target.read_bytes() if target.exists() else None
         if (sha(current) if current is not None else None) != entry['after' if verify_after else 'before']:
             raise ValueError('Branding baseline mismatch: ' + entry['target'])
@@ -57,18 +72,31 @@ def apply(root, check=False, verify_after=False):
             transform(None, entry)
     if not check and not verify_after:
         pending = []
+        directories = []
+        applied = False
         try:
             for target, data in changes:
+                checked_target(root, target.relative_to(root).as_posix())
+                if not target.parent.exists():
+                    target.parent.mkdir()
+                    directories.append(target.parent)
                 temporary = target.with_name(target.name + '.branding-tmp')
                 with temporary.open('xb') as stream:
                     stream.write(data)
                 pending.append((temporary, target))
             for temporary, target in pending:
                 os.replace(temporary, target)
+            applied = True
         finally:
             for temporary, _ in pending:
                 if temporary.exists():
                     temporary.unlink()
+            if not applied:
+                for directory in reversed(directories):
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        pass
     return len(entries)
 
 
