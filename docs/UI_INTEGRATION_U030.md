@@ -199,3 +199,11 @@ login CSS、standalone词典与 PWA 名称资产和首轮表中相同；完整�
 - M35 `fc25460a6252c91c7c123107b8e7e5a2188afad9` 负责 owned 旧节点幂等样式刷新及短事件编号/同轴侧栏；M38 `949838997e9d63ac98e36064d10d16ee87ddb62a` 仅将原中文 delta 衔接至新 rail。两者已审，不复制回旧 c558 文件。最终 access 字节预计 SHA `7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`，preparer仍实算并比较，不以说明里的预计值代替生成。
 
 验证包括实际 after_request AST 的 script URL、sanitize调用/状态/缓存头不变、重复不加tag、asset字节变则URL变、未知request/asset拒绝；CRM branding有序逆变换等原e169、品牌标题不引用旧key、原导航事件保留。旧节点测试只运行 M35 已有明确用例，不扩全矩阵。冻结 tip、实测数及新context待随后记录；当前尚未构建或部署这轮源码。
+
+### v4 接线冻结与定向结果
+
+生产新接线冻结 `894934e`，随后 `b0ef5dbfe5c17d0ae5d5a6dee67c6ef0da270a13` 仅修离线 fixture 的 `PATCHES` 临时根绑定。初组合因 fixture 沿用 `/home/frappe/u030` 常量报两处路径错误（未到实际代码替换），已修测试根而非放宽生产 guard；后六项组合全部通过。品牌7项、实际注入 AST/摘要2项、组合6项与 M35 既有 owned旧节点样式定向1项均 PASS，没有重旧无关矩阵。
+
+准备 context `deploy/.runtime/ui-922ba2dbf7c8479f8054c5ba951caa24`，receipt `5f463ef6a931a2ae2b365bec74899ed2121fac7cb146d00c343a5841ebbfdc9a`，应用输入为已审 M35 fc25460/M38 9498389/M39 23a36d6。CRM最终来源/守卫56项，Framework3项保持；新增request独立校验不混入CRM根。
+
+准备器由最终 access 字节实算出的 URL：`/assets/team_access/access.js?v=7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`；request before `0a654aaeba6e9145bc0bf35b9ccd1f07033038df9fc3926e6cda53e34522331f`，本次生成 after `bd6ba3cad3290549b8d028ea868cd72e2cc3543a4b3978145ffd509deb30d3bf`。换任何最终脚本字节，query/after随之变化，receipt漂移或实际asset不等即拒绝。这个状态只是源码/定向合同已验、已交独审；未运行本批标准构建、实际HTTP或浏览器，不把资源版本化当已证缓存根因或已证现场颜色修复。
