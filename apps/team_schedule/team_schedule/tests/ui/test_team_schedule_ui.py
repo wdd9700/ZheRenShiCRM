@@ -45,6 +45,23 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         self.assertIn("team_schedule.availability.api", source)
         self.assertIn("team_schedule.ics.api", source)
 
+    def test_shared_theme_catalog_and_raw_option_values(self):
+        root = PACKAGE_DIR.parents[2]
+        theme = (PUBLIC_DIR / "crm-theme.css").read_bytes()
+        self.assertEqual(theme, (root / "frontend-patches/dark-ui/payload/crm-theme.css").read_bytes())
+        page = (WWW_DIR / "team-schedule.html").read_text(encoding="utf-8")
+        self.assertLess(page.index("crm-zh-cn.js"), page.index("team-schedule.js"))
+        self.assertIn('id="day-form"', page)
+        self.assertIn('id="day-date" type="date"', page)
+        for filename in (
+            root / "apps/team_access/team_access/www/team-activities.html",
+            root / "apps/resource_import/resource_import/www/resource-import.html",
+        ):
+            self.assertIn("/assets/team_schedule/crm-theme.css", filename.read_text(encoding="utf-8"))
+        access = (root / "apps/team_access/team_access/www/team-activities.html").read_text(encoding="utf-8")
+        for value in ("FCRM Note", "CRM Task", "CRM Lead", "CRM Deal", "Private", "Shared"):
+            self.assertIn(f'<option value="{value}">', access)
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for UI interaction tests")
     def test_node_interaction_and_request_contracts(self):
         result = subprocess.run(

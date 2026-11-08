@@ -68,6 +68,8 @@ class Element extends EventTarget {
     this.form = null;
     this.name = '';
     this.content = '';
+    this.style = {};
+    this.attributes = {};
     this._textContent = '';
     this.classList = {
       toggle: (name, force) => {
@@ -117,6 +119,8 @@ class Element extends EventTarget {
   querySelector(selector) {
     return this.querySelectorAll(selector)[0] || null;
   }
+
+  setAttribute(name, value) { this.attributes[name] = String(value); }
 
   scrollIntoView() {}
 

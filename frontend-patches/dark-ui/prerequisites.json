@@ -1,0 +1,178 @@
+{
+  "c011000_commit": "9403d5a",
+  "navigation_commit": "76f23be",
+  "targets": [
+    {
+      "target": "frontend/node_modules/frappe-ui/src/resources/accountBoundary.js",
+      "sha256": "a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/resources/documentResource.js",
+      "sha256": "2ad759ee1fb44154389bc2374816abe085b36ae6a6a4d11078ebbc7f40623d56"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/resources/listResource.js",
+      "sha256": "14025d9b50175c341a12633ed0f1e99708a44417393da30357b7570d80d90f69"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/resources/local.ts",
+      "sha256": "59e5442af3e0e91f91542357c859b053b5d40106276a3e90d3cb30fc8a9f23c0"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/resources/resources.js",
+      "sha256": "5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80"
+    },
+    {
+      "target": "frontend/src/main.js",
+      "sha256": "504432dc1a9177f4987bc98a84c39859eadf4181e760841941bf78bb5996612d"
+    },
+    {
+      "target": "frontend/src/stores/session.js",
+      "sha256": "5d7434ff862fe08e4c1ad7f56145a95dd34c2f2263042b18e8a3f32ace1578ee"
+    },
+    {
+      "target": "frontend/src/data/safeResume.js",
+      "sha256": "38be9586f54de986da9b8c4208f70ca913dc2f4c6704834bac630bd63bdbd8a6"
+    },
+    {
+      "target": "frontend/src/resumeRuntime.js",
+      "sha256": "e152a6daecbe90330e2c55800efb8b1c28ae56bda92272efebbb442955a638ab"
+    },
+    {
+      "target": "frontend/package.json",
+      "sha256": "da762827d591e47cb42148107e00f06e8d2f2bf4159b554ca809d97a422ac4d5"
+    },
+    {
+      "target": "frontend/yarn.lock",
+      "sha256": "a5fd668768d60b83c8a79e57135d9752d1b3dbdd80927426086ae7be1c9a00ef"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/package.json",
+      "sha256": "05be24caa1b3d457eb170ceed482473b1f9519e47d6653c025c61bb2239b2631"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/utils/request.ts",
+      "sha256": "752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b"
+    },
+    {
+      "target": "frontend/src/data/document.js",
+      "sha256": "5f0b5b5464169d3a7a6ef8c288df93c2d7b88fb318bc2469cabb4144a80295c3"
+    },
+    {
+      "target": "frontend/src/stores/meta.js",
+      "sha256": "7ec1c9fd378d9449266b05cc3bf96b7251e682da71b0f4f826e34983475a0dae"
+    },
+    {
+      "target": "frontend/src/data/script.js",
+      "sha256": "80a5df6426c8912044156807bb5e4d974d9acbc8b783d4c36485fb102213b231"
+    },
+    {
+      "target": "frontend/src/components/ViewControls.vue",
+      "sha256": "14383fb58bf6f35cdcd36857c6f3f91beb1cc5627e4c869d38a2f7b091b10d66"
+    },
+    {
+      "target": "frontend/src/pages/Lead.vue",
+      "sha256": "8447b19676236db455357990620f2803f09b60752c87c8798abc5ac55659a596"
+    },
+    {
+      "target": "frontend/src/pages/Deal.vue",
+      "sha256": "8f09f5380918c3fc4ba2ef53d92708787bfddd040f7b1f2db44b4093a332f05b"
+    },
+    {
+      "target": "frontend/src/pages/Leads.vue",
+      "sha256": "0c1a92f7c5ec8f428249b45f89191eea9ef4b9992f4b89d53fb3da476c52b0ea"
+    },
+    {
+      "target": "frontend/src/pages/Deals.vue",
+      "sha256": "841667cedf5e490d78f6c5cfad29a304e560559d610e0e522987ff990cf69206"
+    },
+    {
+      "target": "frontend/src/stores/notifications.js",
+      "sha256": "ab936e809bd7852aed3496737a65438476405e4ce4660e5c16235c1f00320ed5"
+    },
+    {
+      "target": "frontend/src/stores/settings.js",
+      "sha256": "200c99173a5815a0aa0124cc72bb124dbd31e3b0e4e29c04490bd059b1615aad"
+    },
+    {
+      "target": "frontend/src/composables/telephony.js",
+      "sha256": "33b465bc7b823f75ca359b4c96c4aac5558d552191ca81688ebf5b657ecbbb71"
+    },
+    {
+      "target": "frontend/src/composables/whatsapp.js",
+      "sha256": "b3d8a9a04cd865012f0bb42146c787fe1cdd72d22d720fec5d894f8effe1e5d2"
+    },
+    {
+      "target": "frontend/src/composables/erpnext.js",
+      "sha256": "e5044f840edf1865ad58aa368f97c1c5ef6ebd0c1f1085235389ced3e6070c66"
+    },
+    {
+      "target": "frontend/src/composables/useCommandPalette.js",
+      "sha256": "b08e43bc58ca983dff8f5b18e445a73864f95a9df855d1de68eae828804a0cd6"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/utils/frappeRequest.ts",
+      "sha256": "83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9"
+    },
+    {
+      "target": "frontend/src/composables/doctypeModal.js",
+      "sha256": "4518ade07cf5c1baab4a6c05a2ccb27d45baf4f1ee4d0f759912d8208a330949"
+    },
+    {
+      "target": "frontend/src/composables/document.js",
+      "sha256": "240fc6392dae3cc0ff4196fbb8d7db8e39258f612e5a0d42d275a49e65102e9f"
+    },
+    {
+      "target": "frontend/src/composables/noteView.ts",
+      "sha256": "84898956b5753a094a6e2fce21557a43118854460f19e9026e3232107bd7fe7a"
+    },
+    {
+      "target": "frontend/src/utils/renderFieldLayoutDialog.js",
+      "sha256": "6b52bd92232e4c496d76b2ffedd96806ba5f270502659d93576b640c141f1723"
+    },
+    {
+      "target": "frontend/src/utils/dialogs.jsx",
+      "sha256": "862e9b430442eff33647587ed767d1055c6c9ce4efe8784e87b0db3ddd886794"
+    },
+    {
+      "target": "frontend/src/composables/modals.js",
+      "sha256": "4bff9b68be3cda999f96efc2c73a29c04da6805cf39101a2a93b3ddb4e361d9e"
+    },
+    {
+      "target": "frontend/src/composables/useVisitedRecords.ts",
+      "sha256": "87c238d37459a137a173f7738d806c0ae559a9e14c22894204ed1bd47faf356f"
+    },
+    {
+      "target": "frontend/src/components/Layouts/AppSidebar.vue",
+      "sha256": "e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852"
+    },
+    {
+      "target": "frontend/src/components/Activities/Activities.vue",
+      "sha256": "8e4baa85e3dd9820717b5fa5aa3c4396168f03dfda89f4b70091e2f8a14dec36"
+    },
+    {
+      "target": "frontend/src/stores/users.js",
+      "sha256": "a031a4cbad685c56dc27d32e2b83da6247396560af3ffb5c74b7e92ba27ea3b8"
+    },
+    {
+      "target": "frontend/src/stores/views.js",
+      "sha256": "e64c90057ea591f8fb32f0ef8458ede99c7c26c35f5a9711a92de6881b718884"
+    },
+    {
+      "target": "frontend/src/components/CommunicationArea.vue",
+      "sha256": "a1df881f7dd3d0aeb7f03a94613e2c75509bf90e8ab1c02313d454f13b0a844c"
+    },
+    {
+      "target": "frontend/src/components/EmailEditor.vue",
+      "sha256": "11f92cb1e1f4de5e92989bc79fb0d10c7422dd11f02d8b6d34c279b704d86b68"
+    },
+    {
+      "target": "frontend/src/components/Modals/LeadModal.vue",
+      "sha256": "8fb6e4327ae91dd4f1389f3f612eb79a2192cffa0ef5403b9e5952b200bfdec7"
+    },
+    {
+      "target": "frontend/src/components/Modals/DealModal.vue",
+      "sha256": "7167d70476846ddbf049b66b286961a638c69e795fd16e3bec9f0ffa28aefd8a"
+    }
+  ]
+}

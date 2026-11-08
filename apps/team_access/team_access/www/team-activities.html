@@ -1,5 +1,11 @@
 {% extends "templates/web.html" %}
+{% block head_include %}
+{{ super() }}
+<link rel="stylesheet" href="/assets/team_schedule/crm-theme.css">
+{% endblock %}
 {% block page_content %}
+<div class="crm-standalone crm-workspace">
+<header class="crm-header"><a class="crm-brand" href="/crm">哲人石CRM</a><span class="crm-meta">私域活动</span></header>
 <section id="team-activities" data-csrf="{{ csrf_token | e }}" data-user="{{ user | e }}">
   <h1>活动访问管理</h1>
   <p>Private 仅拥有者、明确协作者及任务受派人可读写；关联父记录仍须可读。Shared 额外允许父记录读者阅读，绝不自动授予编辑权。仅拥有者可变更授权或关联。</p>
@@ -7,7 +13,7 @@
   <p>Shared 只发布当前正文，不公开既往私密版本或附件。新协作者可读写既往历史。此页不上传附件；原生私有附件仅供Private协作，含附件或私有文件内嵌链接的记录不能直接发布。请保留原Private，另建不含附件的共享摘要。</p>
   <p>安全兼容限制：Note/Task（包括Shared）及其私域历史、附件和关联通话不提供实时刷新或查看者名单；保存或撤权后请手动刷新。原生历史缓存计数可能不可用，以当前授权的正文和时间线为准。</p>
   <p><a href="/crm">返回 CRM</a></p>
-  <label>活动类型 <select id="activity-type"><option>FCRM Note</option><option>CRM Task</option></select></label>
+  <label>活动类型 <select id="activity-type"><option value="FCRM Note">FCRM Note</option><option value="CRM Task">CRM Task</option></select></label>
   <button id="activity-new" type="button">新建 Private 活动</button>
   <button id="activity-refresh" type="button">刷新</button>
   <p id="activity-status" role="status"></p>
@@ -18,10 +24,10 @@
     <label>正文（纯文本输入；已有富文本以源码显示）<textarea id="activity-content" rows="8" cols="70"></textarea></label><br>
     <fieldset id="activity-acl">
       <legend>仅拥有者可改的授权设置</legend>
-      <label>父类型 <select id="activity-parent-type"><option value="">无父记录（只能 Private）</option><option>CRM Lead</option><option>CRM Deal</option></select></label>
+      <label>父类型 <select id="activity-parent-type"><option value="">无父记录（只能 Private）</option><option value="CRM Lead">CRM Lead</option><option value="CRM Deal">CRM Deal</option></select></label>
       <label>父记录编号 <input id="activity-parent" list="activity-parents" autocomplete="off"></label>
       <datalist id="activity-parents"></datalist><br>
-      <label>可见范围 <select id="activity-visibility"><option>Private</option><option>Shared</option></select></label>
+      <label>可见范围 <select id="activity-visibility"><option value="Private">Private</option><option value="Shared">Shared</option></select></label>
       <label>明确读写协作者（完整账号，可空）<input id="activity-collaborator" autocomplete="off"></label><br>
       <label id="activity-assignee-label">任务受派人（完整账号，可空）<input id="activity-assignee" autocomplete="off"></label>
     </fieldset>
@@ -29,5 +35,6 @@
     <button type="submit">保存</button>
   </form>
 </section>
+</div>
 <script defer src="/assets/team_access/page.js"></script>
 {% endblock %}

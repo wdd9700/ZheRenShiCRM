@@ -435,3 +435,100 @@ test('init without BroadcastChannel keeps the existing visibility fallback', asy
   await fire(environment.document, 'visibilitychange');
   assert.match(environment.document.getElementById('session-status').textContent, /页面重新可见/);
 });
+
+function timelineItem(name, start, end, title = name) {
+  return {name, owner: 'owner@example.test', title, description: '', start_utc: start, end_utc: end,
+    source_timezone: 'UTC', availability: 'Busy', status: 'Active', revision: 1, members: []};
+}
+
+test('day view resolves both local midnights, renders true short blocks, continuation labels and paginated overlaps', async () => {
+  const calls = [];
+  const short = timelineItem('short', '2026-11-01T13:07:00Z', '2026-11-01T13:08:00Z', '<img src=x>');
+  const crossing = timelineItem('cross', '2026-11-01T03:00:00Z', '2026-11-01T05:00:00Z');
+  const environment = createDom(html, async (url, options) => {
+    const payload = JSON.parse(options.body); calls.push({url, payload});
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local.startsWith('2026-11-01') ? '2026-11-01T04:00:00Z' : '2026-11-02T05:00:00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: payload.cursor ? {items: [timelineItem('overlap', '2026-11-01T13:07:00Z', '2026-11-01T14:00:00Z')], next_cursor: null} : {items: [short, crossing], next_cursor: 'next'}});
+    if (url.endsWith('.get')) return jsonResponse({message: {schedule: short}});
+    throw new Error('unexpected request ' + url);
+  });
+  environment.window.PhilosopherCRMText = {enums: {Busy: '占用'}, timeline: {continuesBefore: '承接前日'}};
+  init(environment.document, environment.window);
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'America/New_York'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  assert.deepEqual(methodCalls(calls, '.resolve_local').map(call => call.payload.local), ['2026-11-01T00:00', '2026-11-02T00:00']);
+  const container = environment.document.getElementById('schedule-list');
+  assert.equal(container.querySelector('.timeline').style.height, '1800px');
+  assert.match(container.textContent, /25小时/);
+  assert.match(container.textContent, /承接前日/);
+  assert.match(container.textContent, /占用/);
+  assert.match(container.textContent, /<img src=x>/);
+  assert.equal(container.querySelectorAll('img').length, 0);
+  const thin = container.querySelectorAll('.timeline-block').find(button => button.title.includes('<img src=x>'));
+  assert.equal(thin.style.height, '1.2px');
+  assert.equal(thin.style.top, (547 * 1.2) + 'px');
+  assert.match(environment.document.getElementById('list-status').textContent, /不是完整结果/);
+  const ticks = container.querySelectorAll('.timeline-tick').map(tick => tick.textContent);
+  assert.ok(ticks.some(value => value.includes('01:00') && value.includes('GMT-4')));
+  assert.ok(ticks.some(value => value.includes('01:00') && value.includes('GMT-5')));
+  await thin.click();
+  assert.equal(methodCalls(calls, '.get').length, 1);
+  await environment.document.getElementById('list-more').click();
+  await flush();
+  assert.equal(methodCalls(calls, '.list')[1].payload.cursor, 'next');
+  assert.ok(container.querySelectorAll('.timeline-block').some(block => block.style.width === 'calc(50% - 4px)'));
+  assert.match(environment.document.getElementById('list-status').textContent, /全部结果/);
+  const sender = new environment.window.BroadcastChannel('crm-account-boundary-c011000');
+  sender.postMessage('changed');
+  assert.equal(container.children.length, 0);
+  assert.equal(container.textContent, '');
+});
+
+test('newer day navigation wins over a late old response and 409 clears all timeline labels', async () => {
+  const late = deferred(); let lists = 0;
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) {
+      lists += 1;
+      if (lists === 1) return late.promise;
+      return jsonResponse({message: {items: [timelineItem('new', '2026-11-02T09:00:00Z', '2026-11-02T10:00:00Z')], next_cursor: null}});
+    }
+    if (url.endsWith('.get')) return jsonResponse({message: {error: {code: 'REVISION_CONFLICT'}}}, false, 409);
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  const old = fire(environment.document.getElementById('day-form'), 'submit');
+  for (let i = 0; i < 5 && !lists; i += 1) await flush();
+  await environment.document.getElementById('day-next').click();
+  late.resolve(jsonResponse({message: {items: [timelineItem('old-private', '2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z')], next_cursor: null}}));
+  await old;
+  const container = environment.document.getElementById('schedule-list');
+  assert.match(container.textContent, /2026-11-02/);
+  assert.doesNotMatch(container.textContent, /old-private/);
+  await container.querySelectorAll('button')[0].click();
+  assert.equal(container.children.length, 0);
+  assert.match(environment.document.getElementById('list-status').textContent, /版本冲突/);
+});
+
+test('late detail from a previous day cannot reopen the detail panel after navigation', async () => {
+  const detail = deferred(); let getStarted = false;
+  const oldItem = timelineItem('old-detail', '2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z');
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items: payload.start_utc.startsWith('2026-11-01') ? [oldItem] : [], next_cursor: null}});
+    if (url.endsWith('.get')) { getStarted = true; return detail.promise; }
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  const pending = environment.document.getElementById('schedule-list').querySelectorAll('button')[0].click();
+  await flush();
+  assert.equal(getStarted, true);
+  await environment.document.getElementById('day-next').click();
+  detail.resolve(jsonResponse({message: {schedule: oldItem}}));
+  await pending;
+  assert.equal(environment.document.getElementById('detail-panel').hidden, true);
+  assert.doesNotMatch(environment.document.getElementById('detail-content').textContent, /old-detail/);
+});

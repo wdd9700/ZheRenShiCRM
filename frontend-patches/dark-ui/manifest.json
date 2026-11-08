@@ -1,0 +1,63 @@
+{
+  "patch": "dark-ui",
+  "source_license": "AGPL-3.0; fixed Frappe CRM public source fixtures retained for exact-byte patch verification",
+  "token_provenance": {
+    "image_config": "caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9",
+    "frappe_ui_version": "1.0.0-rc.2",
+    "token_generator_sha256": "783fc5404d09918e59a1aa61a78ba18cd8e8b20325db73959c2723b7251e27af",
+    "colors_sha256": "8ee91dcad1a1301196f2123fe0786a64c4b94d66e7fb277ba00cf1d8b7669cf3",
+    "selector": "[data-theme=dark]",
+    "variables": "--{category}-{name}; surface/ink/outline actual semantic colors, not guessed --color-*"
+  },
+  "crm_commit": "36bd8859f2a6345a620477bc708d0546e8c3f08a",
+  "apply_order": [
+    "M24 c011000 9403d5a production 43 entries",
+    "M30 l3-scheduling 76f23be c011000-resume baseline",
+    "dark-ui",
+    "localization"
+  ],
+  "targets": [
+    {
+      "target": "frontend/src/App.vue",
+      "before": "05c64c58e4826f4bb8714259eb977517194208a51b3b63783f2cdd73ddd530ec",
+      "after": "71a512442880e3228fcdff3991183d13c220acbee503094b2c1109346d6be363",
+      "fixture": "fixtures/App.vue",
+      "edits": [
+        {
+          "anchor": "setColorScheme('light')",
+          "replacement": "setColorScheme('dark')"
+        }
+      ]
+    },
+    {
+      "target": "frontend/src/index.css",
+      "before": "ea03dd147124850c9e72c0ef6956d9d60200547cf67d17b8bafbe03412bddc6a",
+      "after": "fb1254ecdc37629e67bb75d8ed7b545f6d42f404d6819ed75822efbbe4ad95e1",
+      "fixture": "fixtures/index.css",
+      "edits": [
+        {
+          "anchor": "@import 'frappe-ui/style.css';",
+          "replacement": "@import 'frappe-ui/style.css';\n@import './crm-theme.css';"
+        }
+      ]
+    },
+    {
+      "target": "frontend/src/components/UserDropdown.vue",
+      "before": "9e217207516b20a08999a6f078c6d773a1ebf0049bf62c5d9bdc818c16869b86",
+      "after": "3e452070b6f327205055ec72091f4cd9fd0b37425d1de4fb4f4c8b388f35fc0d",
+      "fixture": "fixtures/UserDropdown.vue",
+      "edits": [
+        {
+          "anchor": "{{ __(brand.name || 'CRM') }}",
+          "replacement": "{{ __('哲人石CRM') }}"
+        }
+      ]
+    },
+    {
+      "target": "frontend/src/crm-theme.css",
+      "before": null,
+      "after": "d05f72cb6c584348c59858b9fc41cc67c9f10be8713ba4c20cfaab1d7fb682c1",
+      "payload": "crm-theme.css"
+    }
+  ]
+}

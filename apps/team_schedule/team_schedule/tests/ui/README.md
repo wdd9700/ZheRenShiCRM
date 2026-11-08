@@ -16,4 +16,15 @@ node --test apps/team_schedule/team_schedule/tests/ui/team-schedule.test.cjs app
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider apps/team_schedule/team_schedule/tests/ui
 ```
 
-`team-schedule-dom.test.cjs` 直接执行生产 `init` 和 DOM 事件，覆盖异步竞争、Framework 错误、长日程、ICS 来源生命周期、BroadcastChannel 失效和状态文案。DOM stub 不是浏览器；本补丁后续真实浏览器验证只需一个跨标签用例：A 日程与 CRM 并存，CRM 正常 logout 后不刷新日程，确认旧详情和草稿已清且迟到响应不回填。
+`team-schedule-dom.test.cjs` 直接执行生产 `init` 和 DOM 事件，覆盖异步竞争、Framework 错误、长日程、ICS 来源生命周期、BroadcastChannel 失效和状态文案。M35增加真实分钟/短块、重叠分列、跨日裁切、DST 23/25小时、重复小时offset、两次当地午夜解析、分页完整性提示、日期导航竞争和409清除时间轴覆盖。DOM stub 不是浏览器或真实后端。
+
+## 时间轴与字典契约（M35）
+
+- 默认日视图需显式加载，日期和IANA时区始终可见；日边界通过现有`resolve_local`分别解析当地午夜和下一日期午夜，不用固定24小时推导。罕见午夜歧义或不存在时拒绝自动选择，转自定义窗口明确DST offset。
+- 连续轴为每真实UTC分钟1.2px；半开区间裁切，跨日标承接/延续；同一重叠簇贪心分列，相邻端点不重叠。短事件不设虚假最短占用时长；下方编号列表保留完整可访问标签，点击仍由`get`重新核权。
+- 日程的Busy/Free不是对方已接受占用的推论；脱敏忙闲继续使用独立query，未把详情数据转成忙闲数据。
+- 全部新时间轴节点、title、标签和闭包随`schedule-list.replaceChildren()`清除；`listGeneration`阻止旧日期响应回填，epoch/会话边界继续优先。
+- `crm-zh-cn.js`由M36独占，defer先于页面脚本；只读`window.PhilosopherCRMText.enums`/`.timeline`/`.errors`/`.icsActions`，未知值安全回退。请求、option.value、DocType和成员权限值保持原始值。
+- `crm-theme.css`是canonical，CRM payload必须逐字相同。独立补丁验证：`PYTHONDONTWRITEBYTECODE=1 python frontend-patches/dark-ui/check_apply.py`。M24生产43entry→M30导航→dark-ui→localization；dark-ui的`--verify-after`在localization前执行，最终App.vue after归最后覆盖补丁。
+
+本轮未部署或运行真实浏览器/站点测试；标准CRM构建及三页实际样式、移动端/高并发横滚与跨标签logout实测留给集成独审后的窗口。Framework登录、CRM入口HTML/PWA品牌和后续串行汉化不在这4target独立补丁中。
