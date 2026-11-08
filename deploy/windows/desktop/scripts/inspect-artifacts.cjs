@@ -14,6 +14,7 @@ async function inspect(directory, version, acceptance) {
   const archive = path.join(directory, 'win-unpacked', 'resources', 'app.asar');
   const packaged = JSON.parse(asar.extractFile(archive, 'package.json').toString());
   assert.equal(packaged.version, version);
+  assert.equal(packaged.name, acceptance ? 'philosopher-stone-crm-acceptance' : 'philosopher-stone-crm');
   assert.equal(packaged.main, acceptance ? 'src/acceptance-main.cjs' : 'src/main.cjs');
   const files = asar.listPackage(archive);
   if (!acceptance) assert.ok(!files.some(file => /acceptance|fixture|\.env|id_ed25519|\.pfx$/i.test(file)));

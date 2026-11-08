@@ -6,7 +6,7 @@ const { windowsTool } = require('../src/tunnel.cjs');
 const acceptance = process.argv.includes('--acceptance');
 const name = acceptance ? 'PhilosopherStoneCRM-Acceptance' : 'PhilosopherStoneCRM';
 const appId = acceptance ? 'com.philosophersstone.crm.acceptance' : 'com.philosophersstone.crm';
-const paths = [path.join(process.env.APPDATA, name), path.join(process.env.LOCALAPPDATA, 'Programs', acceptance ? '哲人石CRM 验收专用' : '哲人石CRM'), path.join(__dirname, '..', '.validation', acceptance ? 'installed-acceptance' : 'installed-production')];
+const paths = [path.join(process.env.APPDATA, name), path.join(process.env.LOCALAPPDATA, 'Programs', name), path.join(process.env.LOCALAPPDATA, 'Programs', acceptance ? 'philosopher-stone-crm-acceptance' : 'philosopher-stone-crm'), path.join(process.env.LOCALAPPDATA, 'Programs', acceptance ? '哲人石CRM 验收专用' : '哲人石CRM'), path.join(__dirname, '..', '.validation', acceptance ? 'installed-acceptance' : 'installed-production')];
 const script = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$items=@(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*哲人石CRM*' -or $_.PSChildName -eq '" + appId + "' });@($items | Select-Object PSChildName,DisplayName,InstallLocation)|ConvertTo-Json -Compress";
 let registrations = execFileSync(windowsTool('WindowsPowerShell\\v1.0\\powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { shell: false, encoding: 'utf8', timeout: 10000 }).trim();
 registrations = registrations ? JSON.parse(registrations) : [];

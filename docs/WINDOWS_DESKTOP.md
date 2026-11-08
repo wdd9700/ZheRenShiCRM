@@ -90,6 +90,8 @@ node scripts/inspect-artifacts.cjs
 }
 ```
 
+`beforePack` 每次从同一策略生成并打包 `resources/app-update.yml`（JSON 格式是合法 YAML），包含固定 `updaterCacheDirName: philosopher-stone-crm-updater`，启用时也包含一致的 feed/publisher。此文件是 updater 6.8.11 下载缓存初始化的实际必需输入，不可只传构造器 URL 就省略；默认 disabled 仍不实例化 updater。真实锁定依赖的离线缓存初始化与严格验签调用已有定向测试。
+
 以上是占位示例，不是可用渠道。完整证书 Subject 精确匹配；证书轮换须预先审定 pin 列表。发布源仅固定 HTTPS 同 origin 且同目录，元数据/文件/重定向均受限；不允许页面/普通设置改 feed/publisher，不打包 PFX、密码、发布 token。固定 latest/stable、x64、完整单 EXE，不支持 web installer、预发布、降级或跨发布站跳转。
 
 **避免 updater 6.8.11 的默认 fail-open：** 该版本缺 `publisherName`/`app-update.yml` 时可跳过验签，默认 PowerShell verifier 某些能力异常也会放行。本实现继承 `NsisUpdater` 强制调用自定义严格 verifier，而非依赖磁盘配置是否有 publisher。验证用固定系统绝对路径 WindowsPowerShell、`execFile`/`shell:false`、EncodedCommand + LiteralPath；仅当 `Get-AuthenticodeSignature` 状态为 **Valid**、返回被验路径相等、完整 Subject 和证书 SHA256 pin 匹配才通过。启动失败、超时、stderr、JSON/缺字段/身份/签名不符一律拒绝。不自签冒充公信，不以 SHA512 代替签名。
@@ -111,7 +113,7 @@ node scripts/preflight-install.cjs --acceptance
 
 此脚本只看相关路径存在性和 HKCU 卸载注册，不读取配置/会话正文；未知数据或安装存在就停报，不覆盖/删除。生产身份初次检查已见 AppData/目标目录/注册均不存在（这是检查时点事实，安装前仍需复核）。
 
-验收变体固定 `com.philosophersstone.crm.acceptance` / `PhilosopherStoneCRM-Acceptance.exe` / `%APPDATA%\PhilosopherStoneCRM-Acceptance`，仍用 `persist:crm`。两版使用同一生产 main/security/tunnel/settings迁移/updater模块和同一 NSIS 脚本；只更换固定身份后缀、测试显示名/快捷方式、测试入口。`scripts/build-acceptance.cjs` 在 gitignored staging 构建两版；生产白名单不含 fixture/HTTP服务器/验收 IPC，更没有远程调试或任意执行 JS 开关。
+验收变体 package.name 为 `philosopher-stone-crm-acceptance`，固定 `com.philosophersstone.crm.acceptance` / `PhilosopherStoneCRM-Acceptance.exe` / `%APPDATA%\PhilosopherStoneCRM-Acceptance`，仍用 `persist:crm`。两版使用同一生产 main/security/tunnel/settings迁移/updater模块和同一 NSIS 脚本；只更换固定身份后缀、测试显示名/快捷方式、测试入口。`scripts/build-acceptance.cjs` 在 gitignored staging 构建两版；生产白名单不含 fixture/HTTP服务器/验收 IPC，更没有远程调试或任意执行 JS 开关。
 
 1. 用 acceptance **1.0.0** 真 NSIS 安装到专属 `.validation/installed-acceptance`（不提权、不改现有用户/浏览器）。运行验收 EXE，会同时出现真实本地设置与验收页面。
 2. 验收页只首次点“写入合成哨兵”：生产 SettingsStore 写测试设置、受控设置 HttpOnly 持久合成 Cookie，页面写 localStorage/IndexedDB。

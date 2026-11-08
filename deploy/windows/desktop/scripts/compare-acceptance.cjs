@@ -1,0 +1,15 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const directory = path.join(process.env.APPDATA, 'PhilosopherStoneCRM-Acceptance');
+assert.equal(fs.readFileSync(path.join(directory, 'acceptance-only.marker'), 'utf8'), 'synthetic-only-W020');
+const first = JSON.parse(fs.readFileSync(path.join(directory, 'receipt-1.0.0.json'), 'utf8'));
+const second = JSON.parse(fs.readFileSync(path.join(directory, 'receipt-1.0.1.json'), 'utf8'));
+assert.equal(first.version, '1.0.0'); assert.equal(second.version, '1.0.1');
+for (const key of ['appId', 'partition', 'profile', 'settingsSha256', 'localStorage', 'indexedDB', 'cookiePreserved', 'nodeUnavailable', 'downloadSha256']) assert.deepEqual(second[key], first[key], key + ' changed');
+assert.equal(first.appId, 'com.philosophersstone.crm.acceptance');
+assert.equal(first.profile, directory); assert.equal(first.cookiePreserved, true); assert.equal(first.nodeUnavailable, true);
+assert.ok(first.downloadsThisRun >= 2, 'N must exercise both HTTP and blob downloads');
+assert.equal(second.downloadsThisRun, 0, 'N+1 must preserve prior download without downloading again');
+console.log(JSON.stringify({ result: 'PASS', boundary: 'acceptance-only NSIS variant, not existing production-profile migration', first, second }, null, 2));
