@@ -471,13 +471,17 @@ test('day view resolves both local midnights, renders true short blocks, continu
   const ticks = container.querySelectorAll('.timeline-tick').map(tick => tick.textContent);
   assert.ok(ticks.some(value => value.includes('01:00') && value.includes('GMT-4')));
   assert.ok(ticks.some(value => value.includes('01:00') && value.includes('GMT-5')));
+  assert.equal(container.querySelector('.timeline-scroll').scrollTop, 0);
   await thin.click();
   assert.equal(methodCalls(calls, '.get').length, 1);
+  assert.match(environment.document.getElementById('list-status').textContent, /详情已按当前权限/);
+  assert.match(container.querySelector('.timeline-incomplete').textContent, /不是完整结果/);
   await environment.document.getElementById('list-more').click();
   await flush();
   assert.equal(methodCalls(calls, '.list')[1].payload.cursor, 'next');
   assert.ok(container.querySelectorAll('.timeline-block').some(block => block.style.width === 'calc(50% - 4px)'));
   assert.match(environment.document.getElementById('list-status').textContent, /全部结果/);
+  assert.equal(container.querySelector('.timeline-incomplete'), null);
   const sender = new environment.window.BroadcastChannel('crm-account-boundary-c011000');
   sender.postMessage('changed');
   assert.equal(container.children.length, 0);
@@ -531,4 +535,22 @@ test('late detail from a previous day cannot reopen the detail panel after navig
   await pending;
   assert.equal(environment.document.getElementById('detail-panel').hidden, true);
   assert.doesNotMatch(environment.document.getElementById('detail-content').textContent, /old-detail/);
+});
+
+test('midnight event keeps the initial scroll at zero and session clear removes persistent pagination notice', async () => {
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items: [timelineItem('midnight', '2026-11-01T00:00:00Z', '2026-11-01T00:20:00Z')], next_cursor: 'more'}});
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  const container = environment.document.getElementById('schedule-list');
+  assert.equal(container.querySelector('.timeline-block').style.top, '0px');
+  assert.equal(container.querySelector('.timeline-scroll').scrollTop, 0);
+  assert.match(container.querySelector('.timeline-incomplete').textContent, /不是完整结果/);
+  await fire(environment.document, 'visibilitychange');
+  assert.equal(container.children.length, 0);
+  assert.equal(container.querySelector('.timeline-incomplete'), null);
 });

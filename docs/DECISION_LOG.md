@@ -193,6 +193,9 @@
 - **字典与边界**：Terra独占中文字典，显示文案与Busy/Free/Read/Edit等原始值分离。共享主题接入日程、私域活动和导入页面；Framework登录不在本次页面scope内，不宣全站汉化/上线。
 - **置信度/验证追加**：受控源码与静态合同高、真实外观中；既有+新增Node33项、Python UI5项、dark-ui文件check/apply/after及拒绝4项、原access page.js验证均通过。精确e173/caf102镜像frappe-ui1.0.0-rc.2实际token生成器与底表证据已核，未猜变量。canonical与CRM payload同字节SHA，专用.gitattributes仅该CSS强制LF，避免Windows转换破坏契约。首轮新增分页测试因旧异步事件handler不返回promise而断言过早失败，补flush后通过，未改请求或放松断言。标准CRM构建和真实浏览器/三页外观验收由M37后续集成窗口负责；Framework登录与入口HTML/PWA品牌不外推完成。
 - **回退/复评/用户决定**：仅可逆展示层与独立补丁，无后端、数据迁移或部署；可撤回主题和时间轴展示但不能撤安全补丁。高并发可读性、实际浏览器表现或上游SHA变化触发复评。当前无新增必须由用户决定的卡点。
+- **M37集成暂定（owner交接，制作前）**：复用冻结两层e173/caf102精确源码，独立U030构建context保旧deploy路径不变；M37已核M24从1c586261到9403d5a生产补丁整目录无差异、M30从4ff到76f23be仅README差异。采用M24 43→M30→dark→localization→branding有序组合，最终逐target SHA承认有序重叠、不伪称全体disjoint；标准bench build沿既有资产preseed且不重装依赖，避免回到140层基底。登录展示由固定入口title/apple/lang（取boot.lang）及CRM原生update_website_context在Framework登录context后接线，限文案/CSS，不改认证、版权、包名或权限。中文System Settings.language=zh只在后续明确授权窗口配置，保用户/cookie/header和时区语义。此为M37源码合同交接、高置信于已核源码，标准build/真实UI仍待各冻结tip独审后实测，不是本次已执行或上线证据。
+
+- **Sol首审seq118后定点修复**：两项P2为午夜`top=0`被`||`滚动fallback跳过、分页未全量提示被读取详情的status覆盖；改为空值fallback，另在结果容器内保留分页提示，不与详情状态共用。新提示随原清屏一并移除，末页自然撤下。仅补既有DOM回归（午夜/跨日scrollTop、详情后提示仍在、加载末页/会话失效清除），18项DOM测试全过，不扩后端矩阵或执行build/部署；待新tip复审。
 
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 

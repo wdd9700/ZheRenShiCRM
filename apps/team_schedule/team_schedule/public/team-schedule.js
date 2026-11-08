@@ -521,6 +521,13 @@
       const container = $('schedule-list');
       container.replaceChildren();
       $('list-more').hidden = !state.nextCursor;
+      if (state.nextCursor) {
+        const warning = document.createElement('p');
+        warning.className = 'timeline-incomplete status';
+        warning.textContent = '仍有更多日程，当前时间轴不是完整结果，请加载更多。';
+        warning.setAttribute('role', 'status');
+        container.append(warning);
+      }
       const query = state.listQuery;
       const timezone = query ? query.timezone : 'UTC';
       let segments = state.items.map(schedule => ({schedule}));
@@ -563,7 +570,7 @@
         axis.append(track);
         scroll.append(axis);
         container.append(zone, scroll);
-        scroll.scrollTop = Math.max(0, Math.min(segments[0]?.top || 8 * 72, layout.height - 480) - 48);
+        scroll.scrollTop = Math.max(0, Math.min(segments[0]?.top ?? 8 * 72, layout.height - 480) - 48);
       }
       const labels = document.createElement('ol');
       labels.className = 'timeline-labels';
