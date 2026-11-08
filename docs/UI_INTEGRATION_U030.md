@@ -1,6 +1,6 @@
 # 哲人石CRM U030 标准组合与登录品牌
 
-状态：实现与离线核验中；尚未完成审定输入的 Linux 标准组合构建、最终镜像回归或 Terra 核心界面烟测。没有更改线上服务、数据库或部署锁。
+状态：精确审定输入已完成第一 Ubuntu 标准组合构建，以及最终镜像的原生 34文件326测试、bridge 与原 SFC 回归。日程/文案实际产物定向检查及静态 receipt 收尾中；Terra 核心界面烟测尚未进行。没有更改线上服务、数据库或部署锁。
 
 ## 固定来源与集成决定
 
@@ -66,3 +66,68 @@ Sol 对 `d478ffbe004ea7fd7412f7949a228b532704aa09` 的预审指出：精确 caf1
 修复只允许 `crm/public/css/login-theme.css` 的固定父目录缺失，解析已存在的 `crm/public` 并保留逃逸、链接、reparse、硬链接及普通文件检查。`--check` 不创建目录；全部来源/哈希预检通过后，应用阶段才创建这一层固定目录并暂存文件。暂存失败清理本次创建的空目录，不删除已有目录或资源。没有添加广义 `mkdir -p`、强制补丁或放宽目标白名单。
 
 同一 caf102 归档目录元数据重新选择性核对：`crm/public` 存在（uid 1000/gid 0/mode 0755），`crm/public/css` 不存在。组合测试不再人为 mkdir css，以真实缺父目录起点运行。品牌测试增至 6 项并通过，补充只读预检保持缺目录、应用后创建目录、非目录父级/未登记父级/逃逸拒绝、暂存失败保持原字节且移除新空目录。组合回归及窄审状态以随后记录为准，仍未执行实际构建。
+
+### 第一 Ubuntu 标准组合构建与最终镜像回归
+
+实际输入为上述已审 M35/M36/M38，加 U030 `515125fb0d5dd67ef52f0d517099a498c8ba8fd1`；最后接入提交是独立 wording 增量，没有改已审父目录修复。准备 context `deploy/.runtime/ui-b9fcdc2639fa4e1abce34b8b7ea2cd29/`，`ui-source-manifest.json` SHA `ca7b2c30c703403936b2e85c29fbdf245183b8a68f498529a2bc4532bed5a32d`，六项离线组合检查通过，含真实缺父目录起点、55 CRM 来源/守卫、五措辞应用与未知 before 全部零写拒绝。
+
+2026-11-08 唯一 `bash-xikg2tuh` / Windows PID59016，客户端总 **110.282秒、exit0**；Linux runner `07:54:31Z→07:56:05Z`。新候选（未激活站点）：
+
+- tag：`crm-local:ui-b9fcdc2639fa4e1abce34b8b7ea2cd29`
+- index：`sha256:d573751842d468c6a0649b9025668a009b225cbabc72802c29052da56c2070d9`
+- linux/amd64 manifest：`sha256:d8f95f559a6e89ebd326e16b7353c81180034df313be2720432b68dd6d65bea2`
+- config：`sha256:bf3ac000f58bae8d6e48128c1745de5f9d4d1e994238ba305a73b09770ae7de9`
+- 实际 **7 层**；完整原运行 Config（User/Env/Entrypoint/Cmd/Volumes/WorkingDir 等）除新增明确 UI provenance labels 外与两层基底逐值相等。
+
+原 `verify_final.py after`、M24/M30 43项、五 app 原来源/资产及新有序55项、canonical theme/词典、五 wording targets 均实过。原生 `bench build --app crm`（Vite **7.19秒**）及 team_access/team_schedule 标准构建均实际成功；双32键映射与全部实物、原保护资产、page.js、login CSS、PWA 安装名与 HTML 引用强断言通过。原 verifier 的 `da2177/b2b0e3a/two-target` 是历史输出文案，不是本次回退；实际43条精确 manifest 与新 labels/receipt另核。
+
+同一最终候选新建 `network=none`、`restart=no` 的隔离 probe `a656e0beb92e38cfc62b4c989edbf9df216922f24bed863d86bf65f2e4663ec7`，实际运行：
+
+| 命令/场景 | 结果 |
+|---|---|
+| `yarn test:run --reporter=verbose` | 34 files / 326 tests PASS，11.84秒 |
+| 原 c011000 四 suite Vitest bridge | 1 file / 1 test PASS，1.39秒；原 child fail0/skipped0 强断言通过 |
+| 原完整 App/Leads/FieldLayout 草稿→hidden→visible→恢复按钮 SFC | 1 file / 1 test PASS，10.49秒 |
+| 测试前后完整来源/静态 guard | 全部 PASS |
+
+没有 Unhandled Error/Rejection 段；保留日志中35处 ECONNREFUSED、3处 AbortError、既有 Vue 属性/aria 提示，不写成控制台无错误。离线 build 的 yarn 网络提示、Redis assets_json 无法连接及 chunk-size 警告保留；通过本地双 manifest/物理资产断言而非伪装连接成功，不为消除警告增装依赖。
+
+前后8个资源守卫：原 **152 容器/126 卷**、daemon 身份与主 image lock 全等；只新增本次退出0且非 OOM 的 probe 与其两自有匿名卷（保留）。没有启动业务站点、migrate/install-app、读写业务记录、SSH、远端或第二 Ubuntu 操作；没有后台遗留。此处证明标准产物/源码场景成功，不替代真实浏览器登录及核心功能烟测。
+
+完整结果 `deploy/.runtime/u030-build-f45eee7a38e4459ea3ff4b4a7f04ee73/result.json` SHA `6e5f7b62b9d02c945acabb46eda0692cbdba61b03a73a8bcd844994eb801a761`；同目录 `standard-build.log` SHA `f6b00f0db176d34760536623c5c88d714214c2e1fb3d94c92e952562702cc7d9`，`native-bridge-sfc.log` SHA `74622a9d313ba6ea29d0aad776b01620f38f20a865a83cc4c986e62a8f8a7689`。大报告/日志/镜像均 ignored，不进 Git。
+
+### 最终产物日程/文案定向回归与静态 receipt
+
+随后唯一 `bash-2npkjhcq` / Windows PID46512 **43.204秒、exit0**，没有重复前述326测试或重新构建。新只读根文件系统、none/restartno probe `853a265e9b3b28aa2ebce823537006fe5bfa11d7b3155cbefce4c2c02e41643f`，仅复用本次两个匿名卷为只读，写入只在 `/tmp` tmpfs。将**最终镜像的实际生产字节**复制 `/tmp` 并逐字节对照，用精确 M38 已有测试执行：
+
+- Node 两 suite **34 tests PASS / fail0 / skipped0**，含任意分钟、短事件真实高度/标签、重叠列、跨日、DST 23/25小时、午夜滚动0、分页提示、会话清屏及迟到响应等场景。
+- 既有四项 Python 静态合同 **4 tests PASS**；不重复第五个 Node wrapper，Node 已单独实际运行。
+- M36 runtime 对真实 translation.js/词典/静态字典的占位符、context、locale、服务端优先级合同 **PASS**。
+- 最终前后全部来源/资产 guard PASS；HTML 的 **78 个 CRM 静态引用**实物全在。
+
+原153容器/128卷及 daemon/mainlock 四个守卫保持，只新增一个退出0、非OOM probe，无新卷。没有站点/业务/配置写入，无后台。第一 Ubuntu 独占已明确交 M9，由其按 tower 新授权复用既有 M32 站做真实 UI 准备；不能把准备计划当浏览器验收，M37不自行新站、安装、迁移或上线。
+
+结果 `deploy/.runtime/u030-targeted-0b36337f5adf42cb80fc50293c3cb409/result.json` SHA `fb4fd9a2241e9ec091eeda6747ba3d716d8e32d81c6c1c242de439806057eed8`；`targeted.log` SHA `4c5982504b4d46f6008c0fe2a4b8c89a2ad42b904b5a683ff48e99225a2bb2bc`；`static-receipt.json` SHA `a5acfded3ccfe7292816d2644778d7383d2a06f9c07b19d729aa66972d5fd5cf`。
+
+| 最终静态 URL | SHA256 |
+|---|---|
+| `/assets/crm/frontend/assets/index-DzM1uFIa.js` | `edbcc3204923cd0307e33afc64aef31ca252308d8cc4803e5fddd4cf5d782532` |
+| `/assets/crm/frontend/assets/index-CyWp6XkC.css` | `3cf3fc9eb3d81c8c6ced733fff903cb465e535f155849ef16e72eefac7c4d816` |
+| `/assets/crm/frontend/manifest.webmanifest` | `3637bb8e5f491d98fa1d3ee26441b615debc45a714f3572f29b00dac79f708b3` |
+| `/assets/crm/css/login-theme.css` | `62a2c04cf3d98b2dceaf9bcffc1e39c0086cfd5cd2e46f9093fa4d29e2b93024` |
+| `/assets/team_schedule/crm-theme.css` | `9b966e04566f7d83f0f18745ed5458d64fec2a77b12ae4c2a6042dbbf828b837` |
+| `/assets/team_schedule/crm-zh-cn.js` | `adde7e9408c4aaefc960e78bfc1d49df9a2bc0061e474536ddb62e5ecca75f96` |
+| `/assets/team_schedule/team-schedule.js` | `4c4e7996d66b1e200006f81dd52403ac20f96a300d8fbee00153de097c8eb8bf` |
+| `/assets/team_schedule/team-schedule.css` | `a17e623c6b01b9a97b6d1f14f2ccdab0ca2bd6a71c0d1030980840466d40936b` |
+| `/assets/team_access/page.js` | `188a4163fdeb7173b4c7a0f08cc9948c2c8ad9f7edc722fdab4535b3edb49931` |
+
+### Terra 核心短测交接
+
+后续使用**同一 d573 候选**，不另重建。M9计划在现有五 app M32 合成站只启动必要 infra 与新增 candidate backend/socket/frontend、铺精确已建资产，tower另授权唯一普通 Sales 合成账号与原生默认中文单字段。M37仅给上述镜像与静态 receipt，未读凭据。浏览器由 Terra 正常登录表单完成，不注入 cookie/DOM 或以 API 假装 UI：
+
+1. `/login` 品牌/暗色/正常登录；默认中文与明确其他语言遵原生偏好；登录后 HTML lang/title 与侧栏品牌。
+2. CRM 创建或编辑一条合成线索、添加备注/任务并看正常反馈；正常导航到团队日程并返回。
+3. 日程纵向时间轴、任意分钟短事件/重叠/跨日可读，创建→编辑→取消的原核心功能；同源静态文件无404。
+4. 私域活动/导入页只读检查中文与主题，确认字段 value、请求枚举与时区显示未变；不要重复完整后端权限/恢复矩阵。
+
+上述是待执行清单，不是已通过。真实入口、账号保护文件路径及窗口收尾由 M9/tower交 Terra；遇失败保留首异常，按具体原因修复，不跳安全门。当前没有新增必须交用户拍板的价值取舍；正式线上部署仍不在本轮授权内。
