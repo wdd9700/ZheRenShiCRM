@@ -345,3 +345,15 @@ M43独占修改deploy/remote/trial.sh以保持HTTPS/socket配置，M37本轮不�
 接入源码 `6c8a9d1` 已获独审clean/hold（无finding，hold是产物/部署/HTTPS短验门）。首实际build `bash-nn5bi7ca` **31.778秒exit1**：原2f92完整guard、四SFCcheck/apply/verify、catalog迁移均通过，随后输入guard按manifest读取`/home/frappe/common-ui/deploy/...`，但Dockerfile将verifier扁平复制到了common-ui根，缺deploy目录而失败。**尚未bench/Vite或产候选/probe**，原finally资源守卫保持，旧失败不抹除。
 
 只修标准COPY布局：三件已白名单deploy文件按原相对路径精确复制到`common-ui/deploy/`，所有命令也引用相同路径，补明确布局合同测试；没有跳输入SHA检查、改M42源码/词典或扩大目标集合。后续新context重试同一范围，不能把这个集成路径故障当M42翻译缺陷。
+
+### M42实际增量构建/产物验证（部署前）
+
+最小COPY修正提交 `0efd1fc`，新context `deploy/.runtime/common-ui-3c8a0ee657aa461d8d4f617807a5bf10`，receipt **`82d57798608695e07b64cf5ce6c6e06011ef602e13877df5584a496f4c4bedd1`**。M42精确95e5ce6已Sol clean/hold并准构建；M37初始接入6c8a9d1也独审无finding。四项离线合同PASS，新增精确COPY路径检查覆盖首失败缺口；旧失败context/log保留。
+
+`bash-hrf96su3` / Windows PID46552 **54.728秒、exit0**，标准CRM build实际0（Vite6.90秒），最终产物实际四SFC parse/compileScript/compileTemplate、通知正文sanitize仍在、静态标签翻译、Check显示翻译且raw value仍Yes/No、locale/服务端同键优先与原占位符合同全部PASS。最终继承五app/M35/M38/M39/品牌/Framework3/request版本/source与所有standalone资产/Framework映射守卫通过；只四SFC+catalog显式变化。没有Node36/native326/权限恢复矩阵、本地浏览器或站点。
+
+新镜像 `crm-local:common-ui-3c8a0ee657aa461d8d4f617807a5bf10`：index `sha256:35d0b0bd36ae08fa9d434b4275cb50bc4e202607c5f8ad95a34e6441c4922101`，platform `sha256:bd67dae52b227ad19e70f2ce4a20e18c89e40465106369a08c52cf638ea31b62`，config `sha256:310b0d22992ac555ea577f2fdc770f9adc0e21191d9d7e1855c6edd2d230649d`。**13层**，前七个diff_id与已上线2f92逐项等，完整Config仅新增commonUI三来源labels，无daemon/网络/依赖或权限修改。
+
+原180容器/134卷及daemon/mainlock八guard保持；仅新none/restartno probe `2e5b75054fd9c64a5ee4eb4ed12d1185ae33875a4ea597ce02ce9c1575403dd2` 退出0非OOM与两个自有匿名卷保留，未业务运行。结果 `deploy/.runtime/common-ui-build-r2-b7b7ba02eddc4a5aa0db6e844e9656ea/result.json` SHA `f0378a871cf61a491b29f14edd320ad03289488656db9ae3d8ed26f5dece2d9c`；build log SHA `519cec4d13c0df887ff2b473e7cf3f0285fbf3a8668ba1fcec027410e54a66d7`；artifact log SHA `11548f58105c6712a71bd9a164ca50cfd6504be86483ca533e23238151d38894`。
+
+同目录 `static-receipt.json` SHA **`6f87b250a4ab3a5cf282e7b7b349ff9f3325d93dc9425b5289641724bb530856`**，201条动态URL/11重点asset；新入口 `/assets/crm/frontend/assets/index-DO9vnRFq.js` SHA `f2f4adbae397d35bb4b28f71c03d9cce800b0652e3edcdf0b253504acec4fc54`（598675B），CSS index-BSWanVSZ保持原SHA03755f81。其余共享主题/rail/access版本与独立页资产不变。此为产物测试，不当通知/搜索/筛选实际HTTPS用户界面已验，等待M17真实部署后Terra定点短验。
