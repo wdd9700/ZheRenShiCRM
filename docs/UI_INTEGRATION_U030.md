@@ -207,3 +207,34 @@ login CSS、standalone词典与 PWA 名称资产和首轮表中相同；完整�
 准备 context `deploy/.runtime/ui-922ba2dbf7c8479f8054c5ba951caa24`，receipt `5f463ef6a931a2ae2b365bec74899ed2121fac7cb146d00c343a5841ebbfdc9a`，应用输入为已审 M35 fc25460/M38 9498389/M39 23a36d6。CRM最终来源/守卫56项，Framework3项保持；新增request独立校验不混入CRM根。
 
 准备器由最终 access 字节实算出的 URL：`/assets/team_access/access.js?v=7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`；request before `0a654aaeba6e9145bc0bf35b9ccd1f07033038df9fc3926e6cda53e34522331f`，本次生成 after `bd6ba3cad3290549b8d028ea868cd72e2cc3543a4b3978145ffd509deb30d3bf`。换任何最终脚本字节，query/after随之变化，receipt漂移或实际asset不等即拒绝。这个状态只是源码/定向合同已验、已交独审；未运行本批标准构建、实际HTTP或浏览器，不把资源版本化当已证缓存根因或已证现场颜色修复。
+
+### v4 审定后唯一标准构建与实际改动产物验证
+
+Sol对精确 `920d65f28b79d9c3b6bc78ceffa4e91adee45015` clean/hold（无finding，保留门为构建/真实视觉）后，tower明确放行一次第一Ubuntu构建。锁 M35 fc25460/M38 9498389/M39 23a36d6，不重旧候选。新 context `deploy/.runtime/ui-6392048dfa0e42e0b8e9c8b51d880076`，manifest receipt **`a84d623df4bdbf9145bea4451c3afc3bf3105ddb51d3815fd374221a8903609a`**。
+
+唯一 `bash-qfj054jl` / Windows PID55512 **86.823秒、exit0**，标准build与随后改动产物测试均实际exit0。CRM Vite 7.33秒；不重native326、旧SFC或权限/恢复矩阵。
+
+| 最新候选身份 | 值 |
+|---|---|
+| tag | `crm-local:ui-6392048dfa0e42e0b8e9c8b51d880076` |
+| index | `sha256:2aa73e9b44d7d4919e41f6288f00e0285a2bd0eaf4b95db1e214b01a8f7fcb5f` |
+| linux/amd64 manifest | `sha256:596329ca0b2376f6d47a9c3172c0a08a6ce4cc09fc1501f9a5783ff961d71752` |
+| config | `sha256:490fbf8f22032eec418a702bd790d8661c725b5749afbea2e960214529bf4abb` |
+| 层数 | **7**，原运行Config除新增明确UI provenance labels外逐值等父 |
+
+实际最终镜像测试通过：日程Node **36/36**（包含同轴短事件编号/rail、owned旧节点幂等样式合同）、静态 **5/5**、实际AppSidebar与PhilosopherLogo SFC编译/固定品牌title/原导航与身份guard、实际request.py的after_request AST注入URL/sanitize调用/状态/缓存头不变、实际access.js源与根/sites两asset同SHA、Framework三SFC编译/回调/语言、既有locale/占位符/服务端优先合同。前后 CRM56来源/守卫、Framework3、原M24/M30及全部映射/资产实物通过。
+
+`request.py`真实after为 `bd6ba3cad3290549b8d028ea868cd72e2cc3543a4b3978145ffd509deb30d3bf`；测试执行实际after_request函数而非重新手写注入替身，得到 `/assets/team_access/access.js?v=7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`。这仍是产物合同，不声称已采现场浏览器执行/颜色；后继M9正常HTTP/视觉应核实际CRM response含此URL与query GET摘要，不能只核裸asset。
+
+原 **166容器/130卷**、daemon与主image lock的8守卫保持，只新增退出0非OOM probe `5f365dfdd04d336b96d380e8096a07734bd2ec50ec22921af1e5a183d9e2cb1e` 及两自有匿名卷（保留）；没有站点/配置/业务/线上/SSH操作。第一Ubuntu已明确ENV RELEASED给M9，无后台。
+
+报告目录 `deploy/.runtime/u030-v4-7c8c9619fe3a4b318d9cac4ba887d5b3/`：
+
+- `result.json` SHA `c8bab66059106bdaf88e2e222d8f0b2ac8fdda84c45ba85f7bab87fb3e992b10`
+- `standard-build.log` SHA `12c4edd01c38bf048097c335ebc526fe55a793956284a3f8d78fe3dee676b2fc`
+- `changed-artifact-targeted.log` SHA `61fdb5bf7cedcb4665758af9f82a70c60144958e5c7ed4729b214785a07f1471`
+- **`static-receipt.json` SHA `c98af659d4590af142e91bc5697724d5382852867b6028f8129cf8f4b863b419`**：重点11URL与 `all_dynamic_assets` **201条URL**（全部生成CRM JS/CSS/webmanifest、HTML引用及版本query的bytes/SHA），供后继准备核对；不是201个HTTP请求已实测。
+
+关键新资源为 index-BROohc0i.js SHA `b429be037f62b42b915c27b90c02c7a118909ad53ba095941ecf186127607b9f`、同index-CkYIMfiN.css SHA `d56439b25f3b047cf85706c48ddccc97933df98d8f32a3de993e62510db48ca6`、新日程JS SHA `f2d02bb258cf3216887dfd96df52a2d64c12db6e611e787912166f19f0bd3caa`、日程CSS SHA `a8bd305e20e8f86e8a15c605cc6eb4ab4f97ff23219f22ddeec9fb6e3b5afffe`，完整动态URL不要从旧receipt猜文件名。
+
+后继交M9同M32定点视觉，不自行开站。准备阶段与有效验收计时分离，准备完成**立即READY通知tower/Terra**；若采用固定总截止则尽早READY，不事后延deadline补时间。二轮Terra正常logout仍未确认，运维固定截止恢复PASS不代替浏览器logout证据。最终HelpModal品牌/同轴标签/入口颜色实拍与实际版本URL执行仍须后继真实短测，当前未Complete/未线上。
