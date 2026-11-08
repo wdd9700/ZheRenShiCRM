@@ -104,6 +104,40 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         self.assertIn('.timeline-connector::before', css)
         self.assertIn('min-height: 0;', css)
 
+    def test_framework_activity_theme_scopes_navigation_and_explicit_heading_foreground(self):
+        import re
+
+        css = (PUBLIC_DIR / "crm-theme.css").read_text(encoding="utf-8")
+        rules = {selector.strip(): declarations for selector, declarations in re.findall(r'([^{}]+)\{([^{}]*)\}', css)}
+        palette = rules[':root,\nbody[data-path="team-activities"]']
+        self.assertIn('--crm-text: #E8EAED;', palette)
+        self.assertIn('--crm-raised: #292D34;', palette)
+        body = rules['body[data-path="team-activities"]']
+        for declaration in ('color-scheme: dark;', '--bg-color: var(--crm-bg);', '--navbar-bg: var(--crm-surface);', '--icon-stroke: var(--crm-secondary);'):
+            self.assertIn(declaration, body)
+        for heading in ('h1', 'h2', 'h3'):
+            self.assertIn('color: var(--crm-text);', rules[f'.crm-standalone {heading}'])
+        for selector, declarations in rules.items():
+            if '.navbar' in selector or '.dropdown' in selector:
+                self.assertTrue(all(part.strip().startswith('body[data-path="team-activities"]') for part in selector.split(',\n')))
+                self.assertNotIn('!important', declarations)
+                self.assertNotIn('display: none', declarations)
+        self.assertIn('background: var(--crm-surface);', rules['body[data-path="team-activities"] .navbar'])
+        self.assertIn('background: var(--crm-raised);', rules['body[data-path="team-activities"] .navbar .dropdown-menu'])
+        self.assertIn(':hover, :focus-visible, .active', css)
+        self.assertIn('body[data-path="team-activities"] :focus-visible { outline: 2px solid var(--crm-jade);', css)
+        self.assertNotIn('crm-login-brand', css)
+        self.assertNotIn('!important', body)
+        root = PACKAGE_DIR.parents[2]
+        access_page = (root / 'apps/team_access/team_access/www/team-activities.html').read_text(encoding='utf-8')
+        import_page = (root / 'apps/resource_import/resource_import/www/resource-import.html').read_text(encoding='utf-8')
+        self.assertIn('{% extends "templates/web.html" %}', access_page)
+        self.assertIn('class="crm-standalone crm-workspace"', access_page)
+        self.assertIn('<body class="crm-standalone">', import_page)
+        access_script = (root / 'apps/team_access/team_access/public/access.js').read_text(encoding='utf-8')
+        self.assertIn('color:var(--crm-text,#E8EAED)', access_script)
+        self.assertIn('background:var(--crm-raised,#292D34)', access_script)
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for UI interaction tests")
     def test_node_interaction_and_request_contracts(self):
         result = subprocess.run(

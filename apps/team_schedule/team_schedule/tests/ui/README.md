@@ -41,3 +41,9 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider apps/team_sche
 Terra `visual-41366c0f-3805-47cc-bff2-ddcf313d64be` 实证主轴y264–704约440px，10分钟12px、25分钟30px及分列正确，但短块无可见标题/编号，轴下列表不满足一眼辨识。现在日视图保真实占用块高度，块旁独立24px编号按钮+细连接线；编号按横向列区间避让，不挤入短块或冒充占用。旁侧320px标题/时间/状态栏与轴同高同viewport、各自滚动；窄屏局部横滚而非缩正文。Cancelled在编号虚线、列表按钮文字及状态中明确显示。标记与侧栏均为原生button、调用原get重新核权，仍随schedule-list整体清屏。定向DOM只验节点/尺寸目标/关联编号/同级viewport与get/清屏，不冒充实际浏览器截图通过。
 
 access白底残留的实际缓存/执行节点/级联原因仍未知，不再调色。脚本现在在one-shot返回前及annotate后刷新自己`.team-access-notice`与指向`/team-activities`的`#team-access-link`样式；先用CSSStyleDeclaration归一化，值相同不写，不观察style属性，不增Observer或权限回调。重复执行、旧样式修复、Observer只一份及同ID异路由节点不改均有回归。版本化脚本URL由M37根据最终导出SHA生成，不在这里改request/CSP或宣称缓存根因已证。
+
+## v4活动独立页标题/导航修复
+
+`visual-ea0e8060-8589-4c4d-af52-64117705a295` 显示活动页正文暗底浅字，但h1近黑、Framework顶栏白、owned入口白黑。代码范围核对：活动页extends `templates/web.html`，`.crm-standalone`仅内层page_content；Framework navbar在其外，旧h1/h2/h3规则无显式color，无法覆盖heading自身近黑声明；Vue `[data-theme="dark"]`变量规则不自动覆盖无该root标记的Framework页。公开固定v15.125.0源码`website/variables.scss`的headings gray900/navbar white及`website/navbar.scss`的navbar-light背景/链接声明与此一致；没有把公开tag源码或静态判断当实际v4 computed采样。
+
+最小修复：standalone h1/h2/h3显式`--crm-text`（导入纯HTML的同类标题亦保护）；仅`body[data-path="team-activities"]`重声明canonical palette、映射Framework已有bg/fg/navbar/card/popover/border/icon变量并覆盖navbar/link/menu/hover/focus。owned入口位于body内，继续消费同palette和原fallback，脚本/路由未改。所有新nav规则限定此route，无全局important/隐藏导航，不触login、CRM品牌或日轴rail。canonical/payload逐字同源、manifest after更新；静态CSS/token与模板合同可证明代码范围及显式前背景，最终实际截图仍待下一候选。

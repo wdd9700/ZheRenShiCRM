@@ -201,6 +201,8 @@
 
 - **二轮短块可识别性修复（2026-11-08）**：Terra `visual-41366c0f-3805-47cc-bff2-ddcf313d64be` 已证1280×720主轴y264–704/约440px及10分钟12px、25分钟30px分列正确，但短块无可见标题/编号，未满足一眼看清安排。保真实高度，新增独立24px编号按钮/连接线（按横向列区间避让，不作占用）并把完整标题/起止/状态移同viewport侧栏；保原生button/get核权、Cancelled明确及原清屏，窄屏局部横滚、不缩正文/不改时间算法。access残留白底的缓存/节点/级联根因仍未知，不盲改色；仅在one-shot返回前/annotate后幂等刷新自有节点，归一化样式后同值不写，Observer仍只childList一份、权限不改。M37负责最终SHA版本化加载及另一路HelpModal品牌，非本分支热改。定向合同与源码验证后交新tip审/最终截图，不宣视觉已通过；无环境/build操作。
 
+- **v4独立页色彩边界修复（2026-11-08）**：`visual-ea0e8060-8589-4c4d-af52-64117705a295` 活动页h1近黑、Framework顶栏白、owned入口白黑，CRM同入口已过。源码层级确认活动页内层crm-standalone不含base navbar，h1旧规则没color而不能覆盖Framework自身heading声明，无root data-theme亦不匹配Vue暗token；公开固定v15.125 website变量headings gray900/navbar white作来源佐证，未采实际computed故不冒称残留入口根因已证。采用standalone h1–3显式中性浅字并仅team-activities body路由重声明同palette与Framework已有bg/fg/navbar/card/popover/border/icon变量及有限navbar/menu/hover/focus样式；owned入口继承body同palette，保fallback/脚本/路由。导入纯HTML标题同规则保护，不重写模板或增环境；不全局important、不删导航、不并改M37登录/已过CRM日轴。canonical/payload同源和manifest同步；定向CSS/模板合同2项、全既有UI7项（内调Node36）、精确patch5项与access原page.js回归均通过，git diff检查通过；这是源码声明/范围测试而非computed或浏览器布局引擎，新候选实际截图另验。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]
