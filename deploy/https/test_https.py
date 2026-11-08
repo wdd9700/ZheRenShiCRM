@@ -71,16 +71,26 @@ class AcmeTests(unittest.TestCase):
     def test_isolated_environments_and_explicit_ca(self):
         for environment in ("staging", "production"):
             args = manage.certbot_args(environment)
-            self.assertIn(f"/etc/crm-acme/{environment}", args)
+            self.assertIn(f"type=bind,src=/etc/crm-acme/{environment},dst=/etc/letsencrypt", args)
             ca = args[args.index("--server") + 1]
             self.assertEqual("staging" in ca, environment == "staging")
             self.assertIn("/dev/null", args)
+            self.assertIn(manage.CERTBOT_IMAGE, args)
+            self.assertIn("--pull=never", args)
+            self.assertIn("--read-only", args)
+            self.assertIn("--cap-drop=ALL", args)
+            self.assertIn("--security-opt=no-new-privileges", args)
+            self.assertNotIn("--privileged", args)
+            self.assertNotIn("--publish", args)
+            mounts = [args[i + 1] for i, arg in enumerate(args) if arg == "--mount"]
+            self.assertEqual(len(mounts), 4)
+            self.assertFalse(any("docker.sock" in item or "src=/," in item for item in mounts))
         with self.assertRaises(ValueError):
             manage.certbot_args("../production")
 
-    def test_issue_parameters_and_production_only_hook(self):
+    def test_issue_parameters_and_production_host_deploy(self):
         for environment in ("staging", "production"):
-            with patch.object(manage, "check_certbot"), patch.object(manage, "prepare_acme"), patch.object(manage, "run") as run:
+            with patch.object(manage, "check_certbot"), patch.object(manage, "prepare_acme"), patch.object(manage, "run") as run, patch.object(manage, "deploy_production") as deploy:
                 manage.issue(environment, "ops@example.invalid")
             args = run.call_args.args
             self.assertIn("--ip-address", args)
@@ -89,7 +99,8 @@ class AcmeTests(unittest.TestCase):
             self.assertIn("shortlived", args)
             self.assertIn("--keep-until-expiring", args)
             self.assertNotIn("--force-renewal", args)
-            self.assertEqual("--deploy-hook" in args, environment == "production")
+            self.assertNotIn("--deploy-hook", args)
+            self.assertEqual(deploy.call_count, int(environment == "production"))
 
     def test_version_gate(self):
         for version, accepted in (("5.3.0", False), ("5.4.0", True), ("5.9.0", True), ("6.0.0", True)):
@@ -132,6 +143,63 @@ class AcmeTests(unittest.TestCase):
             with patch.object(manage, "CONFIG", config), self.assertRaises(RuntimeError):
                 manage.config_install(False)
             self.assertEqual(config.read_text(), "operator owned\n")
+
+
+class RuntimeRegistrationTests(unittest.TestCase):
+    def test_host_python36_syntax_and_version_preflight(self):
+        import ast
+        ast.parse((HERE / "manage.py").read_text(), feature_version=(3, 6))
+        with patch.object(manage.sys, "version_info", (3, 6, 8)), patch.object(manage.sys, "executable", "/usr/bin/python3"):
+            manage.check_runtime()
+        with patch.object(manage.sys, "version_info", (3, 5, 9)), self.assertRaises(RuntimeError):
+            manage.check_runtime()
+        with patch.object(manage.sys, "executable", "/usr/bin/env-python"), self.assertRaises(RuntimeError):
+            manage.check_runtime()
+        for version, accepted in (("1.18.0", False), ("1.19.3", True), ("1.24.0", True)):
+            with patch.object(manage, "run", return_value=f"nginx version: nginx/{version}\n".encode()):
+                if accepted:
+                    manage.check_nginx()
+                else:
+                    with self.assertRaises(RuntimeError):
+                        manage.check_nginx()
+        with patch.object(manage, "run", return_value=b"Python 3.12.10\ncertbot 5.4.0\n") as run:
+            manage.check_certbot()
+        command = run.call_args.args
+        self.assertIn("none", command)
+        self.assertIn("/usr/local/bin/python", command)
+        self.assertTrue(any("sys.version_info >= (3,10)" in item for item in command))
+        self.assertFalse(any("type=bind" in item for item in command))
+        self.assertIn("ExecStart=/usr/bin/python3 /usr/local/lib/crm-https/manage.py renew", (HERE / "crm-ip-renew.service").read_text())
+
+    def test_without_email_is_explicit_in_both_environments(self):
+        for environment in ("staging", "production"):
+            with patch.object(manage, "check_certbot"), patch.object(manage, "prepare_acme"), patch.object(manage, "run") as run, patch.object(manage, "deploy_production"):
+                manage.issue(environment, without_email=True)
+            args = run.call_args.args
+            self.assertIn("--register-unsafely-without-email", args)
+            self.assertNotIn("--email", args)
+        for email, without_email in ((None, False), ("ops@example.invalid", True), ("invalid", False)):
+            with self.assertRaises(ValueError):
+                manage.issue("staging", email, without_email)
+
+    def test_cli_registration_mutual_exclusion_and_required_choice(self):
+        for arguments in (("issue-staging",), ("issue-production", "--email", "ops@example.invalid", "--register-unsafely-without-email"), ("check", "--register-unsafely-without-email")):
+            with patch.object(manage.sys, "argv", ["manage.py"] + list(arguments)), self.assertRaises(SystemExit):
+                manage.main()
+        for environment in ("staging", "production"):
+            with patch.object(manage.sys, "argv", ["manage.py", "issue-" + environment, "--register-unsafely-without-email"]), patch.object(manage, "check_runtime"), patch.object(manage, "check_nginx"), patch.object(manage.os, "geteuid", return_value=0, create=True), patch.object(manage.os, "umask"), patch.object(manage, "issue") as issue:
+                manage.main()
+            issue.assert_called_once_with(environment, None, True)
+
+    def test_renew_host_deploy_only_after_container_success(self):
+        with patch.object(manage, "check_certbot"), patch.object(manage, "run", side_effect=RuntimeError("ACME failure")), patch.object(manage, "reload_nginx") as reload:
+            with self.assertRaises(RuntimeError):
+                manage.renew()
+            reload.assert_not_called()
+        events = []
+        with patch.object(manage, "check_certbot"), patch.object(manage, "run", side_effect=lambda *_: events.append("container")), patch.object(manage, "certificate_check", side_effect=lambda: events.append("certificate")), patch.object(manage, "served_check", side_effect=RuntimeError("old leaf")), patch.object(manage, "reload_nginx", side_effect=lambda: events.append("reload")):
+            manage.renew()
+        self.assertEqual(events, ["container", "certificate", "reload"])
 
 
 class ConfigTests(unittest.TestCase):

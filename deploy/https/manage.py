@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 import argparse
 import datetime as dt
 import os
@@ -16,42 +16,77 @@ SOURCE = Path(__file__).resolve().parent
 CONFIG = Path("/etc/nginx/conf.d/crm-public-ip.conf")
 STATE = Path("/var/lib/crm-acme")
 LINEAGE = Path("/etc/crm-acme/production/live") / NAME
-CERTBOT = Path("/opt/crm-certbot/bin/certbot")
+PYTHON = Path("/usr/bin/python3")
+DOCKER = "/usr/bin/docker"
+CERTBOT_IMAGE = "certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39"
 TOOL = "/usr/local/lib/crm-https/manage.py"
 MARKER = "# Managed by crm-https H010\n"
 
 
 def run(*args, capture=False):
     result = subprocess.run([str(arg) for arg in args], check=True,
-                            stdout=subprocess.PIPE if capture else None)
+                            stdout=subprocess.PIPE if capture else None,
+                            stderr=subprocess.STDOUT if capture else None)
     return result.stdout if capture else None
+
+
+def check_runtime():
+    if sys.version_info < (3, 6) or Path(sys.executable) != PYTHON:
+        raise RuntimeError("run with /usr/bin/python3 (>=3.6); do not replace the system Python")
+
+
+def check_nginx():
+    version = run("nginx", "-v", capture=True).decode()
+    match = re.search(r"nginx/(\d+)\.(\d+)\.(\d+)", version)
+    if not match or tuple(map(int, match.groups())) < (1, 19, 3):
+        raise RuntimeError("Nginx >=1.19.3 required; retain all TLS/cookie directives")
 
 
 def private_directory(path):
     if path.is_symlink():
-        raise RuntimeError(f"refusing symlink directory: {path}")
+        raise RuntimeError("refusing symlink directory: {}".format(path))
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path.stat().st_uid != 0:
-        raise RuntimeError(f"directory is not root-owned: {path}")
+        raise RuntimeError("directory is not root-owned: {}".format(path))
     path.chmod(0o700)
 
 
+def container_args(network="bridge"):
+    return [DOCKER, "--host", "unix:///var/run/docker.sock", "run", "--rm", "--pull=never",
+            "--platform", "linux/amd64", "--user", "0:0", "--read-only",
+            "--cap-drop=ALL", "--security-opt=no-new-privileges", "--network", network,
+            "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m", "--env", "PYTHONDONTWRITEBYTECODE=1"]
+
+
 def check_certbot():
-    version = run(CERTBOT, "--version", capture=True).decode()
+    args = container_args("none")
+    for target in ("/etc/letsencrypt", "/var/lib/letsencrypt", "/var/log/letsencrypt"):
+        args += ["--mount", "type=tmpfs,destination=" + target]
+    command = ("import sys; assert sys.version_info >= (3,10); "
+               "print('Python ' + sys.version.split()[0], flush=True); "
+               "from certbot.main import main; sys.exit(main(['--version']))")
+    version = run(*(args + ["--entrypoint", "/usr/local/bin/python", CERTBOT_IMAGE, "-c", command]), capture=True).decode()
     match = re.search(r"certbot (\d+)\.(\d+)", version)
     if not match or tuple(map(int, match.groups())) < (5, 4):
         raise RuntimeError("Certbot >=5.4 required for IP webroot")
+    print(version.strip())
 
 
 def certbot_args(environment):
     if environment not in ("staging", "production"):
         raise ValueError("invalid ACME environment")
-    return [str(CERTBOT), "--config", "/dev/null", "--non-interactive",
-            "--config-dir", f"/etc/crm-acme/{environment}",
-            "--work-dir", str(STATE / environment),
-            "--logs-dir", f"/var/log/crm-acme/{environment}",
-            "--server", "https://acme-" + ("staging-" if environment == "staging" else "")
-            + "v02.api.letsencrypt.org/directory", "--cert-name", NAME]
+    mounts = (("/etc/crm-acme/" + environment, "/etc/letsencrypt"),
+              (str(STATE / environment), "/var/lib/letsencrypt"),
+              ("/var/log/crm-acme/" + environment, "/var/log/letsencrypt"),
+              (str(STATE / "webroot"), "/var/www/certbot"))
+    args = container_args()
+    for source, target in mounts:
+        args += ["--mount", "type=bind,src={},dst={}".format(source, target)]
+    return args + [CERTBOT_IMAGE, "--config", "/dev/null", "--non-interactive",
+                   "--config-dir", "/etc/letsencrypt", "--work-dir", "/var/lib/letsencrypt",
+                   "--logs-dir", "/var/log/letsencrypt", "--server",
+                   "https://acme-" + ("staging-" if environment == "staging" else "")
+                   + "v02.api.letsencrypt.org/directory", "--cert-name", NAME]
 
 
 def state_directory():
@@ -153,63 +188,82 @@ def config_install(tls):
             Path(temporary).unlink()
 
 
-def issue(environment, email):
+def deploy_production():
+    if CONFIG.exists() and "listen 443 ssl" in CONFIG.read_text():
+        reload_nginx()
+    else:
+        certificate_check(86400)
+        print("Production certificate ready; HTTPS activation remains a separate step")
+
+
+def issue(environment, email=None, without_email=False):
+    if bool(email) == bool(without_email) or (email and "@" not in email):
+        raise ValueError("choose --email or --register-unsafely-without-email, never both")
     check_certbot()
     prepare_acme(environment)
-    args = certbot_args(environment) + ["certonly", "--agree-tos", "--email", email,
-        "--webroot", "--webroot-path", str(STATE / "webroot"),
+    registration = ["--register-unsafely-without-email"] if without_email else ["--email", email]
+    args = certbot_args(environment) + ["certonly", "--agree-tos"] + registration + [
+        "--webroot", "--webroot-path", "/var/www/certbot",
         "--ip-address", IP, "--required-profile", "shortlived", "--preferred-challenges", "http-01",
         "--keep-until-expiring"]
-    if environment == "production":
-        args += ["--deploy-hook", f"{TOOL} deploy-hook"]
     run(*args)
+    if environment == "production":
+        deploy_production()
+
+
+def renew():
+    check_certbot()
+    run(*(certbot_args("production") + ["renew"]))
+    certificate_check()
+    try:
+        served_check()
+    except (RuntimeError, OSError):
+        reload_nginx()
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("bootstrap", "issue-staging", "issue-production", "activate", "deploy-hook", "renew", "check"))
-    parser.add_argument("--email")
+    parser.add_argument("action", choices=("preflight", "bootstrap", "issue-staging", "issue-production", "activate", "renew", "check"))
+    registration = parser.add_mutually_exclusive_group()
+    registration.add_argument("--email")
+    registration.add_argument("--register-unsafely-without-email", action="store_true")
     args = parser.parse_args()
+    if args.action.startswith("issue-"):
+        if bool(args.email) == args.register_unsafely_without_email or (args.email and "@" not in args.email):
+            parser.error("choose --email or --register-unsafely-without-email")
+    elif args.email or args.register_unsafely_without_email:
+        parser.error("registration options apply only to issue-staging/issue-production")
+    check_runtime()
     if os.geteuid() != 0:
         parser.error("run as root on the server; no local forwarding is used")
-    if args.action.startswith("issue-") and (not args.email or "@" not in args.email):
-        parser.error("--email is required for the ACME account")
+    check_nginx()
     os.umask(0o077)
-    if args.action == "bootstrap":
+    if args.action == "preflight":
+        check_certbot()
+    elif args.action == "bootstrap":
         state_directory()
         webroot = STATE / "webroot"
         private_directory(webroot)
         webroot.chmod(0o755)
         config_install(False)
     elif args.action.startswith("issue-"):
-        issue(args.action.removeprefix("issue-"), args.email)
+        issue(args.action[len("issue-"):], args.email, args.register_unsafely_without_email)
     elif args.action == "activate":
         certificate_check(86400)
         config_install(True)
-    elif args.action == "deploy-hook":
-        if os.environ.get("RENEWED_LINEAGE") != str(LINEAGE):
-            raise RuntimeError("unexpected renewal lineage; refusing reload")
-        if CONFIG.exists() and "listen 443 ssl" in CONFIG.read_text():
-            reload_nginx()
-        else:
-            certificate_check(86400)
-            print("Production certificate ready; HTTPS activation remains a separate step")
     elif args.action == "renew":
-        check_certbot()
-        run(*(certbot_args("production") + ["renew", "--deploy-hook", f"{TOOL} deploy-hook"]))
-        certificate_check()
-        served_check()
+        renew()
     elif args.action == "check":
         certificate_check()
         served_check()
         run("systemctl", "is-active", "crm-ip-renew.timer")
         run("systemctl", "is-enabled", "crm-ip-renew.timer")
-    print(f"crm-https {args.action}: OK")
+    print("crm-https {}: OK".format(args.action))
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        print(f"crm-https FAILED: {error}", file=sys.stderr)
+        print("crm-https FAILED: {}".format(error), file=sys.stderr)
         sys.exit(1)

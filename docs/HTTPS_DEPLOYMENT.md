@@ -9,7 +9,7 @@
 | M17 已有只读事实 | 80/443 空闲；Nginx/Certbot 未安装；主机 INPUT ACCEPT；Docker 仅发布 `127.0.0.1:8088` |
 | 云安全组、外网 80/443 可达 | **未知，待 M17 在同一部署窗口核实**；不读取/猜测云凭据，不自动关闭防火墙 |
 | staging / production 实际签证 | **未执行**；不能把配置或官方能力当成功签证 |
-| 本地受控回归 | 15 项 Python unittest 通过；真实 Git Bash 验证 overlay 分支/权限拒绝和生成脚本语法；`bash -n deploy/remote/trial.sh`、`git diff --check` 通过 |
+| 本地受控回归 | seq141修复后19项Python unittest通过（含3.6语法/版本前检、无邮箱互斥、容器挂载和宿主续期顺序）；原15项安全回归保留；`bash -n deploy/remote/trial.sh`、`git diff --check`通过 |
 | Linux Nginx 配置解析、Compose 实例启动 | **未执行**；本机无 Nginx、Docker daemon 不可用，未启动 WSL/另造环境；M17 必须先执行下述测试再 reload |
 | 真实 HTTPS 原生登录、Secure cookie、CSRF、认证 socket | **未执行**，由 M17 最后一次直接公网入口烟测记录，不能用 ping/Engine.IO open 代替 |
 
@@ -45,19 +45,36 @@ H010（2026-11-09，Provisional）：采用宿主 Nginx + HTTP-01 webroot + Cert
 ### 1. 前检、快照、安装
 
 1. 复用已知 80/443 / 8088 / 网络事实；同窗口核安全组与必要公开端口，不重新跑全套业务。保留当前镜像锁、Compose、trial.sh 和 Nginx 原配置的 root-only 快照；记录现有容器 ID/image/mount/ports，必要时用现有标准备份。此变更不做 migrate。
-2. 按已授权包管理安装 Nginx、`python3-venv`、OpenSSL、CA 包。Nginx 必须 **>=1.19.3**（`proxy_cookie_flags`），Certbot 固定隔离 venv，不依赖可能过旧的系统包。若发行版 Nginx 太旧，停止并由 M17 按发行版/官方签名源安装兼容包，不删指令凑绿。
+2. **真实目标为 Alibaba Cloud Linux 3 / dnf / RPM，系统 `/usr/bin/python3` 为3.6.8**，不是 Ubuntu。seq141 已纠正旧 apt/venv 方案：Certbot5.4官方 `Requires-Python >=3.10`，不能用系统3.6安装。M17 单次只读查询确认官方 `alinux3-updates` 有 `nginx` epoch1 `1.24.0-3.0.1.2.al8.1.x86_64`（满足本配置最低1.19.3），另有 Python3.11，但其 RPM 包含 `/usr/bin/python3` / unversioned-python，不能当安全旁路安装。本次**不装宿主Python、不改 alternatives、不替换系统解释器**。
+
+主控已选现有 Docker 隔离 Certbot：官方 `certbot/certbot:v5.4.0` 的 linux/amd64 manifest 固定为 `sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39`；Registry只读核得 index `sha256:c23159d30afdd9c97960578aa4654f5901de6cae394958f894074dedd55e599d`、config `sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d`，配置记录 Python3.12.10。官方 PyPI5.4.0 wheel SHA `2306d99ad7bf6f17858a95526a7f096a47fe9be0bd603b0434febf93ecf913a3` 已核 `Requires-Python >=3.10` 及 console entrypoint `certbot.main:main`。镜像固定digest不是镜像签名认证，也不把Registry配置读数当目标上实际运行结果；M17拉取后必须执行下述preflight实查Python与Certbot版本。无Dockerfile重建、无宿主pip/新venv。
+
+Nginx只用已存在的官方 `alinux3-{os,updates,module,plus,powertools}` 源。M17实查这些源 `gpgcheck=True`、`sslverify=True`，`repo_gpgcheck=False`；既有key URL为 `http://mirrors.cloud.aliyuncs.com/alinux/3/RPM-GPG-KEY-ALINUX-3`，不改该URL、不声称仓库元数据有签名。先核既有 `gpg-pubkey-cac33616-5fb603a2`（既有记录见 `REMOTE_INSTALLATION_C010500.md` §7）；保留dnf包签名校验，不导入未知key/不启EPEL或额外module、不用 `--nogpgcheck` / `--allowerasing`。下列是目标执行路径；安装前查看事务只包含所需Nginx/OpenSSL/CA依赖，不应替换Python，出现意外替换即停，不放宽TLS指令。
 
 ```sh
-sudo apt-get update
-sudo apt-get install -y nginx python3-venv openssl ca-certificates
-# 仅首次 /opt/crm-certbot 不存在时创建；已存在则先核其来源/版本，不盲目重置。
-sudo python3 -m venv /opt/crm-certbot
-sudo /opt/crm-certbot/bin/pip install 'certbot==5.4.0'
-sudo /opt/crm-certbot/bin/certbot --version
-sudo nginx -v
+/usr/bin/python3 --version
+readlink -f /usr/bin/python3
+rpm -qf /usr/bin/python3
+rpm -q gpg-pubkey-cac33616-5fb603a2
+sudo dnf --disablerepo='*' --enablerepo=alinux3-os,alinux3-updates,alinux3-module,alinux3-plus,alinux3-powertools \
+  --setopt=gpgcheck=1 --setopt=sslverify=1 --assumeno install \
+  'nginx-1:1.24.0-3.0.1.2.al8.1.x86_64' openssl ca-certificates
+# 上条assumeno正常拒绝安装；核事务后才执行实际安装并保留签名验证结果。
+sudo dnf --disablerepo='*' --enablerepo=alinux3-os,alinux3-updates,alinux3-module,alinux3-plus,alinux3-powertools \
+  --setopt=gpgcheck=1 --setopt=sslverify=1 -y install \
+  'nginx-1:1.24.0-3.0.1.2.al8.1.x86_64' openssl ca-certificates
+sudo /usr/bin/docker --host unix:///var/run/docker.sock pull --platform linux/amd64 \
+  certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39
+# 安装后与安装前比较以上Python版本/链接/所属RPM，必须保持不变。
+/usr/bin/python3 --version
+readlink -f /usr/bin/python3
+rpm -qf /usr/bin/python3
+sudo /usr/sbin/nginx -v
 ```
 
-3. 若新装 Nginx 带默认 enabled site，只将该默认链接**移动**到本轮 root-only 备份目录；不碰其他站点。确认 Nginx active；默认 80 server 与本配置不能重复。安装目录不能是 symlink，root:root、不可 group/world 写。
+管理脚本兼容Python3.6，shebang和所有手动/systemd入口固定 `/usr/bin/python3`，不用交互PATH找解释器；它不导入Certbot。签证/续期只在精确digest的容器内运行受支持Python，完成后由宿主校验证书、测试并reload；**无容器deploy-hook执行host脚本**。容器不挂Docker socket/宿主根/nginx/管理代码，不privileged、不发布端口、不用host网络；root用户+cap-drop ALL/no-new-privileges/read-only rootfs，只有各环境config/work/log及webroot四个必要目录可写，临时文件用tmpfs。显式挂载镜像声明的两个数据目录，避免匿名持久卷；`--rm`只清理本次短命签证容器，不碰既有CRM资源。运行 `--pull=never`，镜像不存在就报错，禁止续期时默默换tag。
+
+3. ALinux RPM布局不是 Debian sites-enabled：先读取实际 `/etc/nginx/nginx.conf` 和 `/etc/nginx/conf.d/`，若新装默认server与本配置80 default冲突，仅备份并移开/正常禁用该**默认**server，其他配置不改。若default在主nginx.conf而不是独立conf，由M17保留完整原文件后只移除默认server块，`nginx -t`后才启动/加载；不能假定移动Debian链接就生效。确认Nginx active；安装目录不能是symlink，root:root、不可group/world写。
 
 ```sh
 sudo install -d -m 0755 /usr/local/lib/crm-https
@@ -70,20 +87,23 @@ sudo install -m 0644 "$DELIVERY/deploy/https/http.conf" "$DELIVERY/deploy/https/
 ### 2. 只启用 HTTP 验证入口，staging 再 production
 
 ```sh
-sudo /usr/local/lib/crm-https/manage.py bootstrap
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py preflight
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py bootstrap
 ```
 
-`bootstrap` 原子写受管理 conf，先 `nginx -t`，失败恢复原文件且**不 reload**；已有非本工具管理的同名 conf 拒绝覆盖。成功才 reload。不要在生产激活后再运行 bootstrap（它会回到仅 HTTP 验证配置）。`/var/lib/crm-acme` 为 root:root 0711 仅可穿越，webroot0755；staging/production 工作目录0700。ACME account/私钥目录在 `/etc/crm-acme/{staging,production}`0700，日志另放 `/var/log/crm-acme/...`0700，不在仓库。
+`preflight` 无签证/配置写入：核固定宿主解释器>=3.6、Nginx>=1.19.3，再以精确image digest、network none、仅tmpfs运行 `/usr/local/bin/python`，断言容器Python>=3.10并执行官方 `certbot.main:main(['--version'])`，要求Certbot>=5.4。缺镜像/错误版本直接失败，不自动pull/改软件源。`bootstrap` 原子写受管理 conf，先 `nginx -t`，失败恢复原文件且**不 reload**；已有非本工具管理的同名 conf 拒绝覆盖。成功才 reload。不要在生产激活后再运行 bootstrap（它会回到仅 HTTP 验证配置）。`/var/lib/crm-acme` 为 root:root 0711 仅可穿越，webroot0755；staging/production 工作目录0700。ACME account/私钥目录在 `/etc/crm-acme/{staging,production}`0700，日志另放 `/var/log/crm-acme/...`0700，不在仓库。
 
 M17 在 webroot 的 `/.well-known/acme-challenge/` 建一个无秘密随机 token，**从外网直接** `http://8.133.190.46/.well-known/acme-challenge/TOKEN` 读回；仅自己删除该探针。检查错误 Host 不提供 challenge/业务、`/login` 只308。若80不可达，保现场报告安全组/网络问题，不关闭防火墙或改80承载登录。
 
 ```sh
-# MAIL 使用已有获准维护邮箱，不提交到代码；同一邮箱允许正常ACME登记。
-sudo /usr/local/lib/crm-https/manage.py issue-staging --email "$MAIL"
-sudo /usr/local/lib/crm-https/manage.py issue-production --email "$MAIL"
+# 主控已明确选无邮箱登记；不借用试用账号邮箱、不编造维护邮箱。
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py issue-staging --register-unsafely-without-email
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py issue-production --register-unsafely-without-email
 ```
 
-两环境配置、账号、证书、work/log、显式 ACME server 完全隔离。只有 production 保存 deploy hook；staging 不会进入443配置。无 `--force-renewal`，重复调用保留尚未到期证书；短证书 profile 不存在即失败，不回落。脚本与 systemd 使用 umask0077；私钥 root owner 且不得 group/world 读，不输出/不提交；不将目录 chmod 为 web worker 可读。首次 production hook 只验证证书，不提前打开 HTTPS。
+`--register-unsafely-without-email` 是官方显式选项，staging/production同样原样传递；与 `--email` 互斥，未选任一模式即拒绝，不静默无邮箱。日后只有已有获准维护邮箱时才可显式改用 `--email`。**无邮箱就没有账号邮箱联系/提醒渠道**，不能依赖CA发邮件发现失败；继续依赖现有timer、journal和48h检查，不另建告警平台。
+
+两环境宿主config/account/work/log及显式CA完全隔离，分别映射到容器相同的 `/etc/letsencrypt`、`/var/lib/letsencrypt`、`/var/log/letsencrypt`，webroot映射到 `/var/www/certbot`，相对live→archive链接在宿主仍有效。只由宿主post-success处理production；staging不reload/不进入443。无 `--force-renewal`，重复调用保留尚未到期证书；短证书profile不存在即失败、不回落。宿主脚本/systemd使用umask0077；官方webroot自身按022/0644创建公开挑战文件，私钥root owner且不得group/world读、不输出/不提交。首次production成功只验证证书，不提前打开HTTPS；容器内不设置host deploy-hook。
 
 ### 3. 持久内层覆盖，测试后才启用443
 
@@ -107,7 +127,7 @@ sudo -n docker compose -p crm-trial-c010400 \
   --env-file "$ROOT/deploy/remote/.runtime/image.env" \
   -f "$ROOT/deploy/remote/compose.yml" -f /etc/crm-https/compose.yml \
   up -d --no-deps backend frontend
-sudo /usr/local/lib/crm-https/manage.py activate
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py activate
 ```
 
 内层未健康/语法失败就停止，不 activate。`activate` 先验证 production IP SAN、系统信任链、私钥权限/公钥匹配、证书有效期<=160h、剩余至少24h，再原子安装 HTTP+TLS conf、`nginx -t` 后 reload。reload后用系统信任校验连本机443（校验目标 IP），比对实际服务 leaf DER 与当前 production leaf；只短暂等待 reload 生效。失败恢复旧 conf；若未尝试 reload，不 reload；已尝试才测试并回载旧配置。此本机探针不是外网/浏览器验收。
@@ -120,21 +140,21 @@ sudo systemd-analyze verify /etc/systemd/system/crm-ip-renew.service /etc/system
 sudo systemctl daemon-reload
 sudo systemctl enable --now crm-ip-renew.timer
 sudo systemctl start crm-ip-renew.service
-sudo /usr/local/lib/crm-https/manage.py check
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py check
 sudo systemctl list-timers crm-ip-renew.timer
 ```
 
-每小时17分+最多5分钟抖动，Persistent 补跑。Certbot 自行判断临期，不小时强签。每次成功续期 hook：核 production lineage→链/IP/权限/公钥/寿命→`nginx -t`→reload→核实服务中 leaf。Certbot 失败直接非零；即使 Certbot 未传播 hook 失败，续期主流程也会检查**剩余48小时**和实际服务证书，拒绝“磁盘已续/服务仍旧”。任何错误导致 unit failed，journal 可见；不止于默默打印警告。`check` 也核 timer active/enabled，不因一次 check 成功就承诺未来永不失败。
+每小时17分+最多5分钟抖动，Persistent补跑；unit显式依赖既有Docker服务。容器里的Certbot自行判断临期，不小时强签；容器失败直接非零，宿主不reload。容器成功后宿主校验production链/IP/权限/公钥/寿命及**剩余48小时**，再核实际服务leaf；若已等于磁盘证书就不重复reload，若不一致或TLS探针失败则先重新校验证书、`nginx -t`、reload、再核实际leaf。没有让容器hook调用宿主脚本，因此不会出现“Certbot吞hook错误仍报成功”；宿主post-success任一检查/reload失败直接导致unit failed、journal可见，拒绝“磁盘已续/服务仍旧”。`check`也核timer active/enabled，不因一次成功就承诺未来永不失败。
 
 运维最小可见检查（已有监控若可接入，只读此退出码/failed unit，不传私有日志）：
 
 ```sh
-sudo /usr/local/lib/crm-https/manage.py check
+sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py check
 sudo systemctl status crm-ip-renew.service crm-ip-renew.timer --no-pager
 sudo journalctl -u crm-ip-renew.service --since '1 day ago' --no-pager
 ```
 
-本任务不另建监控平台、外发告警/邮件；因此**无人查看 journal/failed unit 时不会主动通知人**。运营方须把上述非零/failed 接入既有监控或承担每日检查。失败不得通过强制连续签发凑绿（有 CA rate limit）。可在本次窗口做**一次**官方 renew `--dry-run --run-deploy-hooks`（完整沿用 production config/work/log 三目录与 cert-name），其临时 staging 证书不写生产；hook验证的是现有 production 证书，禁止 `--break-my-certs`。
+本任务不另建监控平台、外发告警/邮件；因此**无人查看journal/failed unit时不会主动通知人，无邮箱模式也没有CA邮箱联系/提醒渠道**。运营方须把非零/failed接入既有监控或承担每日检查。失败不得通过强制连续签发凑绿（有CA rate limit），不设置容器host deploy-hook、不用 `--break-my-certs`。
 
 ## 一次直接公网验收（M17填写结果，不穷举）
 
