@@ -1,0 +1,37 @@
+body.crm-login-brand {
+  color-scheme: dark;
+  background: var(--crm-bg);
+  color: var(--crm-text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+body.crm-login-brand .page-card {
+  background: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+body.crm-login-brand .page-card-head h4,
+body.crm-login-brand .form-label { color: var(--crm-text); }
+body.crm-login-brand .text-muted,
+body.crm-login-brand .sign-up-message,
+body.crm-login-brand .login-divider { color: var(--crm-secondary) !important; }
+body.crm-login-brand a { color: var(--crm-blue); text-underline-offset: 4px; }
+body.crm-login-brand .form-control {
+  min-height: 44px;
+  background: var(--crm-bg);
+  color: var(--crm-text);
+  border: 1px solid var(--crm-control-border);
+  font-size: 16px;
+}
+body.crm-login-brand .form-control::placeholder { color: var(--crm-secondary); opacity: 1; }
+body.crm-login-brand .btn {
+  min-height: 44px;
+  background: var(--crm-raised);
+  color: var(--crm-text);
+  border: 1px solid var(--crm-control-border);
+  font-size: 16px;
+}
+body.crm-login-brand .btn-primary { border-color: var(--crm-jade); border-left-width: 3px; }
+body.crm-login-brand .btn:hover:not(:disabled) { background: var(--crm-surface); }
+body.crm-login-brand :focus-visible { outline: 2px solid var(--crm-jade); outline-offset: 2px; }
+body.crm-login-brand .field-icon { color: var(--crm-secondary); }

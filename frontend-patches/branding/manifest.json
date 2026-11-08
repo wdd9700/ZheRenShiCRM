@@ -1,0 +1,63 @@
+{
+  "patch": "branding",
+  "crm_commit": "36bd8859f2a6345a620477bc708d0546e8c3f08a",
+  "apply_order": [
+    "c011000",
+    "l3-scheduling",
+    "dark-ui",
+    "localization",
+    "branding"
+  ],
+  "source_config": "caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9",
+  "source_license": "Frappe CRM AGPL-3.0; upstream publisher and license fields unchanged",
+  "targets": [
+    {
+      "target": "frontend/index.html",
+      "before": "6bb6dd5f737d7070264ed49e0fff78a049cc61c73b0c171d63419e0b866cd190",
+      "after": "8d220bf7c970ad85d0b13027a6033446e583cf0f2384f2faa7000053f17114af",
+      "fixture": "fixtures/frontend__index.html",
+      "edits": [
+        {
+          "anchor": "<html class=\"h-full\" lang=\"en\">",
+          "replacement": "<html class=\"h-full\" lang=\"{{ boot.philosopher_language | default('zh') | e }}\">"
+        },
+        {
+          "anchor": "<title>Frappe CRM</title>",
+          "replacement": "<title>哲人石CRM</title>"
+        },
+        {
+          "anchor": "name=\"apple-mobile-web-app-title\" content=\"Frappe CRM\"",
+          "replacement": "name=\"apple-mobile-web-app-title\" content=\"哲人石CRM\""
+        },
+        {
+          "anchor": "name=\"apple-mobile-web-app-status-bar-style\" content=\"white\"",
+          "replacement": "name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\""
+        }
+      ]
+    },
+    {
+      "target": "crm/hooks.py",
+      "before": "0bb0b7f5974dce7e01844337902e4a5b66f5609cd8bc57b62f558c0846f70d55",
+      "after": "d990af9f542193f335edc6d14e316012955cc742deb621098965f5ea09ac3c9f",
+      "fixture": "fixtures/crm__hooks.py",
+      "edits": [
+        {
+          "anchor": "# web_include_js = \"/assets/crm/js/crm.js\"",
+          "replacement": "# web_include_js = \"/assets/crm/js/crm.js\"\n\nupdate_website_context = \"crm.ui_branding.update_website_context\""
+        }
+      ]
+    },
+    {
+      "target": "crm/ui_branding.py",
+      "before": null,
+      "after": "243abcbd13387278b66d56d283d5b685ff3d94c4a96b945820f108d06e4d3286",
+      "payload": "ui_branding.py"
+    },
+    {
+      "target": "crm/public/css/login-theme.css",
+      "before": null,
+      "after": "62a2c04cf3d98b2dceaf9bcffc1e39c0086cfd5cd2e46f9093fa4d29e2b93024",
+      "payload": "login-theme.css"
+    }
+  ]
+}

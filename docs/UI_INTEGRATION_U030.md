@@ -1,0 +1,57 @@
+# 哲人石CRM U030 标准组合与登录品牌
+
+状态：实现与离线核验中；尚未完成审定输入的 Linux 标准组合构建、最终镜像回归或 Terra 核心界面烟测。没有更改线上服务、数据库或部署锁。
+
+## 固定来源与集成决定
+
+沿用 D010：不重装依赖、不从 master 旧 12 项补丁重建，不继续在 140 层旧镜像上累加。
+
+- 固定 CRM：`36bd8859f2a6345a620477bc708d0546e8c3f08a`；Framework `15.125.0`。
+- 现有两层基底：`crm-local:m9-lowdepth-ld2-195e623cfeb7458587597600e8e1e3e7`，index `sha256:e17300da434bd0c251adf618c86db26c718511fec6ab6bfe2a99e7fd91bebe41`、config `sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9`。原归档位置与完整证据见 `RECOVERY_VALIDATION.md` 首节；旧资源保留。
+- M24：`9403d5a7ee4eb2d50eee3faf844d679a6aee5c80`，实核其 `frontend-patches/c011000` 相对已上线 `1c586261` 零 diff，包含完整 43 项。manifest SHA `2060a0f99a778797e8c2b2f97527ccc6bbf96288b7a23362d9319096fde177a3`。
+- M30：`76f23be38dd993f32724c34d5184d8cf75c77146`，实核相对已上线 `4ff499e` 仅 README 变更。manifest SHA `74787afa31373457e9b91fa8ea6f53e4e3317854670656558579df0762b75670`。
+- 顺序：M24 → M30 的已应用状态 → dark-ui → localization → branding。导航对 AppSidebar 的重叠要求 M24 after 等于 M30 的 `c011000-resume` before；最终目标哈希按最后一个有序修改确定，不以“所有补丁独立”为假设。未知 before/after、遗失文件、payload 漂移及新增越界文件都拒绝。
+
+`prepare_ui_integration.py` 为独立的 U030 标准入口，不扩大旧 `prepare_integration.py`、`Dockerfile.frontend` 或 `verify_frontend_patch.py` 的白名单。每次只从完整 Git commit 导出有限补丁文件和七件 UI 静态/模板覆盖；不复制整个 app 来覆盖既有后端安全修复。准备 receipt 固定每个文件 SHA，Windows 准备后可从第一 Ubuntu 的同路径按 receipt 构建。构建仅产生候选，不激活站点。
+
+## 复现命令
+
+先取得 M35/M36 的精确审定提交以及本集成提交，不能使用移动分支或未提交工作树。此命令只准备来源：
+
+```sh
+python -B deploy/prepare_ui_integration.py \
+  --dark-commit <M35完整40位审定提交> \
+  --localization-commit <M36完整40位审定提交> \
+  --integration-commit <U030完整40位审定提交>
+```
+
+保存输出的绝对 context 路径和 `ui-source-manifest.json` SHA。在明确的第一 Ubuntu 构建窗口内：
+
+```sh
+python3 -B deploy/prepare_ui_integration.py \
+  --context <本checkout的deploy/.runtime/ui-随机标识绝对路径> \
+  --context-sha256 <准备receipt的64位SHA> --build
+```
+
+`Dockerfile.ui` 先执行基底原 `verify_final.py after`，再快照完整五 app 源码与原资产守卫；仅运行新的三个 patch，已有 M24/M30 不重放。所有新 UI 目标核 after，原后端与非覆盖来源保持不变。资产阶段原映射 preseed → 原生 `bench build --app crm/team_access/team_schedule` → 根和 sites 双 manifest/全部映射目标/旧静态与新 theme、词典、login CSS/CRM HTML 引用实物强断言。依赖和 lockfile 不变，网络关闭；没有 pip/yarn install、migrate、install-app 或业务写入。最终镜像要求低于 16 层，不修改 daemon 或旧镜像。
+
+## 登录、标题、语言与法律归属
+
+branding 固定来源是从既有 caf102 归档选择性读取的公开源码，不读取 sites 或凭据：`frontend/index.html` SHA `6bb6dd5f737d7070264ed49e0fff78a049cc61c73b0c171d63419e0b866cd190`；`crm/hooks.py` SHA `0bb0b7f5974dce7e01844337902e4a5b66f5609cd8bc57b62f558c0846f70d55`。原始文件以 fixtures 保存并继续保留上游版权、publisher 和许可证。没有改 Python 包名、app_name、认证方法或任何权限 hook。
+
+- 固定 HTML 的 title、Apple 安装名称为“哲人石CRM”；lang 来自 M36 透传的本次实际 `boot.philosopher_language`，并 HTML escape，不固定压成中文；没有实际值时才 fallback `zh`。
+- Framework 原生 `update_website_context` 在 login 控制器执行后处理展示 context；只作用 `path == 'login'`。保留原登录/重置密码/LDAP/OAuth/CSRF 结构，不替换 Framework 登录模板或登录 JS。
+- 登录 title/app_name 用原生 `_`，共享 canonical theme 及局部 login CSS 通过 context head_html 加载；CSS 仅定位真实 `.page-card`、`.form-control` 等展示节点。没有 DOM 扫描、文本替换或认证行为改写。
+- Framework base.html 的 Built on Frappe 注释及所有法律归属不变。品牌展示不代表重新授权第三方代码。
+
+### 默认中文显式配置（当前未执行）
+
+后续已授权集成/部署窗口，通过原生 System Settings 表单，仅把默认 Language 设置为 Chinese (`zh`)，记录原值便于回退。该项是用户要求的可逆显示设置，不是业务数据迁移；禁止批量改 User.language、时区、cookie、Accept-Language 或会话。
+
+固定 Framework `translate.py` 的原生优先级仍生效：请求 `_lang`，Guest 的 `preferred_language` cookie 和浏览器 Accept-Language，登录用户语言/会话默认，最后 System Settings 默认。因此默认中文不强压明确英语或其他语言偏好；Guest 浏览器明确英语时仍可能显示原生英文，这是偏好遵从，不用 before_request 绕过。中文默认/英语用户/Guest 语言选择须在最终烟测中分别记录。
+
+## 核验与剩余门
+
+已运行 `python -B frontend-patches/branding/check_apply.py`：4 tests PASS，覆盖固定 fixture check/apply/after、重复应用拒绝、漂移/缺目标/未知 HEAD/既有新增目标拒绝、法律字段保留及仅 login context 展示和语言不覆盖。此处使用受控 HEAD，不冒称真实 Linux 构建或浏览器成功。
+
+最终组合来源、receipt、Linux 构建、必要既有原生回归、最终镜像身份和 Terra 烟测结果将在实际执行后追加；未完成前不宣可上线。当前无必须交用户拍板的新增价值/授权卡点，普通技术选择可逆；线上更新仍是独立授权门。
