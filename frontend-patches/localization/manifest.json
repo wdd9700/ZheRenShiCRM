@@ -1,0 +1,17 @@
+[
+  {
+    "target": "crm/www/crm.py",
+    "before": "6a908a9c7b05151bd7760e2bf329230ccabf9d25a804376df8a24f990ac98020",
+    "after": "5eda918e55a72ca318fd6800d302a6545f4181c7c8fa2e33816b585a099e79d3"
+  },
+  {
+    "target": "frontend/src/translation.js",
+    "before": "2732096397614d78764b18128ad6999b1fc577d35bd548b726a17606dbc5e619",
+    "after": "1b1ef1412b20df6071a1ee3f6058a17d8d4d0071a135ca6a62195cbdeb0e135c"
+  },
+  {
+    "target": "frontend/src/philosopher-zh-cn.json",
+    "before": null,
+    "after": "697f3030d4dcf60a1aabf7443369d55266b37c65b57e5f6afee44b1c7c99ca99"
+  }
+]
