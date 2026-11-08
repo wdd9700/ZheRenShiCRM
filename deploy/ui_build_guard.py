@@ -1,10 +1,11 @@
 import argparse
 import importlib
 import json
+import os
 from pathlib import Path
 import re
 
-from verify_ui_integration import chain, ordinary, sha, verify
+from verify_ui_integration import chain, ordinary, sha, verify, wording_contract
 
 B = Path('/home/frappe/frappe-bench')
 U = Path('/home/frappe/u030')
@@ -17,6 +18,9 @@ def source_manifest():
     for name, digest in manifest['files'].items():
         if sha(ordinary(U / name, U).read_bytes()) != digest:
             raise RuntimeError('Exported UI source drift: ' + name)
+    contract = wording_contract(U / 'deploy')
+    if manifest['wording'] != contract or any(manifest['overlays'].get(path) != entry['after'] for path, entry in contract['targets'].items()):
+        raise RuntimeError('Final wording contract differs')
     return manifest
 
 
@@ -36,6 +40,32 @@ def snapshot():
     STATE.write_text(json.dumps(dict(sources=sources, assets=assets, manifest=manifest), sort_keys=True) + '\n')
     verify(B / 'apps/crm', PATCHES, 'l3-scheduling')
     print('PASS: fixed five-app baseline snapshot after original verifier')
+
+
+def apply_wording():
+    manifest = source_manifest()
+    changes = []
+    for name, entry in manifest['wording']['targets'].items():
+        target = ordinary(B / name, B)
+        source = ordinary(U / 'wording-overlays' / name, U)
+        data = source.read_bytes()
+        if sha(target.read_bytes()) != entry['before'] or sha(data) != entry['after']:
+            raise RuntimeError('Ordered wording before/after mismatch: ' + name)
+        changes.append((target, data))
+    pending = []
+    try:
+        for target, data in changes:
+            temporary = target.with_name(target.name + '.wording-tmp')
+            with temporary.open('xb') as stream:
+                stream.write(data)
+            pending.append((temporary, target))
+        for temporary, target in pending:
+            os.replace(temporary, target)
+    finally:
+        for temporary, _ in pending:
+            if temporary.exists():
+                temporary.unlink()
+    print('PASS: five exact wording overlays after reviewed dark UI baseline')
 
 
 def check(assets=False):
@@ -70,11 +100,12 @@ def check(assets=False):
                 if not isinstance(value, str) or not value.startswith('/assets/') or not (root / value.removeprefix('/assets/')).is_file():
                     raise RuntimeError('Mapped static asset missing')
             for name, digest in state['assets'].items():
-                source = 'apps/team_schedule/team_schedule/public/' + name.removeprefix('team_schedule/')
+                app, filename = name.split('/', 1)
+                source = f'apps/{app}/{app}/public/{filename}'
                 expected_digest = manifest['overlays'].get(source, digest)
                 if sha((root / name).read_bytes()) != expected_digest:
                     raise RuntimeError('Original static asset changed unexpectedly: ' + name)
-            for app, names in {'team_schedule': ('crm-theme.css', 'crm-zh-cn.js', 'team-schedule.css', 'team-schedule.js'), 'crm': ('css/login-theme.css',)}.items():
+            for app, names in {'team_schedule': ('crm-theme.css', 'crm-zh-cn.js', 'team-schedule.css', 'team-schedule.js'), 'team_access': ('access.js', 'page.js'), 'crm': ('css/login-theme.css',)}.items():
                 for name in names:
                     source = B / 'apps' / app / app / 'public' / name
                     if not source.is_file() or (root / app / name).read_bytes() != source.read_bytes():
@@ -88,14 +119,19 @@ def check(assets=False):
         for value in references:
             if not (B / 'assets' / value.removeprefix('/assets/')).is_file():
                 raise RuntimeError('Built CRM HTML references a missing asset: ' + value)
-    print('PASS: fixed five-app sources, ordered hashes, canonical theme/dictionary' + (' and complete static assets' if assets else ''))
+        pwa = json.loads((B / 'assets/crm/frontend/manifest.webmanifest').read_bytes())
+        if pwa.get('name') != '哲人石CRM' or pwa.get('short_name') != '哲人石CRM':
+            raise RuntimeError('Built PWA install branding missing')
+    print('PASS: fixed five-app sources, ordered hashes, five wording targets, canonical theme/dictionary' + (' and complete static assets' if assets else ''))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=('snapshot', 'source', 'assets'))
+    parser.add_argument('phase', choices=('snapshot', 'wording', 'source', 'assets'))
     args = parser.parse_args()
     if args.phase == 'snapshot':
         snapshot()
+    elif args.phase == 'wording':
+        apply_wording()
     else:
         check(args.phase == 'assets')

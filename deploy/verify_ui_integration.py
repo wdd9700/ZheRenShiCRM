@@ -45,6 +45,27 @@ def digest(value, nullable=False):
         raise RuntimeError('Invalid SHA256')
 
 
+WORDING_TARGETS = frozenset({
+    'apps/team_schedule/team_schedule/www/team-schedule.html',
+    'apps/team_schedule/team_schedule/public/team-schedule.js',
+    'apps/team_access/team_access/www/team-activities.html',
+    'apps/team_access/team_access/public/page.js',
+    'apps/resource_import/resource_import/www/resource-import.html',
+})
+
+
+def wording_contract(directory):
+    contract = json.loads((directory / 'ui_wording_manifest.json').read_bytes())
+    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != '9f284b0d310b5ebd8f3570b66f216a23c793ef25' or set(contract['targets']) != WORDING_TARGETS:
+        raise RuntimeError('Wording contract identity or target whitelist differs')
+    for entry in contract['targets'].values():
+        if set(entry) != {'before', 'after'}:
+            raise RuntimeError('Wording contract entry schema differs')
+        digest(entry['before'])
+        digest(entry['after'])
+    return contract
+
+
 def entries(patches):
     result = {}
     cache_raw = (patches / 'c011000/manifest.json').read_bytes()

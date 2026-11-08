@@ -37,10 +37,12 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(len(states['l3-scheduling']), 43)
         self.assertEqual(len(states['branding']), 55)
         with tempfile.TemporaryDirectory() as temporary:
-            crm = Path(temporary) / 'crm'
-            shutil.copytree(BASELINE / 'apps/crm', crm)
+            bench = Path(temporary)
+            shutil.copytree(BASELINE / 'apps', bench / 'apps')
+            crm = bench / 'apps/crm'
             self.assertTrue((crm / 'crm/public').is_dir())
             self.assertFalse((crm / 'crm/public/css').exists())
+            self.seed_overlays(bench)
             with patch('subprocess.check_output', return_value=verification.CRM_COMMIT + '\n'):
                 verification.verify(crm, patches, 'l3-scheduling')
                 for name in ('dark-ui', 'localization', 'branding'):
@@ -58,10 +60,40 @@ class IntegrationTests(unittest.TestCase):
                     module = load_module('ui_replay_' + name.replace('-', '_'), patches / name / 'apply.py')
                     with self.assertRaises(ValueError):
                         module.apply(crm)
+                guard = load_module('u030_wording_guard', self.context / 'deploy/ui_build_guard.py')
+                guard.B, guard.U = bench, self.context
+                guard.apply_wording()
+                manifest = json.loads((self.context / 'ui-source-manifest.json').read_bytes())
+                self.assertEqual(len(manifest['overlays']), 8)
+                for name, digest in manifest['overlays'].items():
+                    self.assertEqual(verification.sha((bench / name).read_bytes()), digest)
+                with self.assertRaises(RuntimeError):
+                    guard.apply_wording()
                 protected = crm / 'frontend/src/main.js'
                 protected.write_bytes(protected.read_bytes() + b'\n')
                 with self.assertRaises(RuntimeError):
                     verification.verify(crm, patches)
+
+    def seed_overlays(self, bench):
+        for name in preparation.DARK_OVERLAYS | preparation.LOCAL_OVERLAYS:
+            target = bench / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((self.context / name).read_bytes())
+
+    def test_wording_unknown_before_refuses_all_writes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bench = Path(temporary)
+            shutil.copytree(BASELINE / 'apps/team_access', bench / 'apps/team_access')
+            self.seed_overlays(bench)
+            target = bench / 'apps/team_access/team_access/public/page.js'
+            target.write_bytes(target.read_bytes() + b'\n')
+            before = {path.relative_to(bench).as_posix(): path.read_bytes() for path in bench.rglob('*') if path.is_file()}
+            guard = load_module('u030_wording_negative', self.context / 'deploy/ui_build_guard.py')
+            guard.B, guard.U = bench, self.context
+            with self.assertRaises(RuntimeError):
+                guard.apply_wording()
+            after = {path.relative_to(bench).as_posix(): path.read_bytes() for path in bench.rglob('*') if path.is_file()}
+            self.assertEqual(before, after)
 
     def test_receipt_drift_extra_and_missing_dictionary_refused(self):
         with self.assertRaises(RuntimeError):
@@ -110,11 +142,12 @@ class IntegrationTests(unittest.TestCase):
         _, manifest = preparation.load(self.context, RECEIPT)
         source = dict(Id=preparation.BASE_IMAGE, RootFS={'Layers': ['base-one', 'base-two']}, Config={'User': 'frappe', 'Labels': {'inherited': 'unchanged'}})
         labels = {
-            'inherited': 'unchanged', 'crm.ui.integration': 'u030-v1',
-            'crm.ui.base': preparation.BASE_CONFIG, 'crm.ui.order': ','.join(preparation.ORDER),
+            'inherited': 'unchanged', 'crm.ui.integration': 'u030-v2',
+            'crm.ui.base': preparation.BASE_CONFIG, 'crm.ui.order': ','.join(preparation.UI_ORDER),
             'crm.ui.dark.revision': manifest['revisions']['dark-ui'],
             'crm.ui.localization.revision': manifest['revisions']['localization'],
             'crm.ui.branding.revision': manifest['revisions']['branding'],
+            'crm.ui.wording.revision': manifest['revisions']['wording'],
         }
         candidate = dict(Id='sha256:' + 'a' * 64, RootFS={'Layers': ['one'] * 6}, Config={'User': 'frappe', 'Labels': labels})
         result = preparation.ROOT / '.runtime' / (self.context.name + '-build-result.json')

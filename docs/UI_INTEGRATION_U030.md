@@ -10,18 +10,20 @@
 - 现有两层基底：`crm-local:m9-lowdepth-ld2-195e623cfeb7458587597600e8e1e3e7`，index `sha256:e17300da434bd0c251adf618c86db26c718511fec6ab6bfe2a99e7fd91bebe41`、config `sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9`。原归档位置与完整证据见 `RECOVERY_VALIDATION.md` 首节；旧资源保留。
 - M24：`9403d5a7ee4eb2d50eee3faf844d679a6aee5c80`，实核其 `frontend-patches/c011000` 相对已上线 `1c586261` 零 diff，包含完整 43 项。manifest SHA `2060a0f99a778797e8c2b2f97527ccc6bbf96288b7a23362d9319096fde177a3`。
 - M30：`76f23be38dd993f32724c34d5184d8cf75c77146`，实核相对已上线 `4ff499e` 仅 README 变更。manifest SHA `74787afa31373457e9b91fa8ea6f53e4e3317854670656558579df0762b75670`。
-- 顺序：M24 → M30 的已应用状态 → dark-ui → localization → branding。导航对 AppSidebar 的重叠要求 M24 after 等于 M30 的 `c011000-resume` before；最终目标哈希按最后一个有序修改确定，不以“所有补丁独立”为假设。未知 before/after、遗失文件、payload 漂移及新增越界文件都拒绝。
+- 顺序：M24 → M30 的已应用状态 → dark-ui → localization → branding → wording。导航对 AppSidebar 的重叠要求 M24 after 等于 M30 的 `c011000-resume` before；最终目标哈希按最后一个有序修改确定，不以“所有补丁独立”为假设。未知 before/after、遗失文件、payload 漂移及新增越界文件都拒绝。
+- 已审输入：M35 `9f284b0d310b5ebd8f3570b66f216a23c793ef25`、M36 `c274caca0cf556754ed317a8c900a73a30f513ef`、M38 `50e0dd20613b58d4a6b5a46ef5e07a4f6e635a45`。父目录修复 `c0c8f92b24737b5146c1947b067ba68238001dc0` 已获窄审 clean/hold；hold 是最终组合/界面门，不再是目录代码阻断。
 
-`prepare_ui_integration.py` 为独立的 U030 标准入口，不扩大旧 `prepare_integration.py`、`Dockerfile.frontend` 或 `verify_frontend_patch.py` 的白名单。每次只从完整 Git commit 导出有限补丁文件和七件 UI 静态/模板覆盖；不复制整个 app 来覆盖既有后端安全修复。准备 receipt 固定每个文件 SHA，Windows 准备后可从第一 Ubuntu 的同路径按 receipt 构建。构建仅产生候选，不激活站点。
+`prepare_ui_integration.py` 为独立的 U030 标准入口，不扩大旧 `prepare_integration.py`、`Dockerfile.frontend` 或 `verify_frontend_patch.py` 的白名单。v2 从四个完整 Git commit 导出有限补丁文件、原七件 UI 静态/模板覆盖，以及 `wording-overlays/` 下五件独立措辞输入；最终有效覆盖为八件（四件有序重叠，新增 `team_access/public/page.js`）。不复制整个 app，M38 分支没有的 M35 主题文件不会因此丢失，M36 词典保持。`ui_wording_manifest.json` 固定五组 before/after，准备时核 M35/M38 两端真实 Git blob，应用时再核实际前驱字节，最终 guard 使用 wording after 检查源码及根/sites 两份 page.js。准备 receipt 固定每个文件 SHA，Windows 准备后可从第一 Ubuntu 的同路径按 receipt 构建。构建仅产生候选，不激活站点；v1 历史 context 须用其原提交读取，不能混入 v2。
 
 ## 复现命令
 
-先取得 M35/M36 的精确审定提交以及本集成提交，不能使用移动分支或未提交工作树。此命令只准备来源：
+不能使用移动分支或未提交工作树。此命令只准备来源：
 
 ```sh
 python -B deploy/prepare_ui_integration.py \
-  --dark-commit <M35完整40位审定提交> \
-  --localization-commit <M36完整40位审定提交> \
+  --dark-commit 9f284b0d310b5ebd8f3570b66f216a23c793ef25 \
+  --localization-commit c274caca0cf556754ed317a8c900a73a30f513ef \
+  --wording-commit 50e0dd20613b58d4a6b5a46ef5e07a4f6e635a45 \
   --integration-commit <U030完整40位审定提交>
 ```
 

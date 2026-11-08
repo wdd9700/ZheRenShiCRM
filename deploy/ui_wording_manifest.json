@@ -1,0 +1,25 @@
+{
+  "base_revision": "9f284b0d310b5ebd8f3570b66f216a23c793ef25",
+  "targets": {
+    "apps/team_schedule/team_schedule/www/team-schedule.html": {
+      "before": "6472b077aa78068d7eeabf0f80f3e7162c33e000f8cdf72545704afb3a8668a0",
+      "after": "0b4de89eed965bb53b5f2417fe26310d114d51b4cc03ebb7a6ae2dbe2f4811cc"
+    },
+    "apps/team_schedule/team_schedule/public/team-schedule.js": {
+      "before": "1b41dfbadd7971b9dfedf9e16eea94dd7f79d43c5f9463707aa49c369b41d876",
+      "after": "4c4e7996d66b1e200006f81dd52403ac20f96a300d8fbee00153de097c8eb8bf"
+    },
+    "apps/team_access/team_access/www/team-activities.html": {
+      "before": "ef50d531456cd100a08be8e77c2bc54d352efdedc26e96d6585406bfc7767146",
+      "after": "2cb96dad1779572c867bd4f0dce703427bc6bd8507e40eba98be88ecc45678e6"
+    },
+    "apps/team_access/team_access/public/page.js": {
+      "before": "ded260d5b12baff154813bcefd21f3671197510a8b835206499e038065b8fb1c",
+      "after": "188a4163fdeb7173b4c7a0f08cc9948c2c8ad9f7edc722fdab4535b3edb49931"
+    },
+    "apps/resource_import/resource_import/www/resource-import.html": {
+      "before": "ea3662178c7c88b103ba486be58c5d4785cf6637dd4d852b6f9899e2a6bb39b1",
+      "after": "a8addc0d70a23d29b3b04fbcb1c47311b6f47b108869042796f249674e17cddb"
+    }
+  }
+}
