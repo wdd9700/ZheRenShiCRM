@@ -57,7 +57,7 @@ WORDING_TARGETS = frozenset({
 
 def wording_contract(directory):
     contract = json.loads((directory / 'ui_wording_manifest.json').read_bytes())
-    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != 'fc25460a6252c91c7c123107b8e7e5a2188afad9' or set(contract['targets']) != WORDING_TARGETS:
+    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != '2ce92464b695e0330d75e9b91932ef70e0cadde1' or set(contract['targets']) != WORDING_TARGETS:
         raise RuntimeError('Wording contract identity or target whitelist differs')
     for entry in contract['targets'].values():
         if set(entry) != {'before', 'after'}:

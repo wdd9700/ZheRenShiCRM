@@ -238,3 +238,9 @@ Sol对精确 `920d65f28b79d9c3b6bc78ceffa4e91adee45015` clean/hold（无finding�
 关键新资源为 index-BROohc0i.js SHA `b429be037f62b42b915c27b90c02c7a118909ad53ba095941ecf186127607b9f`、同index-CkYIMfiN.css SHA `d56439b25f3b047cf85706c48ddccc97933df98d8f32a3de993e62510db48ca6`、新日程JS SHA `f2d02bb258cf3216887dfd96df52a2d64c12db6e611e787912166f19f0bd3caa`、日程CSS SHA `a8bd305e20e8f86e8a15c605cc6eb4ab4f97ff23219f22ddeec9fb6e3b5afffe`，完整动态URL不要从旧receipt猜文件名。
 
 后继交M9同M32定点视觉，不自行开站。准备阶段与有效验收计时分离，准备完成**立即READY通知tower/Terra**；若采用固定总截止则尽早READY，不事后延deadline补时间。二轮Terra正常logout仍未确认，运维固定截止恢复PASS不代替浏览器logout证据。最终HelpModal品牌/同轴标签/入口颜色实拍与实际版本URL执行仍须后继真实短测，当前未Complete/未线上。
+
+## 独立页CSS-only审定增量（构建前）
+
+M35 `2ce92464b695e0330d75e9b91932ef70e0cadde1` 已获Sol clean/merge，tower授权一次最小候选构建。canonical/payload精确新SHA `a80f2861ad92a100743a5ffed19d0f4c20c96374bad3cdec18ebb6715b8c9d71`，仅活动路由Framework palette/nav和独立页标题浅字规则。M37已逐Gitblob核对该提交相对fc25460的五项文案生产前驱、access7d26字节、App/index/UserDropdown三个patch合同全等；因此仅将有序wording contract的base_revision登记为新精确dark commit，五组before/after不变，M38仍用9498389，不另造文案replay或退回rail。
+
+本轮保审定920d品牌/request接线生产字节和M39 23a，原43/nav及全部guard不放宽。标准build后只验证CSS受影响两项既有静态合同、最终source/asset guard与完整动态receipt；不重Node36/native326/权限或恢复矩阵。v4真实CRM/日轴截图已由Terra完成；其正常logout由M9最新收窗消息确认（13:29:33Z），仅用于v4那一窗，不能追改此前第二窗注销未知。下一窗口只活动页及登录必要视觉，READY与计时规则保持。当前未构建本CSS候选，以下证据待追加。
