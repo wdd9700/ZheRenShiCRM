@@ -23,6 +23,9 @@ def transform(target, data):
         'frontend/src/components/Activities/DataFields.vue': [
             ('label="Save"', ':label="__(\'Save\')"'),
         ],
+        'frontend/src/components/Filter.vue': [
+            ('        label: o,\n        value: o,', "        label: fieldtype == 'Check' ? __(o) : o,\n        value: o,"),
+        ],
         'frontend/src/components/IconPicker.vue': [
             ('placeholder="Search by keyword"', ':placeholder="__(\'Search by keyword\')"'),
             ('<Button @click="setRandom">Random</Button>', '<Button @click="setRandom">{{ __(\'Random\') }}</Button>'),

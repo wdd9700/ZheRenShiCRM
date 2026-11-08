@@ -33,6 +33,8 @@ assert.equal(translate('You have no new notifications'), '你目前没有新通�
 assert.equal(translate('No results for "{0}"', ['客户']), '未找到与“客户”相关的结果');
 assert.equal(translate('mentioned you in {0}', ['Lead']), '在Lead中提到了你');
 assert.equal(translate('Equals'), '等于');
+assert.equal(translate('Yes'), '是');
+assert.equal(translate('No'), '否');
 assert.equal(translate('Company Description'), '公司介绍');
 assert.equal(translate('Welcome to {0}', [translate('Frappe CRM')]), '欢迎使用哲人石CRM');
 assert.equal(translate('{0}/{1} steps completed', [2, 5]), '已完成 2/5 步');

@@ -37,7 +37,7 @@ class CommonUITest(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(baseline / entry['target'], target)
             with patch.object(common.subprocess, 'check_output', return_value=common.COMMIT + '\n'):
-                self.assertEqual(common.apply(root, 'check'), 3)
+                self.assertEqual(common.apply(root, 'check'), 4)
                 target = root / entries[0]['target']
                 original = target.read_bytes()
                 target.write_bytes(original + b'\n')
@@ -51,8 +51,10 @@ class CommonUITest(unittest.TestCase):
                 self.assertEqual(conflict.read_bytes(), b'keep')
                 self.assertEqual(target.read_bytes(), original)
                 conflict.unlink()
-                self.assertEqual(common.apply(root), 3)
-                self.assertEqual(common.apply(root, 'verify'), 3)
+                self.assertEqual(common.apply(root), 4)
+                self.assertEqual(common.apply(root, 'verify'), 4)
+                filter_source = (root / 'frontend/src/components/Filter.vue').read_text(encoding='utf-8')
+                self.assertIn("label: fieldtype == 'Check' ? __(o) : o,\n        value: o,", filter_source)
                 result = target.read_text(encoding='utf-8')
                 self.assertIn(':title="__(\'No New Notifications\')"', result)
                 self.assertIn(':description="__(\'You have no new notifications\')"', result)

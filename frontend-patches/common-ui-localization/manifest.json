@@ -10,6 +10,11 @@
     "after": "3c86c21bec986b13d87ae0c637acfc0ba2d25c5204a1acd591155128a29cfe08"
   },
   {
+    "target": "frontend/src/components/Filter.vue",
+    "before": "2151a1595a77a19f8ff07285278efc8e093a047b53f3beff01e294d42d625d99",
+    "after": "4a502a48935ab5312cdd9e5bfe6af000b92c7b25f0abb171aa4c8e21dc33fc1a"
+  },
+  {
     "target": "frontend/src/components/IconPicker.vue",
     "before": "9e53082eead5aaca4c5748865d1db001130d243c550499726851a95a1deeee27",
     "after": "1ac702a3433270031ff50c4f58a792e5b962d55c29536e3e7fb7f1bc1cff688a"
