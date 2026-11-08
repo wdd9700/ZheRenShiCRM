@@ -486,3 +486,27 @@ sh /home/dev/c1108-reviewed-tools-242161/deploy/remote/trial.sh update-site-imag
 仅普通测试账号正常HTTP登录/读取/logout，无浏览器和业务写入：真实CRM HTML包含最终 `index-1L7LpzFF.js`及完整 `/assets/team_access/access.js?v=7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`；按最终static-receipt对11重点URL（登录主题、CRM入口JS/CSS、品牌manifest、裸/带query access、活动脚本、共享主题/中文脚本、日程JS/CSS）逐件实测HTTP200、bytes/SHA完全相同。不是只核裸asset或磁盘文件，不把资源SHA当视觉截图。凭据仍仅既有受保护ignored文件，未输出秘密。
 
 **服务保持常驻**，Windows既有18088→远端127.0.0.1:8088，入口 `/login`、`/crm`、`/team-activities`、`/team-schedule`。已交主控安排Terra简短真实目标确认，本worker未并行UI。登录视觉截图未取得、活动入口局部白黑风格偏差、未全面多语言矩阵与权限限定批准边界均保留，不宣全视觉完美/完整安全认证。本轮原始证据在ignored `m17-2f92-{before,upgrade,after,static,final-state}.stdout.log`。
+
+## 19. M42 漏译镜像已上线；公网 HTTPS 前置仍阻塞（2026-11-09）
+
+主控批准使用精确已审M43 `64daf948aff3e24b411511f5c992474a203cbc94`（非冒称分支依赖已合并）。其deploy/https+deploy/remote+runbook的Git归档SHA256 `5a701ebee75da8256d59052b8e2d28738ea82279fb537fa08d62e14779d4e961`，SCP后相等，新staging `/home/dev/c1109-reviewed-https-64daf948`。其中trial.sh SHA `53d9eee8525efae3fb4ecd75cf1cbe87b62aa0a941ca9f06b4a8696dc89cc8d9`；不称原242161字节，53件SOURCE_SHA256SUMS不含它。旧工具/Compose/镜像锁快照保存在root-only `/var/backups/crm-https-h010-64daf948`，未复制或输出凭据。
+
+M37 f4f2cd1的35d0冻结包上传到 `/home/dev/c1109-candidate-35d0/candidate-release`，900秒预算约158秒exit0，四文件逐SHA匹配：tar1,548,928,000B `45db442cc3c1614fcc8cafe9d56960fc22199f7d88b1ebcfc3ec6ce24eb39fe9`；release `dac7d52073d4252a4e42960860a3fa73f6241c2a5064a382e42eb7a0e8af6fe1`；13层清单 `f3ec8f1e58f827572bbf1c3a0753c64080de2b75e7b588b61a5fe1d87a6622b4`；manifest `98a93883e0998cc65a32022a7fb0f9486f245253536b6e23d8a2b23c039b7204`。index `sha256:35d0b0bd36ae08fa9d434b4275cb50bc4e202607c5f8ad95a34e6441c4922101`，config `sha256:310b0d22992ac555ea577f2fdc770f9adc0e21191d9d7e1855c6edd2d230649d`。
+
+用上述64daf948新工具、原runtime、正常 `update-site-image <35d0 release目录> <image.tar> --confirm-site-image-update`，**真实exit0约144秒**；标准停写/新四件 `20261109_010555-crm_localhost` 备份可读后加载，未install/migrate。最终ready/锁均310b0d，六app同config运行、backend/frontend healthy，DB/双Redis仍healthy，8088仍仅回环。全部六类完整doc数量+canonical SHA及五app集合与本窗口 `m17-https-before.stdout.log` 逐字全等；System Settings zh、User语言/时区/密码/业务未改。普通已有合成账号仅HTTP login→实际CRM新 `index-DO9vnRFq.js` 与原access query→11重点静态bytes/SHA匹配35d0 receipt→logout，未浏览器/业务写入。原始输出ignored `m17-35d0-{upgrade,after,static}.stdout.log`。
+
+### 19.1 已执行的 HTTPS 前置与阻碍（不冒称可用）
+
+限定官方ALinux3启用签名源先assumeno核事务，再保持gpgcheck=1/sslverify=1安装nginx1:1.24.0-3.0.1.2.al8.1及其logos/filesystem，必要升级OpenSSL1.1.1k-17.0.1.al8与CA包；未装宿主Python/改alternatives。安装前后Python3.6.8、链接 `/usr/libexec/platform-python3.6`、所属python36 RPM一致。原Nginx默认server块保存原文件后仅移开默认块，其他配置保留，审定manage/http/tls已安装；nginx-t通过。Nginx active/enabled，目前只0.0.0.0:80提供ACME challenge/固定HTTPS308，不反代明文登录/API。
+
+阻碍一：目标唯一一次拉固定官方Certbot amd64 digest `1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39`，registry-1.docker.io/v2等待响应超时。主控批准第一Ubuntu等值离线转运后，本地唯一pull亦79秒失败（registry manifests HEAD，TCP443 i/o timeout），未save/load、未换源或改镜像/daemon。第一Ubuntu daemonID、容器/卷集合hash前后不变，不碰第二Ubuntu。尚无实际Certbot preflight或任何staging/production签证；不读私钥/ACME账号。主控已将公开官方Registry供应制品可行获取交M43，不盲重试。
+
+阻碍二：Windows外网直连随机challenge一次20秒连接超时；同一服务器本机正确Host challenge200且内容相等，探针已删，本机/login308，ss确认0.0.0.0:80，主机INPUT ACCEPT、SELinux Disabled。**仅疑似云安全组/上游入站阻碍，未断言具体安全组**。需实例所挂安全组入方向TCP80供HTTP-01公开验证、TCP443供实际HTTPS访问；无需开放8088/8000/9000/DB/Redis。未关防火墙/猜云凭据/改云设置；443尚未监听不能当其云端失败证据。
+
+因此目前**35d0旧回环访问可用且常驻，公网HTTPS尚未开通**：没有可信证书、443未激活、timer未安装、overlay未启用，尚未执行HTTPS登录/cookie/CSRF/认证socket或Terra直接HTTPS验收。OTA仍disabled，无虚假manifest/签名包发布。后继待镜像制品与80公网可达后按原审定步骤续行；不明文公网登录降级，不把本次后台SCP当用户端仍需SSH的最终方案。
+
+### 19.2 官方Certbot离线制品到达，仍需寻址兼容
+
+M43随后通过Windows官方Registry HTTPS一次获取完整制品，主控批准SCP/标准load：tar196,956,160B，双端SHA `feb4ef11bc19fee9e39c5579e85c0c481a6aec03f7d0819b68cdbf4ddd59dc19`，保存在新staging `certbot-official.tar`。目标load成功ID `sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d`；实际11有序diff_ids和所有原始Config字段与官方config全等。Docker26 inspect额外补充旧式空/false字段，因此最初严格整个Config对象相等断言不等，后按原始字段逐项核实通过，未篡改原config。
+
+RepoDigests实际为空，原 `certbot/certbot@sha256:1dc5…` inspect明确No such image；没有伪造tag/RepoDigest或改已审manage引用，未越过preflight。精确结果已交M43做最小config-pinned兼容并审定。该制品已到达不表示签证或HTTPS已成功，公网80阻碍仍保持。
