@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, session, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, session, ipcMain, dialog, Menu, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { APP_ID, DATA_DIRECTORY, PARTITION, SettingsStore, connectionOrigin } = require('./settings.cjs');
@@ -60,7 +60,15 @@ async function connect() {
     const login = await crmSession.fetch(origin + '/login', { redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(15000) });
     if (!login.ok || !login.headers.get('content-type')?.includes('text/html')) throw new Error('CRM 登录页不可用');
     crmWindow = new BrowserWindow({ width: 1280, height: 850, title: '哲人石CRM', webPreferences: { ...remotePreferences, session: crmSession } });
-    secureWindow(crmWindow, url => allowedNavigation(url, origin), true);
+    let externalPending = false;
+    secureWindow(crmWindow, url => allowedNavigation(url, origin), true, async url => {
+      if (externalPending || !crmWindow || crmWindow.isDestroyed()) return;
+      externalPending = true;
+      try {
+        const result = await dialog.showMessageBox(crmWindow, { type: 'question', buttons: ['取消', '在系统浏览器打开'], defaultId: 0, cancelId: 0, message: '离开 CRM 打开外部网站？', detail: url + '\n该网站不属于 CRM 受信入口；不要向不可信网站提供账号或资料。' });
+        if (result.response === 1) await shell.openExternal(url, { activate: true });
+      } finally { externalPending = false; }
+    });
     crmWindow.webContents.on('page-title-updated', event => { event.preventDefault(); crmWindow.setTitle('哲人石CRM'); });
     crmWindow.on('closed', () => { crmWindow = null; });
     await crmWindow.loadURL(origin + '/login?redirect-to=/crm');

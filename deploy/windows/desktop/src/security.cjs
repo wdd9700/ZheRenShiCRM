@@ -18,14 +18,30 @@ function allowedRequest(value, origin) {
     return u.origin === origin && !u.username && !u.password;
   } catch { return false; }
 }
-function secureWindow(window, allowed, openSameOrigin = false) {
+function externalUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || /[\x00-\x20\x7f]/.test(value)) return null;
+    return url.href;
+  } catch { return null; }
+}
+function secureWindow(window, allowed, openSameOrigin = false, openExternal) {
   const contents = window.webContents;
+  const external = value => {
+    const url = externalUrl(value);
+    if (openSameOrigin && openExternal && url && allowed(contents.getURL())) Promise.resolve(openExternal(url)).catch(() => {});
+  };
   contents.setWindowOpenHandler(details => {
     if (openSameOrigin && allowed(details.url)) contents.loadURL(details.url).catch(() => {});
+    else external(details.url);
     return { action: 'deny' };
   });
   contents.on('will-attach-webview', event => event.preventDefault());
-  for (const name of ['will-navigate', 'will-redirect', 'will-frame-navigate']) {
+  contents.on('will-navigate', (event, url) => {
+    const target = url ?? event.url;
+    if (!allowed(target)) { event.preventDefault(); external(target); }
+  });
+  for (const name of ['will-redirect', 'will-frame-navigate']) {
     contents.on(name, (event, url) => { if (!allowed(url ?? event.url)) event.preventDefault(); });
   }
 }
@@ -45,4 +61,4 @@ function secureSession(session, origin, owned, downloads) {
   });
   session.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !allowedRequest(details.url, origin) }));
 }
-module.exports = { SETTINGS_URL, remotePreferences, authorizedSettings, allowedNavigation, allowedRequest, allowedDownload, secureWindow, secureSession };
+module.exports = { SETTINGS_URL, remotePreferences, authorizedSettings, allowedNavigation, allowedRequest, externalUrl, allowedDownload, secureWindow, secureSession };

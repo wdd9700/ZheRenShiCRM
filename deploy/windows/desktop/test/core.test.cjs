@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { SettingsStore, defaults, migrate, validateConnection, APP_ID, DATA_DIRECTORY, PARTITION } = require('../src/settings.cjs');
-const { SETTINGS_URL, authorizedSettings, allowedNavigation, allowedRequest, allowedDownload, remotePreferences } = require('../src/security.cjs');
+const { SETTINGS_URL, authorizedSettings, allowedNavigation, allowedRequest, externalUrl, secureWindow, allowedDownload, remotePreferences } = require('../src/security.cjs');
 const { sshArguments, portFree } = require('../src/tunnel.cjs');
 function fixture(t) { const directory = fs.mkdtempSync(path.join(__dirname, '../.validation/core-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true })); return directory; }
 fs.mkdirSync(path.join(__dirname, '../.validation'), { recursive: true });
@@ -71,4 +71,22 @@ test('busy fixed port fails without selecting another port', async t => {
   });
   if (ownsListener) t.after(() => server.close());
   await assert.rejects(portFree(), /18088/);
+});
+test('external links have a narrow callback while application navigation stays confined', async () => {
+  const { EventEmitter } = require('node:events');
+  const origin = 'https://crm.example.invalid';
+  const contents = new EventEmitter(); const loads = []; const external = [];
+  contents.getURL = () => origin + '/crm';
+  contents.setWindowOpenHandler = handler => { contents.open = handler; };
+  contents.loadURL = async url => loads.push(url);
+  secureWindow({ webContents: contents }, url => allowedNavigation(url, origin), true, async url => external.push(url));
+  assert.deepEqual(contents.open({ url: 'https://customer.example.invalid/reference' }), { action: 'deny' });
+  assert.deepEqual(external, ['https://customer.example.invalid/reference']);
+  let prevented = false;
+  contents.emit('will-navigate', { preventDefault() { prevented = true; } }, 'http://customer.example.invalid/');
+  assert.equal(prevented, true); assert.equal(external.length, 2);
+  for (const url of ['file:///C:/x', 'javascript:alert(1)', 'data:text/html,x', 'mailto:a@example.invalid', 'https://user:pass@example.invalid', 'https://example.invalid/\nnext']) { assert.equal(externalUrl(url), null); contents.open({ url }); }
+  assert.equal(external.length, 2);
+  contents.open({ url: origin + '/crm/leads/1' }); assert.deepEqual(loads, [origin + '/crm/leads/1']);
+  contents.emit('will-redirect', { preventDefault() {} }, 'https://redirect.example.invalid/'); assert.equal(external.length, 2);
 });

@@ -22,7 +22,11 @@
     "artifactName": "PhilosopherStoneCRM-Setup-${version}-${arch}.${ext}",
     "directories": { "output": "dist" },
     "files": ["src/**", "package.json"],
-    "extraResources": [{ "from": "release/ota-policy.json", "to": "ota-policy.json" }],
+    "extraResources": [
+      { "from": "release/ota-policy.json", "to": "ota-policy.json" },
+      { "from": "release/app-update.yml", "to": "app-update.yml" }
+    ],
+    "beforePack": "./scripts/prepare-release.cjs",
     "asar": true,
     "electronFuses": {
       "runAsNode": false,
@@ -31,7 +35,7 @@
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true
     },
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "signAndEditExecutable": true },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.ico", "signAndEditExecutable": true },
     "nsis": {
       "oneClick": false,
       "perMachine": false,

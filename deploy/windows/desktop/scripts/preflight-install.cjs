@@ -1,0 +1,18 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { windowsTool } = require('../src/tunnel.cjs');
+const acceptance = process.argv.includes('--acceptance');
+const name = acceptance ? 'PhilosopherStoneCRM-Acceptance' : 'PhilosopherStoneCRM';
+const appId = acceptance ? 'com.philosophersstone.crm.acceptance' : 'com.philosophersstone.crm';
+const paths = [path.join(process.env.APPDATA, name), path.join(process.env.LOCALAPPDATA, 'Programs', acceptance ? '哲人石CRM 验收专用' : '哲人石CRM'), path.join(__dirname, '..', '.validation', acceptance ? 'installed-acceptance' : 'installed-production')];
+const script = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$items=@(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*哲人石CRM*' -or $_.PSChildName -eq '" + appId + "' });@($items | Select-Object PSChildName,DisplayName,InstallLocation)|ConvertTo-Json -Compress";
+let registrations = execFileSync(windowsTool('WindowsPowerShell\\v1.0\\powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { shell: false, encoding: 'utf8', timeout: 10000 }).trim();
+registrations = registrations ? JSON.parse(registrations) : [];
+if (!Array.isArray(registrations)) registrations = [registrations];
+registrations = registrations.filter(item => acceptance ? item.DisplayName?.includes('验收专用') : !item.DisplayName?.includes('验收专用'));
+const existing = paths.map(file => ({ path: file, exists: fs.existsSync(file) }));
+const clear = !existing.some(item => item.exists) && registrations.length === 0;
+console.log(JSON.stringify({ acceptance, appId, paths: existing, registrations, safeForFreshInstall: clear, note: '存在未知数据/安装必须停报；本脚本不读取配置、会话或浏览器资料，不修改系统。' }, null, 2));
+if (!clear) process.exitCode = 2;

@@ -1,0 +1,31 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { validatePolicy } = require('../src/signature.cjs');
+const { createStrictUpdater, buildUpdateConfig } = require('../src/updater.cjs');
+const raw = { enabled: true, feedUrl: 'https://updates.example.invalid/crm/', publisherName: 'CN=Example, O=Example', certificateSha256: ['A'.repeat(64)] };
+test('real locked updater reads generated cache config offline and invokes strict signature verifier', async t => {
+  fs.mkdirSync(path.join(__dirname, '../.validation'), { recursive: true });
+  const directory = fs.mkdtempSync(path.join(__dirname, '../.validation/real-updater-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const configFile = path.join(directory, 'app-update.yml');
+  fs.writeFileSync(configFile, JSON.stringify(buildUpdateConfig(raw)));
+  const appAdapter = { version: '1.0.0', name: 'philosopher-stone-crm', isPackaged: true, appUpdateConfigPath: configFile, baseCachePath: directory, userDataPath: directory };
+  let requestGuard;
+  const netSession = { setPermissionRequestHandler() {}, webRequest: { onBeforeRequest(handler) { requestGuard = handler; } } };
+  const updater = createStrictUpdater(validatePolicy(raw), { appAdapter, netSession });
+  assert.equal(require('electron-updater/package.json').version, '6.8.11');
+  const helper = await updater.getOrCreateDownloadHelper();
+  assert.equal(helper.cacheDir, path.join(directory, 'philosopher-stone-crm-updater'));
+  assert.equal(updater.autoDownload, false); assert.equal(updater.autoInstallOnAppQuit, false); assert.equal(updater.allowDowngrade, false);
+  for (const [url, cancel] of [['https://updates.example.invalid/crm/latest.yml', false], ['https://evil.invalid/x.exe', true], ['http://updates.example.invalid/crm/x.exe', true]]) requestGuard({ url }, result => assert.equal(result.cancel, cancel));
+  const unsigned = path.join(directory, 'unsigned-x64.exe'); fs.writeFileSync(unsigned, 'not signed');
+  await assert.rejects(updater.verifySignature(unsigned), /签名|验签/);
+  let called = false;
+  updater.verifyUpdateCodeSignature = async (publishers, file) => { called = true; assert.deepEqual(publishers, [raw.publisherName]); assert.equal(file, unsigned); throw new Error('custom strict rejection'); };
+  await assert.rejects(updater.verifySignature(unsigned), /custom strict rejection/); assert.equal(called, true);
+});
+test('disabled release config has stable cache name but never creates updater', () => {
+  assert.deepEqual(buildUpdateConfig({ enabled: false }), { updaterCacheDirName: 'philosopher-stone-crm-updater' });
+});

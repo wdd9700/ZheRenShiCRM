@@ -31,7 +31,7 @@ function verifySignature(file, policy, runner = execFile, powershell = () => win
     try {
       if (!path.win32.isAbsolute(file) || file.startsWith('\\\\') || !policy?.publisherName) throw new Error('验签路径/发行策略无效');
       const literal = file.replace(/'/g, "''");
-      command = "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);" + `$s=Get-AuthenticodeSignature -LiteralPath '${literal}';` + "$h=[Security.Cryptography.SHA256]::Create();$pin=if($s.SignerCertificate){([BitConverter]::ToString($h.ComputeHash($s.SignerCertificate.RawData))).Replace('-','')}else{''};[pscustomobject]@{Status=$s.Status.ToString();Path=$s.Path;Subject=$s.SignerCertificate.Subject;CertificateSha256=$pin}|ConvertTo-Json -Compress";
+      command = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);" + `$s=Get-AuthenticodeSignature -LiteralPath '${literal}';` + "$h=[Security.Cryptography.SHA256]::Create();$pin=if($s.SignerCertificate){([BitConverter]::ToString($h.ComputeHash($s.SignerCertificate.RawData))).Replace('-','')}else{''};[pscustomobject]@{Status=$s.Status.ToString();Path=$s.Path;Subject=$s.SignerCertificate.Subject;CertificateSha256=$pin}|ConvertTo-Json -Compress";
       runner(powershell(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { shell: false, windowsHide: true, timeout: 20000, maxBuffer: 65536, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (error) { reject(new Error('验签进程失败或超时，拒绝更新')); return; }
         try { parseSignature(stdout, stderr, file, policy); resolve(); } catch (e) { reject(e); }

@@ -6,7 +6,11 @@ const { validatePolicy, verifySignature, verifyInstaller } = require('./signatur
 function trustedUpdateUrl(value, policy) {
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && u.origin === policy.origin && u.pathname.startsWith(new URL(policy.feedUrl).pathname); } catch { return false; }
 }
-function createStrictUpdater(policy) {
+function buildUpdateConfig(rawPolicy) {
+  const policy = validatePolicy(rawPolicy);
+  return { updaterCacheDirName: 'philosopher-stone-crm-updater', ...(policy ? { provider: 'generic', url: policy.feedUrl, publisherName: [policy.publisherName] } : {}) };
+}
+function createStrictUpdater(policy, { appAdapter, netSession } = {}) {
   const { NsisUpdater } = require('electron-updater');
   class StrictUpdater extends NsisUpdater {
     async verifySignature(file) {
@@ -19,7 +23,7 @@ function createStrictUpdater(policy) {
       return super.doInstall(options);
     }
   }
-  const updater = new StrictUpdater({ provider: 'generic', url: policy.feedUrl, channel: 'latest', useMultipleRangeRequest: false });
+  const updater = new StrictUpdater({ provider: 'generic', url: policy.feedUrl, channel: 'latest', useMultipleRangeRequest: false }, appAdapter);
   updater.verifyUpdateCodeSignature = async (publishers, file) => {
     if (publishers.length !== 1 || publishers[0] !== policy.publisherName) throw new Error('发布者配置不匹配');
     await verifySignature(file, policy);
@@ -32,8 +36,9 @@ function createStrictUpdater(policy) {
   updater.disableWebInstaller = true;
   updater.disableDifferentialDownload = true;
   updater.logger = null;
-  updater.netSession.setPermissionRequestHandler((_w, _p, callback) => callback(false));
-  updater.netSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !trustedUpdateUrl(details.url, policy) }));
+  const updateSession = netSession ?? updater.netSession;
+  updateSession.setPermissionRequestHandler((_w, _p, callback) => callback(false));
+  updateSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !trustedUpdateUrl(details.url, policy) }));
   return updater;
 }
 class UpdateController {
@@ -110,4 +115,4 @@ function loadPolicy(resources) {
   const file = path.join(resources, 'ota-policy.json');
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return { enabled: false }; throw new Error('OTA 发行策略无法读取，拒绝启用'); }
 }
-module.exports = { trustedUpdateUrl, createStrictUpdater, UpdateController, loadPolicy };
+module.exports = { trustedUpdateUrl, buildUpdateConfig, createStrictUpdater, UpdateController, loadPolicy };
