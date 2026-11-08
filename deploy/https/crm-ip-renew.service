@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew and verify CRM public IP short-lived certificate
+Wants=network-online.target
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/local/lib/crm-https/manage.py renew
+TimeoutStartSec=15min
