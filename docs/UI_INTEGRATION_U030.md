@@ -184,3 +184,18 @@ v3 仍使用原两层 caf102 基底执行一次集中标准构建，不从已叠
 | `/assets/team_schedule/team-schedule.css` | `23e1e6673b8f8d0bba20c29fe8f85ef5d9ae9a14375c994250d5984ffc64b75b` |
 
 login CSS、standalone词典与 PWA 名称资产和首轮表中相同；完整十件 URL/bytes/SHA 都在新 receipt。框架本次变更三件来源后哈希见 M39 manifest，源码守卫在真实 build 和最终测试前后核过，不把文件编译等同页面视觉。仍待 Terra 实际 1280 首屏截图/引导中文/标记和私域按钮对比度复验；已有正常核心场景不重新扩矩阵，线上未动。
+
+## 二轮实拍后接线修复（v4，源码待审）
+
+二轮窗口按 fixed deadline 收尾与资源恢复 PASS，**Terra 正常注销未确认**；运维检查器自己的登录/注销成功不能替代 Terra 浏览器末态。二轮截图证明侧栏自有标记与步骤中文已生效，但 HelpModal 欢迎仍旧产品名/紫 logo、右下入口仍白底浅字，不能因十资产 GET SHA 通过就宣浏览器执行链正确。
+
+只读源码诊断确认 HelpModal 是另一品牌调用路径：M24/M30 后 AppSidebar 明确 `:logo="CRMLogo"`，且不传 title，Framework 再取默认 `Frappe CRM`。M39 对标题调用 translate，但原生服务端同键优先，具体窗口的 server 字典值未采到；右下独立脚本走 after_request 注入的固定 URL，旧节点/缓存/important cascade 的现场原因也未证。后继不把缓存当已确认根因，不以这些未知为由改全局词典或权限。
+
+本轮最小确定性接线：
+
+- branding 增加 AppSidebar 有序修改：before 严锁 M24→M30 后 `e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852`，after `96633536c614db3655dfd4109525f8f21e5ab927c77a7ddebce1f9547095a75a`，仅将 HelpModal logo 改为自有中性组件并显式传 `title="哲人石CRM"`。不再以旧产品名翻译键决定欢迎品牌。原导航、权限/恢复事件和 telemetry 回调保持原字节，Framework 默认值/上游版权不改。
+- 新 `PhilosopherLogo.vue` 是中性轮廓与三色点标记，不修改上游 `CRMLogo.vue` 或用户自定义 logo。
+- `branding/access_version.py` 从**最终导出的 access.js 原始字节**生成完整 SHA256 query URL和 request before/after receipt。仅对固定基底 request.py 的一处 script tag URL加 `?v=<实际内容SHA>`，不动 after_request 清洗、响应状态判断、Cache-Control、认证、权限或 CSP 行为。源码不直接编辑 app；构建在最终 M35 access.js 覆盖后，严格 check→apply→verify，最终 guard 同时核 request 后态、实际 source/asset 摘要。此是更新保障，不是缓存故障已证声明。
+- M35 `fc25460a6252c91c7c123107b8e7e5a2188afad9` 负责 owned 旧节点幂等样式刷新及短事件编号/同轴侧栏；M38 `949838997e9d63ac98e36064d10d16ee87ddb62a` 仅将原中文 delta 衔接至新 rail。两者已审，不复制回旧 c558 文件。最终 access 字节预计 SHA `7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`，preparer仍实算并比较，不以说明里的预计值代替生成。
+
+验证包括实际 after_request AST 的 script URL、sanitize调用/状态/缓存头不变、重复不加tag、asset字节变则URL变、未知request/asset拒绝；CRM branding有序逆变换等原e169、品牌标题不引用旧key、原导航事件保留。旧节点测试只运行 M35 已有明确用例，不扩全矩阵。冻结 tip、实测数及新context待随后记录；当前尚未构建或部署这轮源码。

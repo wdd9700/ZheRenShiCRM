@@ -7,7 +7,7 @@ import subprocess
 import uuid
 
 from prepare_integration import ROOT, committed_files, ordinary_path, write_sources
-from verify_ui_integration import ORDER, WORDING_TARGETS, chain, framework_entries, wording_contract
+from verify_ui_integration import ORDER, WORDING_TARGETS, access_version_module, chain, framework_entries, wording_contract
 
 BASE_TAG = 'crm-local:m9-lowdepth-ld2-195e623cfeb7458587597600e8e1e3e7'
 BASE_IMAGE = 'sha256:e17300da434bd0c251adf618c86db26c718511fec6ab6bfe2a99e7fd91bebe41'
@@ -21,7 +21,7 @@ PATCH_FILES = {
     'l3-scheduling': frozenset('README.md apply.py check_apply.py expected/AppSidebar.fixed-crm.diff fixtures/AppSidebar.c011000-resume.vue fixtures/AppSidebar.fixed-crm.vue manifest.json sfc_check.mjs'.split()),
     'dark-ui': frozenset('apply.py check_apply.py fixtures/App.vue fixtures/UserDropdown.vue fixtures/index.css manifest.json payload/crm-theme.css prerequisites.json'.split()),
     'localization': frozenset('README.md apply.py manifest.json runtime.test.cjs test_localization.py zh-CN.json'.split()),
-    'branding': frozenset('.gitattributes apply.py check_apply.py fixtures/crm__hooks.py fixtures/frontend__index.html fixtures/frontend__vite.config.js manifest.json payload/login-theme.css payload/ui_branding.py'.split()),
+    'branding': frozenset('.gitattributes access_version.py apply.py check_access_version.py check_apply.py fixtures/crm__hooks.py fixtures/frontend__index.html fixtures/frontend__vite.config.js fixtures/frontend__AppSidebar.m24-m30.vue fixtures/team_access__request.py manifest.json payload/PhilosopherLogo.vue payload/login-theme.css payload/ui_branding.py'.split()),
     'onboarding-localization': frozenset('README.md apply.py manifest.json runtime.test.cjs test_onboarding.py'.split()),
 }
 DARK_OVERLAYS = frozenset({
@@ -99,7 +99,9 @@ def prepare(dark, localization, integration, wording, onboarding):
     framework_entries(context / 'frontend-patches')
     contract = wording_contract(context / 'deploy')
     overlays = overlay_hashes(files, contract)
-    manifest = dict(schema='u030-v3', base_tag=BASE_TAG, base_image=BASE_IMAGE, base_config=BASE_CONFIG, revisions=revisions, files=files, overlays=overlays, wording=contract)
+    versioner = access_version_module(context / 'frontend-patches')
+    access_version, _ = versioner.generate((context / versioner.ASSET).read_bytes())
+    manifest = dict(schema='u030-v4', base_tag=BASE_TAG, base_image=BASE_IMAGE, base_config=BASE_CONFIG, revisions=revisions, files=files, overlays=overlays, wording=contract, access_version=access_version)
     (context / 'ui-source-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     receipt = hashlib.sha256((context / 'ui-source-manifest.json').read_bytes()).hexdigest()
     load(context, receipt)
@@ -118,7 +120,7 @@ def load(value, receipt):
     if not re.fullmatch('[0-9a-f]{64}', receipt) or hashlib.sha256(raw).hexdigest() != receipt:
         raise RuntimeError('UI context receipt mismatch')
     manifest = json.loads(raw)
-    if set(manifest) != {'schema', 'base_tag', 'base_image', 'base_config', 'revisions', 'files', 'overlays', 'wording'} or manifest['schema'] != 'u030-v3':
+    if set(manifest) != {'schema', 'base_tag', 'base_image', 'base_config', 'revisions', 'files', 'overlays', 'wording', 'access_version'} or manifest['schema'] != 'u030-v4':
         raise RuntimeError('UI context schema mismatch')
     if (manifest['base_tag'], manifest['base_image'], manifest['base_config']) != (BASE_TAG, BASE_IMAGE, BASE_CONFIG):
         raise RuntimeError('UI base identity mismatch')
@@ -151,6 +153,10 @@ def load(value, receipt):
         raise RuntimeError('UI ordered wording contract differs')
     chain(context / 'frontend-patches')
     framework_entries(context / 'frontend-patches')
+    versioner = access_version_module(context / 'frontend-patches')
+    expected_version, _ = versioner.generate((context / versioner.ASSET).read_bytes())
+    if manifest['access_version'] != expected_version:
+        raise RuntimeError('Access version receipt differs from final exported access script')
     return context, manifest
 
 
@@ -169,7 +175,7 @@ def build(context, receipt):
     image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', tag], text=True))[0]
     if not re.fullmatch('sha256:[0-9a-f]{64}', image['Id']) or not 1 <= len(image['RootFS']['Layers']) <= 16:
         raise RuntimeError('UI image identity or lowdepth layer budget differs')
-    labels.update({'crm.ui.integration': 'u030-v3', 'crm.ui.base': BASE_CONFIG, 'crm.ui.order': ','.join(UI_ORDER)})
+    labels.update({'crm.ui.integration': 'u030-v4', 'crm.ui.base': BASE_CONFIG, 'crm.ui.order': ','.join(UI_ORDER)})
     expected_config = dict(source['Config'], Labels=dict(source['Config']['Labels'], **labels))
     if image['Config'] != expected_config:
         raise RuntimeError('UI image runtime Config or provenance labels drifted')

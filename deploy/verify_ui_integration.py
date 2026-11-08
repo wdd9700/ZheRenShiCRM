@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -10,7 +11,7 @@ ORDER = ('c011000', 'l3-scheduling', 'dark-ui', 'localization', 'branding')
 TARGETS = {
     'dark-ui': frozenset({'frontend/src/App.vue', 'frontend/src/index.css', 'frontend/src/components/UserDropdown.vue', 'frontend/src/crm-theme.css'}),
     'localization': frozenset({'crm/www/crm.py', 'frontend/src/translation.js', 'frontend/src/philosopher-zh-cn.json'}),
-    'branding': frozenset({'frontend/index.html', 'frontend/vite.config.js', 'crm/hooks.py', 'crm/ui_branding.py', 'crm/public/css/login-theme.css'}),
+    'branding': frozenset({'frontend/index.html', 'frontend/vite.config.js', 'crm/hooks.py', 'crm/ui_branding.py', 'crm/public/css/login-theme.css', 'frontend/src/components/Layouts/AppSidebar.vue', 'frontend/src/components/Icons/PhilosopherLogo.vue'}),
 }
 
 
@@ -56,7 +57,7 @@ WORDING_TARGETS = frozenset({
 
 def wording_contract(directory):
     contract = json.loads((directory / 'ui_wording_manifest.json').read_bytes())
-    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != '6e5c0473349b4f2f8914328af446660b1761427d' or set(contract['targets']) != WORDING_TARGETS:
+    if set(contract) != {'base_revision', 'targets'} or contract['base_revision'] != 'fc25460a6252c91c7c123107b8e7e5a2188afad9' or set(contract['targets']) != WORDING_TARGETS:
         raise RuntimeError('Wording contract identity or target whitelist differs')
     for entry in contract['targets'].values():
         if set(entry) != {'before', 'after'}:
@@ -92,6 +93,14 @@ def verify_framework(root, patches, applied=True):
         if sha(target.read_bytes()) != entry['after' if applied else 'before']:
             raise RuntimeError('Framework source mismatch: ' + entry['target'])
     print('PASS: three exact Framework onboarding sources (' + ('after' if applied else 'before') + ')')
+
+
+def access_version_module(patches):
+    path = ordinary(patches / 'branding/access_version.py', patches)
+    spec = importlib.util.spec_from_file_location('u030_access_version', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def entries(patches):

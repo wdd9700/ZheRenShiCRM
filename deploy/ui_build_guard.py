@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 
-from verify_ui_integration import chain, ordinary, sha, verify, verify_framework, wording_contract
+from verify_ui_integration import access_version_module, chain, ordinary, sha, verify, verify_framework, wording_contract
 
 B = Path('/home/frappe/frappe-bench')
 U = Path('/home/frappe/u030')
@@ -21,6 +21,10 @@ def source_manifest():
     contract = wording_contract(U / 'deploy')
     if manifest['wording'] != contract or any(manifest['overlays'].get(path) != entry['after'] for path, entry in contract['targets'].items()):
         raise RuntimeError('Final wording contract differs')
+    versioner = access_version_module(PATCHES)
+    expected, _ = versioner.generate((U / versioner.ASSET).read_bytes())
+    if manifest['access_version'] != expected:
+        raise RuntimeError('Access version receipt differs from final script')
     return manifest
 
 
@@ -74,6 +78,9 @@ def check(assets=False):
     state = json.loads(STATE.read_bytes())
     expected = dict(state['sources'])
     expected.update(manifest['overlays'])
+    versioner = access_version_module(PATCHES)
+    versioner.apply(B, manifest['access_version'], 'verify')
+    expected[versioner.TARGET] = manifest['access_version']['after']
     expected.update({'apps/crm/' + path: value for path, value in chain(PATCHES)['branding'].items()})
     for name, digest in expected.items():
         if sha(ordinary(B / name, B).read_bytes()) != digest:

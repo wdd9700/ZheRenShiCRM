@@ -35,7 +35,7 @@ class IntegrationTests(unittest.TestCase):
         states = verification.chain(patches)
         self.assertEqual(len(states['c011000']), 43)
         self.assertEqual(len(states['l3-scheduling']), 43)
-        self.assertEqual(len(states['branding']), 55)
+        self.assertEqual(len(states['branding']), 56)
         with tempfile.TemporaryDirectory() as temporary:
             bench = Path(temporary)
             shutil.copytree(BASELINE / 'apps', bench / 'apps')
@@ -84,6 +84,15 @@ class IntegrationTests(unittest.TestCase):
                     self.assertEqual(verification.sha((bench / name).read_bytes()), digest)
                 with self.assertRaises(RuntimeError):
                     guard.apply_wording()
+                versioner = verification.access_version_module(patches)
+                target = bench / versioner.TARGET
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((patches / 'branding/fixtures/team_access__request.py').read_bytes())
+                versioner.apply(bench, manifest['access_version'], 'check')
+                versioner.apply(bench, manifest['access_version'])
+                versioner.apply(bench, manifest['access_version'], 'verify')
+                self.assertIn(manifest['access_version']['script_url'], target.read_text(encoding='utf-8'))
+                self.assertEqual(manifest['access_version']['asset_sha256'], manifest['overlays'][versioner.ASSET])
                 protected = crm / 'frontend/src/main.js'
                 protected.write_bytes(protected.read_bytes() + b'\n')
                 with self.assertRaises(RuntimeError):
@@ -157,7 +166,7 @@ class IntegrationTests(unittest.TestCase):
         _, manifest = preparation.load(self.context, RECEIPT)
         source = dict(Id=preparation.BASE_IMAGE, RootFS={'Layers': ['base-one', 'base-two']}, Config={'User': 'frappe', 'Labels': {'inherited': 'unchanged'}})
         labels = {
-            'inherited': 'unchanged', 'crm.ui.integration': 'u030-v3',
+            'inherited': 'unchanged', 'crm.ui.integration': 'u030-v4',
             'crm.ui.base': preparation.BASE_CONFIG, 'crm.ui.order': ','.join(preparation.UI_ORDER),
             'crm.ui.dark.revision': manifest['revisions']['dark-ui'],
             'crm.ui.localization.revision': manifest['revisions']['localization'],

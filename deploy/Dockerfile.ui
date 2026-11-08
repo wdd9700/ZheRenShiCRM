@@ -26,6 +26,9 @@ RUN --network=none env/bin/python -B /home/frappe/u030/frontend-patches/dark-ui/
     cp /home/frappe/u030/apps/team_schedule/team_schedule/public/team-schedule.css apps/team_schedule/team_schedule/public/team-schedule.css && \
     cp /home/frappe/u030/apps/team_schedule/team_schedule/public/team-schedule.js apps/team_schedule/team_schedule/public/team-schedule.js && \
     env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py wording && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/access_version.py . /home/frappe/u030/ui-source-manifest.json --check && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/access_version.py . /home/frappe/u030/ui-source-manifest.json && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/access_version.py . /home/frappe/u030/ui-source-manifest.json --verify && \
     env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py source
 RUN --network=none mkdir -p sites/assets && \
     cp -a assets/. sites/assets/ && \
@@ -41,7 +44,7 @@ ARG LOCALIZATION_REVISION
 ARG BRANDING_REVISION
 ARG WORDING_REVISION
 ARG ONBOARDING_REVISION
-LABEL crm.ui.integration="u030-v3" \
+LABEL crm.ui.integration="u030-v4" \
       crm.ui.base="sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9" \
       crm.ui.order="c011000,l3-scheduling,dark-ui,localization,branding,onboarding-localization,wording" \
       crm.ui.dark.revision="${DARK_UI_REVISION}" \

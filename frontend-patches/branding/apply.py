@@ -7,7 +7,7 @@ import subprocess
 
 HERE = Path(__file__).resolve().parent
 COMMIT = '36bd8859f2a6345a620477bc708d0546e8c3f08a'
-TARGETS = {'frontend/index.html', 'frontend/vite.config.js', 'crm/hooks.py', 'crm/ui_branding.py', 'crm/public/css/login-theme.css'}
+TARGETS = {'frontend/index.html', 'frontend/vite.config.js', 'crm/hooks.py', 'crm/ui_branding.py', 'crm/public/css/login-theme.css', 'frontend/src/components/Layouts/AppSidebar.vue', 'frontend/src/components/Icons/PhilosopherLogo.vue'}
 
 
 def sha(data):

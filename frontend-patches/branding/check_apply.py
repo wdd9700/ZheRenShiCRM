@@ -19,6 +19,7 @@ class BrandingTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         (self.root / 'crm/public').mkdir(parents=True)
+        (self.root / 'frontend/src/components/Icons').mkdir(parents=True)
         self.entries = json.loads((HERE / 'manifest.json').read_text(encoding='utf-8'))['targets']
         for entry in self.entries:
             target = self.root / entry['target']
@@ -36,7 +37,7 @@ class BrandingTests(unittest.TestCase):
         before = self.snapshot()
         css_directory = self.root / 'crm/public/css'
         self.assertFalse(css_directory.exists())
-        self.assertEqual(module.apply(self.root, check=True), 5)
+        self.assertEqual(module.apply(self.root, check=True), 7)
         self.assertEqual(before, self.snapshot())
         self.assertFalse(css_directory.exists())
         module.apply(self.root)
@@ -55,6 +56,23 @@ class BrandingTests(unittest.TestCase):
         self.assertIn("name: '哲人石CRM'", pwa)
         self.assertIn("short_name: '哲人石CRM'", pwa)
         self.assertEqual(pwa.replace('哲人石CRM', 'Frappe CRM'), (HERE / 'fixtures/frontend__vite.config.js').read_text(encoding='utf-8'))
+
+    def test_help_modal_explicit_brand_preserves_ordered_sidebar(self):
+        module.apply(self.root)
+        entry = next(entry for entry in self.entries if entry['target'].endswith('/Layouts/AppSidebar.vue'))
+        sidebar = (self.root / entry['target']).read_text(encoding='utf-8')
+        self.assertIn(':logo="PhilosopherLogo"\n      title="哲人石CRM"', sidebar)
+        self.assertNotIn(':logo="CRMLogo"', sidebar)
+        for edit in reversed(entry['edits']):
+            self.assertEqual(sidebar.count(edit['replacement']), 1)
+            sidebar = sidebar.replace(edit['replacement'], edit['anchor'], 1)
+        self.assertEqual(sidebar.encode('utf-8'), (HERE / entry['fixture']).read_bytes())
+        self.assertEqual(entry['before'], 'e169f9d13cec9245390a8854b1dba8026227945abcaac03fb097473fca29a852')
+        self.assertIn('href="/team-schedule"', sidebar)
+        self.assertIn("accountBoundary.state === 'HYDRATING'", sidebar)
+        logo = (self.root / 'frontend/src/components/Icons/PhilosopherLogo.vue').read_text()
+        self.assertNotIn('#EF0BF5', logo)
+        self.assertNotIn('CRMLogo', logo)
 
     def test_drift_and_missing_target_fail_before_writes(self):
         target = self.root / 'frontend/index.html'
