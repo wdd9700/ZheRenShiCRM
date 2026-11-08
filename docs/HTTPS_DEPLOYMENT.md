@@ -6,10 +6,10 @@
 
 | 项目 | 本次状态 |
 | --- | --- |
-| M17 已有只读事实 | 80/443 空闲；Nginx/Certbot 未安装；主机 INPUT ACCEPT；Docker 仅发布 `127.0.0.1:8088` |
-| 云安全组、外网 80/443 可达 | **未知，待 M17 在同一部署窗口核实**；不读取/猜测云凭据，不自动关闭防火墙 |
-| staging / production 实际签证 | **未执行**；不能把配置或官方能力当成功签证 |
-| 本地受控回归 | seq141修复后19项Python unittest通过（含3.6语法/版本前检、无邮箱互斥、容器挂载和宿主续期顺序）；原15项安全回归保留；`bash -n deploy/remote/trial.sh`、`git diff --check`通过 |
+| M17 最新目标事实 | Nginx1.24已安装，系统Python3.6保持；80本机challenge200/监听0.0.0.0，公网连接超时；Docker仍仅发布 `127.0.0.1:8088`；官方离线Certbot image已standard load、config/11层/原始Config全等，但RepoDigests=[] |
+| 云安全组、外网 80/443 可达 | **80公网仍未通，SG原因未确证，M17负责定位**；本任务不重复网络探测、不读云凭据、不自动关闭防火墙 |
+| staging / production 实际签证 | **未执行**；不能把制品加载或官方能力当成功签证 |
+| 本地受控回归 | 离线config-pinned修复后22项Python unittest通过（含缺image/错ID/错层拒绝、合法离线及在线统一寻址）；原安全回归保留；`bash -n deploy/remote/trial.sh`、`git diff --check`通过 |
 | Linux Nginx 配置解析、Compose 实例启动 | **未执行**；本机无 Nginx、Docker daemon 不可用，未启动 WSL/另造环境；M17 必须先执行下述测试再 reload |
 | 真实 HTTPS 原生登录、Secure cookie、CSRF、认证 socket | **未执行**，由 M17 最后一次直接公网入口烟测记录，不能用 ping/Engine.IO open 代替 |
 
@@ -47,7 +47,11 @@ H010（2026-11-09，Provisional）：采用宿主 Nginx + HTTP-01 webroot + Cert
 1. 复用已知 80/443 / 8088 / 网络事实；同窗口核安全组与必要公开端口，不重新跑全套业务。保留当前镜像锁、Compose、trial.sh 和 Nginx 原配置的 root-only 快照；记录现有容器 ID/image/mount/ports，必要时用现有标准备份。此变更不做 migrate。
 2. **真实目标为 Alibaba Cloud Linux 3 / dnf / RPM，系统 `/usr/bin/python3` 为3.6.8**，不是 Ubuntu。seq141 已纠正旧 apt/venv 方案：Certbot5.4官方 `Requires-Python >=3.10`，不能用系统3.6安装。M17 单次只读查询确认官方 `alinux3-updates` 有 `nginx` epoch1 `1.24.0-3.0.1.2.al8.1.x86_64`（满足本配置最低1.19.3），另有 Python3.11，但其 RPM 包含 `/usr/bin/python3` / unversioned-python，不能当安全旁路安装。本次**不装宿主Python、不改 alternatives、不替换系统解释器**。
 
-主控已选现有 Docker 隔离 Certbot：官方 `certbot/certbot:v5.4.0` 的 linux/amd64 manifest 固定为 `sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39`；Registry只读核得 index `sha256:c23159d30afdd9c97960578aa4654f5901de6cae394958f894074dedd55e599d`、config `sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d`，配置记录 Python3.12.10。官方 PyPI5.4.0 wheel SHA `2306d99ad7bf6f17858a95526a7f096a47fe9be0bd603b0434febf93ecf913a3` 已核 `Requires-Python >=3.10` 及 console entrypoint `certbot.main:main`。镜像固定digest不是镜像签名认证，也不把Registry配置读数当目标上实际运行结果；M17拉取后必须执行下述preflight实查Python与Certbot版本。无Dockerfile重建、无宿主pip/新venv。
+主控已选现有Docker隔离Certbot，来源仍为官方 `certbot/certbot:v5.4.0`：linux/amd64 manifest `sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39`、index `sha256:c23159d30afdd9c97960578aa4654f5901de6cae394958f894074dedd55e599d`，绑定config `sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d`（Python3.12.10）。官方PyPI5.4.0 wheel SHA `2306d99ad7bf6f17858a95526a7f096a47fe9be0bd603b0434febf93ecf913a3` 已核Requires-Python>=3.10与console entrypoint `certbot.main:main`。
+
+因目标与第一Ubuntu官方pull超时，Windows通过官方Registry→`production.cloudfront.docker.com`取得精确manifest全部12blobs，逐blob SHA/size和11个gzip解压diff_ids与原config全等，未换registry/重构image。生成标准Docker-load归档196956160B，SHA256 `feb4ef11bc19fee9e39c5579e85c0c481a6aec03f7d0819b68cdbf4ddd59dc19`；原manifest/config/blobs/verification保存在ignored `deploy/.runtime/certbot-official-image/`。M17已核双端tarSHA并standard load，实际config ID/11个有序RootFS diff_ids/原始Config相同；`RepoDigests=[]`且原manifest引用No such image，**不能伪称RepoDigest保留或制造digest tag**。
+
+本版最小兼容统一按上述固定config ID运行：每次preflight及签证/续期构造容器命令前，用固定本机Docker socket `image inspect`该硬编码ID，要求恰好一个image、Id精确相等、linux/amd64、RootFS.Type=layers、11个有序diff_ids与代码固定清单逐值完全相等；缺镜像/错ID/错平台/缺层/错层/层顺序变动即拒绝，不pull、不fallback tag、不接受CLI/环境/用户自报image ID。config ID是原config JSON的内容哈希，原官方manifest→config/压缩blob→diff_ids来源链保持上述证据，不依赖load产生RepoDigest。在线按原manifest正常pull所得同一image也统一走此固定config检查；在线下载来源不改。digest身份不等于签名认证，也不把Registry读数/load成功当目标运行成功；M17须在本次定向独审后执行无网preflight实查Python/Certbot。无Dockerfile重建、无宿主pip/新venv。
 
 Nginx只用已存在的官方 `alinux3-{os,updates,module,plus,powertools}` 源。M17实查这些源 `gpgcheck=True`、`sslverify=True`，`repo_gpgcheck=False`；既有key URL为 `http://mirrors.cloud.aliyuncs.com/alinux/3/RPM-GPG-KEY-ALINUX-3`，不改该URL、不声称仓库元数据有签名。先核既有 `gpg-pubkey-cac33616-5fb603a2`（既有记录见 `REMOTE_INSTALLATION_C010500.md` §7）；保留dnf包签名校验，不导入未知key/不启EPEL或额外module、不用 `--nogpgcheck` / `--allowerasing`。下列是目标执行路径；安装前查看事务只包含所需Nginx/OpenSSL/CA依赖，不应替换Python，出现意外替换即停，不放宽TLS指令。
 
@@ -63,8 +67,12 @@ sudo dnf --disablerepo='*' --enablerepo=alinux3-os,alinux3-updates,alinux3-modul
 sudo dnf --disablerepo='*' --enablerepo=alinux3-os,alinux3-updates,alinux3-module,alinux3-plus,alinux3-powertools \
   --setopt=gpgcheck=1 --setopt=sslverify=1 -y install \
   'nginx-1:1.24.0-3.0.1.2.al8.1.x86_64' openssl ca-certificates
-sudo /usr/bin/docker --host unix:///var/run/docker.sock pull --platform linux/amd64 \
-  certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39
+# 在线正常来源路径保留；本次M17已完成离线load，不重复pull或安装。
+# 新机器网络可用时：
+# sudo /usr/bin/docker --host unix:///var/run/docker.sock pull --platform linux/amd64 \
+#   certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39
+# 离线归档须先核上述tarSHA，再standard docker load；本次该步已由M17完成。
+# sudo /usr/bin/docker --host unix:///var/run/docker.sock load -i /ABSOLUTE/certbot-5.4.0-linux-amd64.docker.tar
 # 安装后与安装前比较以上Python版本/链接/所属RPM，必须保持不变。
 /usr/bin/python3 --version
 readlink -f /usr/bin/python3
@@ -91,7 +99,7 @@ sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py preflight
 sudo /usr/bin/python3 /usr/local/lib/crm-https/manage.py bootstrap
 ```
 
-`preflight` 无签证/配置写入：核固定宿主解释器>=3.6、Nginx>=1.19.3，再以精确image digest、network none、仅tmpfs运行 `/usr/local/bin/python`，断言容器Python>=3.10并执行官方 `certbot.main:main(['--version'])`，要求Certbot>=5.4。缺镜像/错误版本直接失败，不自动pull/改软件源。`bootstrap` 原子写受管理 conf，先 `nginx -t`，失败恢复原文件且**不 reload**；已有非本工具管理的同名 conf 拒绝覆盖。成功才 reload。不要在生产激活后再运行 bootstrap（它会回到仅 HTTP 验证配置）。`/var/lib/crm-acme` 为 root:root 0711 仅可穿越，webroot0755；staging/production 工作目录0700。ACME account/私钥目录在 `/etc/crm-acme/{staging,production}`0700，日志另放 `/var/log/crm-acme/...`0700，不在仓库。
+`preflight` 无签证/配置写入：核固定宿主解释器>=3.6、Nginx>=1.19.3，再先核固定config ID/平台/11个有序RootFS，按此config ID、network none、仅tmpfs运行 `/usr/local/bin/python`，断言容器Python>=3.10并执行官方 `certbot.main:main(['--version'])`，要求Certbot>=5.4。缺镜像/错误版本直接失败，不自动pull/改软件源。`bootstrap` 原子写受管理 conf，先 `nginx -t`，失败恢复原文件且**不 reload**；已有非本工具管理的同名 conf 拒绝覆盖。成功才 reload。不要在生产激活后再运行 bootstrap（它会回到仅 HTTP 验证配置）。`/var/lib/crm-acme` 为 root:root 0711 仅可穿越，webroot0755；staging/production 工作目录0700。ACME account/私钥目录在 `/etc/crm-acme/{staging,production}`0700，日志另放 `/var/log/crm-acme/...`0700，不在仓库。
 
 M17 在 webroot 的 `/.well-known/acme-challenge/` 建一个无秘密随机 token，**从外网直接** `http://8.133.190.46/.well-known/acme-challenge/TOKEN` 读回；仅自己删除该探针。检查错误 Host 不提供 challenge/业务、`/login` 只308。若80不可达，保现场报告安全组/网络问题，不关闭防火墙或改80承载登录。
 

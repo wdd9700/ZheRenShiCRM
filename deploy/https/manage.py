@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import argparse
 import datetime as dt
+import json
 import os
 from pathlib import Path
 import re
@@ -18,7 +19,21 @@ STATE = Path("/var/lib/crm-acme")
 LINEAGE = Path("/etc/crm-acme/production/live") / NAME
 PYTHON = Path("/usr/bin/python3")
 DOCKER = "/usr/bin/docker"
-CERTBOT_IMAGE = "certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39"
+CERTBOT_MANIFEST = "certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39"
+CERTBOT_IMAGE = "sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d"
+CERTBOT_LAYERS = [
+    "sha256:994456c4fd7b2b87346a81961efb4ce945a39592d32e0762b38768bca7c7d085",
+    "sha256:742e38c37a3df8d7685f163c146ab948120a81e39dd97817addae56e878b6f1a",
+    "sha256:7b7e15815a1df5e94833097b7f662b81e9d1395b4c874b79ff8001d05fae55a5",
+    "sha256:dbb969ba5eafbfe83869528a067a90aae0fca8d7a8f6e9eed106d7298bce9402",
+    "sha256:c6edf5fd8cce3ac362994993752f4cfc493faef52e67d9a2e0c4cf3c40323399",
+    "sha256:955248e74edeeb0e5f3158014be92bfde37d3487cfe30992b90810e13eb9f370",
+    "sha256:95262b5f9b6be14381302bad083cd05468d03a9cf0d709a86955e4612cbbfc3e",
+    "sha256:8e0dba8acab96fd5dcf39e9e06e01f06b35333f2a1675cfb8a56b1d124e8eb70",
+    "sha256:3ea642b31d7e4e8e2e03584c3b10ffb6816aa4bf911484dc58a12aaf6416e791",
+    "sha256:76baeec31c5481e8560d00897997b8fe6509cb1a2e4192ab0c9b63c1eaba97c9",
+    "sha256:308bc0f313206400ce42f8b82f39f14c5b68330c522e38f8d97bf3404d06b523",
+]
 TOOL = "/usr/local/lib/crm-https/manage.py"
 MARKER = "# Managed by crm-https H010\n"
 
@@ -58,14 +73,28 @@ def container_args(network="bridge"):
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m", "--env", "PYTHONDONTWRITEBYTECODE=1"]
 
 
+def verified_image():
+    inspected = json.loads(run(DOCKER, "--host", "unix:///var/run/docker.sock",
+                               "image", "inspect", CERTBOT_IMAGE, capture=True).decode())
+    if not isinstance(inspected, list) or len(inspected) != 1 or not isinstance(inspected[0], dict):
+        raise RuntimeError("expected exactly one pinned Certbot image")
+    image = inspected[0]
+    if (image.get("Id") != CERTBOT_IMAGE or image.get("Os") != "linux"
+            or image.get("Architecture") != "amd64"
+            or image.get("RootFS") != {"Type": "layers", "Layers": CERTBOT_LAYERS}):
+        raise RuntimeError("Certbot image differs from the reviewed official config/platform/RootFS")
+    return CERTBOT_IMAGE
+
+
 def check_certbot():
+    image = verified_image()
     args = container_args("none")
     for target in ("/etc/letsencrypt", "/var/lib/letsencrypt", "/var/log/letsencrypt"):
         args += ["--mount", "type=tmpfs,destination=" + target]
     command = ("import sys; assert sys.version_info >= (3,10); "
                "print('Python ' + sys.version.split()[0], flush=True); "
                "from certbot.main import main; sys.exit(main(['--version']))")
-    version = run(*(args + ["--entrypoint", "/usr/local/bin/python", CERTBOT_IMAGE, "-c", command]), capture=True).decode()
+    version = run(*(args + ["--entrypoint", "/usr/local/bin/python", image, "-c", command]), capture=True).decode()
     match = re.search(r"certbot (\d+)\.(\d+)", version)
     if not match or tuple(map(int, match.groups())) < (5, 4):
         raise RuntimeError("Certbot >=5.4 required for IP webroot")
@@ -82,7 +111,7 @@ def certbot_args(environment):
     args = container_args()
     for source, target in mounts:
         args += ["--mount", "type=bind,src={},dst={}".format(source, target)]
-    return args + [CERTBOT_IMAGE, "--config", "/dev/null", "--non-interactive",
+    return args + [verified_image(), "--config", "/dev/null", "--non-interactive",
                    "--config-dir", "/etc/letsencrypt", "--work-dir", "/var/lib/letsencrypt",
                    "--logs-dir", "/var/log/letsencrypt", "--server",
                    "https://acme-" + ("staging-" if environment == "staging" else "")

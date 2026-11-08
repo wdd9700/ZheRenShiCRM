@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -68,6 +69,11 @@ class InnerTests(unittest.TestCase):
 
 
 class AcmeTests(unittest.TestCase):
+    def setUp(self):
+        image = patch.object(manage, "verified_image", return_value=manage.CERTBOT_IMAGE)
+        image.start()
+        self.addCleanup(image.stop)
+
     def test_isolated_environments_and_explicit_ca(self):
         for environment in ("staging", "production"):
             args = manage.certbot_args(environment)
@@ -146,6 +152,11 @@ class AcmeTests(unittest.TestCase):
 
 
 class RuntimeRegistrationTests(unittest.TestCase):
+    def setUp(self):
+        image = patch.object(manage, "verified_image", return_value=manage.CERTBOT_IMAGE)
+        image.start()
+        self.addCleanup(image.stop)
+
     def test_host_python36_syntax_and_version_preflight(self):
         import ast
         ast.parse((HERE / "manage.py").read_text(), feature_version=(3, 6))
@@ -200,6 +211,60 @@ class RuntimeRegistrationTests(unittest.TestCase):
         with patch.object(manage, "check_certbot"), patch.object(manage, "run", side_effect=lambda *_: events.append("container")), patch.object(manage, "certificate_check", side_effect=lambda: events.append("certificate")), patch.object(manage, "served_check", side_effect=RuntimeError("old leaf")), patch.object(manage, "reload_nginx", side_effect=lambda: events.append("reload")):
             manage.renew()
         self.assertEqual(events, ["container", "certificate", "reload"])
+
+
+class PinnedImageTests(unittest.TestCase):
+    def fixture(self, repo_digests=None):
+        return {"Id": manage.CERTBOT_IMAGE, "Os": "linux", "Architecture": "amd64",
+                "RootFS": {"Type": "layers", "Layers": list(manage.CERTBOT_LAYERS)},
+                "RepoDigests": repo_digests or []}
+
+    def test_legitimate_offline_and_online_images_use_same_verified_config(self):
+        self.assertEqual(manage.CERTBOT_IMAGE, "sha256:f0cfa0056d76325c6a2d3f4dc4dc41449763a9ee1000ed11caf8dc180450144d")
+        self.assertEqual(manage.CERTBOT_MANIFEST, "certbot/certbot@sha256:1dc5b4a99cce916f154c706569baf062600d7dea13e0711e7d7e1461d6230e39")
+        self.assertEqual(len(manage.CERTBOT_LAYERS), 11)
+        for digests in ([], [manage.CERTBOT_MANIFEST]):
+            fixture = json.dumps([self.fixture(digests)]).encode()
+            with patch.object(manage, "run", return_value=fixture) as run:
+                self.assertEqual(manage.verified_image(), manage.CERTBOT_IMAGE)
+                args = manage.certbot_args("production")
+            self.assertIn(manage.CERTBOT_IMAGE, args)
+            self.assertNotIn(manage.CERTBOT_MANIFEST, args)
+            self.assertIn("--pull=never", args)
+            for call in run.call_args_list:
+                self.assertEqual(call.args, (manage.DOCKER, "--host", "unix:///var/run/docker.sock", "image", "inspect", manage.CERTBOT_IMAGE))
+            with patch.object(manage, "run", side_effect=[fixture, b"Python 3.12.10\ncertbot 5.4.0\n"]) as run:
+                manage.check_certbot()
+            self.assertIn(manage.CERTBOT_IMAGE, run.call_args.args)
+            self.assertIn("none", run.call_args.args)
+
+    def test_missing_image_fails_without_container_or_pull(self):
+        error = subprocess.CalledProcessError(1, [manage.DOCKER, "image", "inspect"])
+        with patch.object(manage, "run", side_effect=error) as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                manage.check_certbot()
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("inspect", run.call_args.args)
+        self.assertNotIn("run", run.call_args.args)
+
+    def test_wrong_identity_platform_layers_and_invalid_inspect_fail_closed(self):
+        fixtures = []
+        for key, value in (("Id", "sha256:" + "0" * 64), ("Architecture", "arm64"), ("Os", "windows")):
+            image = self.fixture()
+            image[key] = value
+            fixtures.append([image])
+        for layers in (manage.CERTBOT_LAYERS[:-1], list(reversed(manage.CERTBOT_LAYERS)), ["sha256:" + "0" * 64] + manage.CERTBOT_LAYERS[1:]):
+            image = self.fixture()
+            image["RootFS"]["Layers"] = layers
+            fixtures.append([image])
+        fixtures += [[], [self.fixture(), self.fixture()], {"Id": manage.CERTBOT_IMAGE}]
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture), patch.object(manage, "run", return_value=json.dumps(fixture).encode()) as run:
+                with self.assertRaises(RuntimeError):
+                    manage.certbot_args("staging")
+                self.assertEqual(run.call_count, 1)
+        with patch.object(manage, "run", return_value=b"not json"), self.assertRaises(ValueError):
+            manage.verified_image()
 
 
 class ConfigTests(unittest.TestCase):
