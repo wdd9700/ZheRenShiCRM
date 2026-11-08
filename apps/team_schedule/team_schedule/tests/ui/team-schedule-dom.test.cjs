@@ -537,11 +537,14 @@ test('late detail from a previous day cannot reopen the detail panel after navig
   assert.doesNotMatch(environment.document.getElementById('detail-content').textContent, /old-detail/);
 });
 
-test('midnight event keeps the initial scroll at zero and session clear removes persistent pagination notice', async () => {
+test('midnight and late events target their real position without a fixed viewport cap; session clear removes pagination notice', async () => {
+  let late = false;
   const environment = setup(async (url, options) => {
     const payload = JSON.parse(options.body);
     if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
-    if (url.endsWith('.list')) return jsonResponse({message: {items: [timelineItem('midnight', '2026-11-01T00:00:00Z', '2026-11-01T00:20:00Z')], next_cursor: 'more'}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items: [late
+      ? timelineItem('late', '2026-11-01T23:59:00Z', '2026-11-02T00:00:00Z')
+      : timelineItem('midnight', '2026-11-01T00:00:00Z', '2026-11-01T00:20:00Z')], next_cursor: 'more'}});
     throw new Error('unexpected request ' + url);
   });
   setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
@@ -550,7 +553,43 @@ test('midnight event keeps the initial scroll at zero and session clear removes 
   assert.equal(container.querySelector('.timeline-block').style.top, '0px');
   assert.equal(container.querySelector('.timeline-scroll').scrollTop, 0);
   assert.match(container.querySelector('.timeline-incomplete').textContent, /不是完整结果/);
+  late = true;
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  assert.equal(container.querySelector('.timeline-scroll').scrollTop, 1439 * 1.2 - 48);
   await fire(environment.document, 'visibilitychange');
   assert.equal(container.children.length, 0);
   assert.equal(container.querySelector('.timeline-incomplete'), null);
+});
+
+test('activity access injections use explicit neutral foreground/background without changing routes or observer deduplication', () => {
+  const vm = require('node:vm');
+  const links = [], notices = [];
+  const editor = {dataset: {}, closest: () => null, parentNode: {insertBefore: node => notices.push(node)}};
+  const document = {
+    querySelectorAll: () => [editor],
+    getElementById: id => links.find(link => link.id === id),
+    createElement: tag => ({tag, style: {}, children: [], append(child) { this.children.push(child); }}),
+    body: {append: node => links.push(node)}
+  };
+  let annotate, observed;
+  const window = {};
+  const source = fs.readFileSync(path.join(__dirname, '../../../../team_access/team_access/public/access.js'), 'utf8');
+  const context = {document, window, MutationObserver: class {constructor(callback) { annotate = callback; } observe(target, options) { observed = {target, options}; }}};
+  vm.runInNewContext(source, context);
+  assert.equal(notices.length, 1);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].href, '/team-activities');
+  assert.equal(notices[0].children[0].href, '/team-activities');
+  assert.match(links[0].style.cssText, /color:var\(--crm-text,#E8EAED\)/);
+  assert.match(links[0].style.cssText, /background:var\(--crm-raised,#292D34\)/);
+  assert.match(notices[0].style.cssText, /color:var\(--crm-text,#E8EAED\)/);
+  assert.match(notices[0].style.cssText, /background:var\(--crm-surface,#202329\)/);
+  assert.doesNotMatch(links[0].style.cssText, /background:#fff/);
+  assert.match(notices[0].textContent, /Comment.*Private/);
+  assert.equal(observed.target, document.body);
+  assert.equal(observed.options.subtree, true);
+  annotate();
+  vm.runInNewContext(source, context);
+  assert.equal(notices.length, 1);
+  assert.equal(links.length, 1);
 });

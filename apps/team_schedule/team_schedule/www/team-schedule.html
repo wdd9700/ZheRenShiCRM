@@ -12,15 +12,44 @@
 </head>
 <body class="crm-standalone" data-current-user="{{ session_user | e }}">
 <main class="schedule-workspace">
-  <header class="crm-header">
+  <header class="crm-header schedule-header">
     <a class="crm-brand" href="/crm">哲人石CRM</a>
+    <h1>团队日程</h1>
+    <span class="muted">当前用户：<strong id="current-user"></strong></span>
     <button id="reload-page" type="button">刷新并重新核验会话</button>
   </header>
-  <div class="schedule-heading">
-    <h1>团队日程</h1>
-    <p class="muted">当前用户：<strong id="current-user"></strong>。按分钟安排时间段；正文仅按纯文本显示，不关联CRM对象。</p>
-    <p id="session-status" class="status" role="status" aria-live="polite">所有数据仅在当前页面内存中处理；会话变化、撤权或请求失败会清除旧业务显示。后续显式请求成功后可继续操作，旧异步响应仍会被丢弃。</p>
-  </div>
+  <p id="session-status" class="status schedule-session" role="status" aria-live="polite">数据仅在本页内存处理；会话变化或请求失败会清除旧显示。</p>
+
+  <section class="timeline-section" aria-labelledby="list-heading">
+    <h2 id="list-heading">我的日程时间轴</h2>
+    <form id="day-form" class="day-toolbar">
+      <button id="day-prev" type="button" aria-label="前一天">前一天</button>
+      <div><label for="day-date">日期</label><input id="day-date" type="date" required></div>
+      <div><label for="list-timezone">时区</label><select id="list-timezone" class="timezone-select" required></select></div>
+      <button id="day-next" type="button" aria-label="后一天">后一天</button>
+      <button id="day-today" type="button">今天</button>
+      <button class="primary" type="submit">加载当日</button>
+    </form>
+    <p id="list-status" class="status" role="status" aria-live="polite"></p>
+    <div id="schedule-list" class="scroll"></div>
+    <button id="list-more" type="button" hidden>加载更多</button>
+    <details id="timeline-options" class="timeline-options"><summary>显示选项与使用说明</summary>
+    <label class="inline"><input id="include-cancelled" type="checkbox"> 包含已取消日程</label>
+    <p class="muted">时间块按真实经过分钟显示；薄块完整标题见下方编号列表。可读日程不等于已接受占用，团队忙闲请使用独立查询。</p>
+    <div class="timeline-legend"><span>占用日程</span><span class="free">空闲日程</span><span class="cancelled">已取消</span></div>
+    <details><summary>自定义时间窗口列表</summary>
+    <form id="list-form">
+      <div class="grid">
+        <div><label for="list-start">窗口开始</label><input id="list-start" type="datetime-local" step="60" required></div>
+        <div><label for="list-end">窗口结束</label><input id="list-end" type="datetime-local" step="60" required></div>
+      </div>
+      <div id="list-start-offset-row" class="offset-choice" hidden><label for="list-start-offset">窗口开始的DST offset</label><select id="list-start-offset"></select></div>
+      <div id="list-end-offset-row" class="offset-choice" hidden><label for="list-end-offset">窗口结束的DST offset</label><select id="list-end-offset"></select></div>
+      <button class="primary" type="submit">加载列表</button>
+    </form>
+    </details>
+    </details>
+  </section>
 
   <details id="editor-section" class="editor-section">
     <summary id="schedule-heading">创建或编辑日程</summary>
@@ -69,37 +98,6 @@
     </form>
     <p id="schedule-status" class="status" role="status" aria-live="polite"></p>
   </details>
-
-  <section class="timeline-section" aria-labelledby="list-heading">
-    <h2 id="list-heading">我的日程时间轴</h2>
-    <form id="day-form" class="day-toolbar">
-      <button id="day-prev" type="button" aria-label="前一天">前一天</button>
-      <div><label for="day-date">日期</label><input id="day-date" type="date" required></div>
-      <button id="day-next" type="button" aria-label="后一天">后一天</button>
-      <button id="day-today" type="button">今天</button>
-      <button class="primary" type="submit">加载当日</button>
-    </form>
-    <div class="day-toolbar">
-      <div><label for="list-timezone">输入与显示时区</label><select id="list-timezone" class="timezone-select" required></select></div>
-      <label class="inline"><input id="include-cancelled" type="checkbox"> 包含已取消日程</label>
-    </div>
-    <p class="muted">时间块按真实经过分钟显示；薄块完整标题见下方编号列表。可读日程不等于已接受占用，团队忙闲请使用独立查询。</p>
-    <div class="timeline-legend"><span>占用日程</span><span class="free">空闲日程</span><span class="cancelled">已取消</span></div>
-    <details><summary>自定义时间窗口列表</summary>
-    <form id="list-form">
-      <div class="grid">
-        <div><label for="list-start">窗口开始</label><input id="list-start" type="datetime-local" step="60" required></div>
-        <div><label for="list-end">窗口结束</label><input id="list-end" type="datetime-local" step="60" required></div>
-      </div>
-      <div id="list-start-offset-row" class="offset-choice" hidden><label for="list-start-offset">窗口开始的DST offset</label><select id="list-start-offset"></select></div>
-      <div id="list-end-offset-row" class="offset-choice" hidden><label for="list-end-offset">窗口结束的DST offset</label><select id="list-end-offset"></select></div>
-      <button class="primary" type="submit">加载列表</button>
-    </form>
-    </details>
-    <p id="list-status" class="status" role="status" aria-live="polite"></p>
-    <div id="schedule-list" class="scroll"></div>
-    <button id="list-more" type="button" hidden>加载更多</button>
-  </section>
 
   <section id="detail-panel" aria-labelledby="detail-heading" hidden>
     <h2 id="detail-heading">日程详情与成员</h2>

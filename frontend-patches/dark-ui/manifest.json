@@ -44,19 +44,23 @@
     {
       "target": "frontend/src/components/UserDropdown.vue",
       "before": "9e217207516b20a08999a6f078c6d773a1ebf0049bf62c5d9bdc818c16869b86",
-      "after": "3e452070b6f327205055ec72091f4cd9fd0b37425d1de4fb4f4c8b388f35fc0d",
+      "after": "5d6ac5cadd8248880ed1e0b124f971271147d898d5869117a24fc88c9c652aa6",
       "fixture": "fixtures/UserDropdown.vue",
       "edits": [
         {
           "anchor": "{{ __(brand.name || 'CRM') }}",
           "replacement": "{{ __('哲人石CRM') }}"
+        },
+        {
+          "anchor": "        <BrandLogo v-model=\"brand\" class=\"h-8 max-w-16 flex-shrink-0\" />",
+          "replacement": "        <BrandLogo v-if=\"brand?.logo\" v-model=\"brand\" class=\"h-8 max-w-16 flex-shrink-0\" />\n        <span v-else class=\"philosopher-mark\" aria-hidden=\"true\">哲</span>"
         }
       ]
     },
     {
       "target": "frontend/src/crm-theme.css",
       "before": null,
-      "after": "9b966e04566f7d83f0f18745ed5458d64fec2a77b12ae4c2a6042dbbf828b837",
+      "after": "058c3019494b3718d129c2a2e4616663d934b96d4c8036de409f7d11a93578cb",
       "payload": "crm-theme.css"
     }
   ]

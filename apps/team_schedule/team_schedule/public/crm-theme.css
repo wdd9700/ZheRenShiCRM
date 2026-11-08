@@ -36,6 +36,8 @@
 [data-theme="dark"] :is(.text-xs, .text-sm, .text-sm-medium, .text-sm-semibold) { font-size: 14px; line-height: 20px; }
 [data-theme="dark"] :is(.text-base, .text-base-medium, .text-base-semibold) { font-size: 16px; line-height: 24px; }
 [data-theme="dark"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select) { min-height: 40px; }
+.philosopher-mark { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; padding-bottom: 4px; border: 1px solid var(--crm-control-border); border-radius: 8px; background: var(--crm-raised); color: var(--crm-text); font-size: 16px; line-height: 24px; }
+.philosopher-mark::after { content: ""; position: absolute; bottom: 4px; left: 8px; width: 3px; height: 3px; border-radius: 50%; background: var(--crm-jade); box-shadow: 5px 0 var(--crm-blue), 10px 0 var(--crm-gold); }
 body:has(.crm-workspace) { background: var(--crm-bg); color: var(--crm-text); }
 .crm-workspace { min-height: 100vh; }
 

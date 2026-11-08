@@ -570,7 +570,7 @@
         axis.append(track);
         scroll.append(axis);
         container.append(zone, scroll);
-        scroll.scrollTop = Math.max(0, Math.min(segments[0]?.top ?? 8 * 72, layout.height - 480) - 48);
+        scroll.scrollTop = Math.max(0, (segments[0]?.top ?? 8 * 72) - 48);
       }
       const labels = document.createElement('ol');
       labels.className = 'timeline-labels';

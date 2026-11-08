@@ -62,6 +62,42 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         for value in ("FCRM Note", "CRM Task", "CRM Lead", "CRM Deal", "Private", "Shared"):
             self.assertIn(f'<option value="{value}">', access)
 
+    def test_primary_timeline_precedes_collapsed_options_and_editor_without_shrinking_body(self):
+        import re
+        from html.parser import HTMLParser
+
+        source = (WWW_DIR / "team-schedule.html").read_text(encoding="utf-8")
+        previous = subprocess.check_output([
+            "git", "show", "9f284b0:apps/team_schedule/team_schedule/www/team-schedule.html"
+        ], cwd=PACKAGE_DIR, text=True, encoding="utf-8")
+        old_ids = re.findall(r'\bid="([^"]+)"', previous)
+        new_ids = re.findall(r'\bid="([^"]+)"', source)
+        self.assertEqual(len(new_ids), len(set(new_ids)))
+        self.assertTrue(set(old_ids).issubset(new_ids))
+        self.assertLess(source.index('id="day-form"'), source.index('id="schedule-list"'))
+        self.assertLess(source.index('id="schedule-list"'), source.index('id="timeline-options"'))
+        self.assertLess(source.index('id="timeline-options"'), source.index('id="editor-section"'))
+
+        class DetailsParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.details = {}
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == "details" and attrs.get("id"):
+                    self.details[attrs["id"]] = attrs
+
+        parser = DetailsParser()
+        parser.feed(source)
+        self.assertNotIn("open", parser.details["timeline-options"])
+        self.assertNotIn("open", parser.details["editor-section"])
+        css = (PUBLIC_DIR / "team-schedule.css").read_text(encoding="utf-8")
+        self.assertIn('height: clamp(320px, calc(100dvh - 280px), 680px)', css)
+        self.assertIn('.day-toolbar > div { display: flex; align-items: center;', css)
+        self.assertIn('.crm-standalone .schedule-header h1 { flex: 1; margin: 0; }', css)
+        self.assertNotRegex(css, r'(?:\{|;)\s*order\s*:')
+        self.assertIn('font: 16px/1.5', (PUBLIC_DIR / "crm-theme.css").read_text(encoding="utf-8"))
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for UI interaction tests")
     def test_node_interaction_and_request_contracts(self):
         result = subprocess.run(

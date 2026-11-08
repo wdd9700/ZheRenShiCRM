@@ -28,3 +28,10 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider apps/team_sche
 - `crm-theme.css`是canonical，CRM payload必须逐字相同。独立补丁验证：`PYTHONDONTWRITEBYTECODE=1 python frontend-patches/dark-ui/check_apply.py`。M24生产43entry→M30导航→dark-ui→localization；dark-ui的`--verify-after`在localization前执行，最终App.vue after归最后覆盖补丁。
 
 本轮未部署或运行真实浏览器/站点测试；标准CRM构建及三页实际样式、移动端/高并发横滚与跨标签logout实测留给集成独审后的窗口。Framework登录、CRM入口HTML/PWA品牌和后续串行汉化不在这4target独立补丁中。
+
+## d573视觉反馈后的集中修复
+
+- Terra `visual-8a9a3322-2c35-4ada-9607-31fd4eeb0da7` 实测1280×720时主轴从y647开始。此事实说明首屏信息占位过多；后续截图超时不能证明时间块算法错误。现在实际DOM把时间轴前置于编辑区，紧凑标题、日期与时区同排；说明/筛选/自定义窗口折叠放结果后。轴视窗使用`clamp(320px, calc(100dvh - 280px), 680px)`，保持正文16px、元信息14px；初始滚动目标为首事件top−48，由浏览器按实际视窗裁限，移除旧固定480px视窗假设，保午夜与晚间事件定位。静态合同只证明结构和CSS意图，最终像素与外观仍须新截图验。
+- 旧`access.js`的浮动链接白底但无文字色，继承暗色浅字；编辑器前注入的提示则写死黄底。两处改中性token与明确前景色，并保独立fallback；通知/路由/Observer去重行为由实际执行脚本的DOM替身验证，不代表真实浏览器通过。新增`access.js`必须由M37显式overlay和源码守卫，不能只接CRM CSS。
+- UserDropdown仅默认logo改为自有“哲”中性小标记加3px三色点，`brand.logo`存在时仍使用原BrandLogo；不删除上游组件、资源、About或许可证。对应UserDropdown after和canonical/payload SHA须更新，安全43entry及M30守卫不变。
+- Framework GettingStartedBanner的英文literal与`theme="blue"`已定位。M35只将精确`theme="gray" variant="subtle"`建议交M39文本owner同补丁合成，未并改Framework文件或文案；由实际rc2 Button/types及gray/subtle类核实，不以全局CSS强压按钮。

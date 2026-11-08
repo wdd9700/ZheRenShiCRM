@@ -23,6 +23,18 @@ class PatchTests(unittest.TestCase):
             self.assertEqual(module.sha(data) if data is not None else None, entry['before'])
             self.assertEqual(module.sha(module.transform(data, entry)), entry['after'])
 
+    def test_default_mark_is_local_but_explicit_custom_logo_is_preserved(self):
+        entry = next(entry for entry in MANIFEST['targets'] if entry['target'].endswith('/UserDropdown.vue'))
+        source = module.transform((HERE / entry['fixture']).read_bytes(), entry).decode('utf-8')
+        self.assertIn('<BrandLogo v-if="brand?.logo" v-model="brand"', source)
+        self.assertIn('<span v-else class="philosopher-mark" aria-hidden="true">哲</span>', source)
+        self.assertIn("import BrandLogo from '@/components/BrandLogo.vue'", source)
+        self.assertIn("showAboutModal", source)
+        css = (HERE / 'payload/crm-theme.css').read_text(encoding='utf-8')
+        self.assertIn('background: var(--crm-raised); color: var(--crm-text)', css)
+        self.assertIn('width: 3px; height: 3px;', css)
+        self.assertNotIn('#EF0BF5', css)
+
     def test_production_prerequisites_preserve_exact_m24_and_ordered_m30(self):
         root = HERE.parents[1]
         baseline = json.loads(subprocess.check_output(['git', '-C', str(root), 'show', '9403d5a:frontend-patches/c011000/manifest.json']))
