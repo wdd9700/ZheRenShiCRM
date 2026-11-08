@@ -36,6 +36,37 @@ class LocalizationTest(unittest.TestCase):
                 self.assertEqual((root / 'crm/www/crm.py').read_bytes(), crm_py.read_bytes())
                 self.assertFalse((root / 'frontend/src/philosopher-zh-cn.json').exists())
                 target.write_bytes(original)
+                crm_target = root / 'crm/www/crm.py'
+                new_target = root / 'frontend/src/philosopher-zh-cn.json'
+                conflict = target.with_name(target.name + '.localization-tmp')
+                conflict.write_bytes(b'pre-existing file')
+                for mode in ('check', 'apply'):
+                    with self.assertRaisesRegex(ValueError, 'Temporary path already exists'):
+                        localization.apply(root, mode)
+                    self.assertEqual(crm_target.read_bytes(), crm_py.read_bytes())
+                    self.assertEqual(target.read_bytes(), original)
+                    self.assertFalse(new_target.exists())
+                    self.assertEqual(conflict.read_bytes(), b'pre-existing file')
+                conflict.unlink()
+                real_replace = os.replace
+                for fail_at in (2, 3):
+                    count = 0
+
+                    def fail_once(source, destination):
+                        nonlocal count
+                        count += 1
+                        if count == fail_at:
+                            raise OSError('injected replace failure')
+                        return real_replace(source, destination)
+
+                    with patch.object(localization.os, 'replace', side_effect=fail_once):
+                        with self.assertRaisesRegex(OSError, 'injected replace failure'):
+                            localization.apply(root)
+                    self.assertEqual(crm_target.read_bytes(), crm_py.read_bytes())
+                    self.assertEqual(target.read_bytes(), original)
+                    self.assertFalse(new_target.exists())
+                    self.assertEqual(list(root.rglob('*.localization-tmp')), [])
+                    self.assertEqual(list(root.rglob('*.localization-backup')), [])
                 self.assertEqual(localization.apply(root, 'check'), 3)
                 self.assertFalse((root / 'frontend/src/philosopher-zh-cn.json').exists())
                 self.assertEqual(localization.apply(root), 3)

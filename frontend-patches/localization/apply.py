@@ -63,13 +63,48 @@ def apply(root, mode='apply'):
                            else transform(entry['target'], current))
             if digest(replacement) != entry['after']:
                 raise ValueError('Replacement mismatch: ' + entry['target'])
-            changes.append((target, replacement))
-    if mode == 'apply':
-        for target, data in changes:
             temporary = target.with_name(target.name + '.localization-tmp')
-            with temporary.open('xb') as stream:
-                stream.write(data)
-            os.replace(temporary, target)
+            backup = target.with_name(target.name + '.localization-backup') if current is not None else None
+            changes.append((target, replacement, current, temporary, backup))
+    if mode != 'verify':
+        for _, _, _, temporary, backup in changes:
+            for path in (temporary, backup):
+                if path is not None and os.path.lexists(path):
+                    raise ValueError('Temporary path already exists: ' + str(path))
+    if mode == 'apply':
+        owned = set()
+        committed = []
+        preserve = set()
+        try:
+            for _, data, original, temporary, backup in changes:
+                for path, content in ((temporary, data), (backup, original)):
+                    if path is not None:
+                        with path.open('xb') as stream:
+                            owned.add(path)
+                            stream.write(content)
+            for target, _, original, temporary, backup in changes:
+                os.replace(temporary, target)
+                owned.remove(temporary)
+                committed.append((target, original, backup))
+        except BaseException as error:
+            failures = []
+            for target, original, backup in reversed(committed):
+                try:
+                    if original is None:
+                        target.unlink()
+                    else:
+                        os.replace(backup, target)
+                        owned.remove(backup)
+                except OSError as rollback_error:
+                    if backup is not None:
+                        preserve.add(backup)
+                    failures.append(f'{target}: {rollback_error}')
+            if failures:
+                raise RuntimeError('Rollback incomplete; original backups retained when available: ' + '; '.join(failures)) from error
+            raise
+        finally:
+            for path in owned - preserve:
+                path.unlink(missing_ok=True)
     return len(manifest)
 
 
@@ -84,6 +119,6 @@ if __name__ == '__main__':
     try:
         count = apply(args.crm_root, mode)
         print(f'Localization {mode}: {count} files verified')
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
         print('LOCALIZATION REFUSED: ' + str(error), file=sys.stderr)
         sys.exit(1)

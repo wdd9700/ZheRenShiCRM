@@ -12,7 +12,7 @@ python frontend-patches/localization/apply.py "$CRM_ROOT"
 python frontend-patches/localization/apply.py "$CRM_ROOT" --verify
 ```
 
-所有输入先核对 HEAD、每个来源字节 SHA256 和新增文件不存在，再写入。哈希按上游 Git blob 原始 LF 字节计算，Windows `core.autocrlf=true` 的 CRLF 检出会被拒绝；请在干净检出中保留原始 LF，不要跳过校验。已应用或其他补丁修改了同一文件时，预检会拒绝；应重新基于固定源码组合及重审。`--verify` 校验应用后的全部内容。版本、输入及输出的 SHA256 以 `manifest.json` 为准；这里只改 `crm/www/crm.py`、`frontend/src/translation.js`，新增 `frontend/src/philosopher-zh-cn.json`。若部署有源文件变更白名单或最终产物完整性校验，必须显式加入这三个目标，以及本目录 `apply.py`、`manifest.json`、`zh-CN.json`；测试源码 `test_localization.py`、`runtime.test.cjs` 不需进镜像。该目录不会自动进入构建上下文或镜像，集成者必须显式 COPY 和运行。
+所有输入先核对 HEAD、每个来源字节 SHA256、新增文件不存在及各临时文件路径未占用，再完整暂存输出和原始备份后替换；替换异常时恢复已替换目标，若恢复失败则保留相应备份并报错。这不是掉电级事务。哈希按上游 Git blob 原始 LF 字节计算，Windows `core.autocrlf=true` 的 CRLF 检出会被拒绝；请在干净检出中保留原始 LF，不要跳过校验。已应用或其他补丁修改了同一文件时，预检会拒绝；应重新基于固定源码组合及重审。`--verify` 校验应用后的全部内容。版本、输入及输出的 SHA256 以 `manifest.json` 为准；这里只改 `crm/www/crm.py`、`frontend/src/translation.js`，新增 `frontend/src/philosopher-zh-cn.json`。若部署有源文件变更白名单或最终产物完整性校验，必须显式加入这三个目标，以及本目录 `apply.py`、`manifest.json`、`zh-CN.json`；测试源码 `test_localization.py`、`runtime.test.cjs` 不需进镜像。该目录不会自动进入构建上下文或镜像，集成者必须显式 COPY 和运行。
 
 `apps/team_schedule/team_schedule/public/crm-zh-cn.js` 是独立静态纯文案；要纳入 team_schedule 的资源复制及新资产白名单，并由页面在 `team-schedule.js` 之前以 defer 加载。接口 `window.PhilosopherCRMText` 和其 `enums`、`timeline`、`icsActions`、`errors`、`dates` 子映射均冻结。调用方只翻译呈现，未知键回退原始值，必须保留 option.value、请求、状态和时间值，不将字典或用户数据插入 HTML 字符串；使用 textContent。时区仍由原逻辑选择并显示 IANA 时区及 UTC 偏移，不因为语言修改。
 
