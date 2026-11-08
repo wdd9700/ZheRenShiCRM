@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const transport = require('./ota-transport.cjs');
-const { verifyManifest, authorizeRelease, ReleaseState, compareVersions, verifyBoundInstallerSync, verifyPackageBytesSync } = require('./signed-manifest.cjs');
+const { verifyManifest, authorizeRelease, ReleaseState, compareVersions, verifyBoundInstallerSync, verifyPackageBytesSync, controlledCacheFileSync } = require('./signed-manifest.cjs');
 function createPinnedInstaller(policy, { dataDirectory, currentVersion, stateStore, appAdapter } = {}) {
   const { NsisUpdater } = require('electron-updater');
   const cacheDirectory = path.join(dataDirectory, 'ota-pinned');
@@ -72,9 +72,16 @@ class PinnedUpdateController {
       const temporary = file + '.' + randomUUID() + '.part';
       const receipt = { file, bytes: Buffer.from(this.bytes), signature: Buffer.from(this.signature), release };
       try {
-        if (!fs.existsSync(file)) {
+        let reusable = false;
+        if (controlledCacheFileSync(file, this.cacheDirectory)) {
+          try { verifyBoundInstallerSync(receipt, this.policy, this.currentVersion, this.stateStore.load(), this.cacheDirectory); reusable = true; }
+          catch (error) { if (!['OTA_PACKAGE_SIZE_MISMATCH', 'OTA_PACKAGE_HASH_MISMATCH'].includes(error.code)) throw error; }
+        }
+        if (!reusable) {
           await this.network.downloadFile(new URL(release.manifest.file, this.policy.feedUrl).href, this.policy, temporary, release.manifest.size);
+          controlledCacheFileSync(temporary, this.cacheDirectory);
           verifyPackageBytesSync(temporary, release.manifest);
+          controlledCacheFileSync(file, this.cacheDirectory);
           fs.renameSync(temporary, file);
         }
         verifyBoundInstallerSync(receipt, this.policy, this.currentVersion, this.stateStore.load(), this.cacheDirectory);

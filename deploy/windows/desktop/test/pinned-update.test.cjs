@@ -73,6 +73,50 @@ test('post-download package substitution, signature replacement, flush failure a
   const c = fixture(t, signed(), { flush: async () => { throw new Error('disk full'); } }); await c.controller.check(); await c.controller.download(); await assert.rejects(c.controller.install(), /disk/); assert.equal(c.installer.invoked, undefined);
   const d = fixture(t, signed(), { confirm: async () => false }); await d.controller.check(); assert.equal((await d.controller.download()).state, 'available'); assert.equal(d.controller.stateStore.load(), null);
 });
+test('damaged ordinary cache recovers same signed sequence in the same instance and after restart', async t => {
+  for (const restart of [false, true]) {
+    const { dir, controller, installer, network } = fixture(t);
+    let downloads = 0; const originalDownload = network.downloadFile;
+    network.downloadFile = async (...args) => { downloads++; return originalDownload(...args); };
+    await controller.check(); await controller.download();
+    const file = installer.receipt.file;
+    const highWater = fs.readFileSync(controller.stateStore.file);
+    fs.writeFileSync(file, restart ? 'truncated' : Buffer.alloc(payload.length));
+    await assert.rejects(controller.install(), /大小|SHA256/); assert.equal(installer.invoked, undefined);
+    let retry = controller;
+    const retryInstaller = new EventEmitter(); retryInstaller.prepareVerified = async value => { retryInstaller.receipt = value; }; retryInstaller.quitAndInstall = () => { retryInstaller.invoked = true; };
+    if (restart) retry = new PinnedUpdateController(policy, { dataDirectory: dir, currentVersion: '1.0.0', confirm: async () => true, flush: async () => {}, installerFactory: () => retryInstaller, network });
+    assert.equal((await retry.check()).state, 'available'); assert.equal((await retry.download()).state, 'ready');
+    assert.equal(downloads, 2); assert.deepEqual(fs.readFileSync(file), payload); assert.deepEqual(fs.readFileSync(retry.stateStore.file), highWater);
+    await retry.check(); await retry.download(); assert.equal(downloads, 2, 'valid cache must remain reusable');
+    await retry.install(); assert.equal((restart ? retryInstaller : installer).invoked, true);
+  }
+});
+test('failed replacement preserves damaged ordinary cache and high-water until a fully verified retry', async t => {
+  const { controller, installer, network } = fixture(t); await controller.check(); await controller.download();
+  const file = installer.receipt.file; const damaged = Buffer.alloc(payload.length); fs.writeFileSync(file, damaged);
+  const highWater = fs.readFileSync(controller.stateStore.file); const originalDownload = network.downloadFile;
+  for (const fail of ['network', 'hash']) {
+    network.downloadFile = async (_url, _policy, temporary) => { fs.writeFileSync(temporary, Buffer.alloc(payload.length)); if (fail === 'network') throw new Error('network interrupted'); };
+    await controller.check(); await assert.rejects(controller.download(), /network|SHA256/);
+    assert.deepEqual(fs.readFileSync(file), damaged); assert.deepEqual(fs.readFileSync(controller.stateStore.file), highWater);
+    assert.equal(installer.invoked, undefined); assert.equal(fs.readdirSync(controller.cacheDirectory).length, 1);
+  }
+  network.downloadFile = originalDownload; await controller.check(); assert.equal((await controller.download()).state, 'ready');
+  assert.deepEqual(fs.readFileSync(file), payload); assert.deepEqual(fs.readFileSync(controller.stateStore.file), highWater);
+});
+test('cache recovery rejects links and non-files before fetching or replacing them', async t => {
+  const { dir, controller, installer, network } = fixture(t); await controller.check(); await controller.download();
+  const file = installer.receipt.file; const protectedFile = path.join(dir, 'unrelated-sentinel'); fs.writeFileSync(protectedFile, 'unrelated user data');
+  fs.unlinkSync(file); fs.linkSync(protectedFile, file);
+  let downloads = 0; const originalDownload = network.downloadFile; network.downloadFile = async (...args) => { downloads++; return originalDownload(...args); };
+  await controller.check(); await assert.rejects(controller.download(), /链接/); assert.equal(downloads, 0); assert.equal(fs.readFileSync(protectedFile, 'utf8'), 'unrelated user data');
+  fs.unlinkSync(file); fs.mkdirSync(file); await controller.check(); await assert.rejects(controller.download(), /普通文件/); assert.equal(downloads, 0); fs.rmdirSync(file);
+  fs.writeFileSync(file, 'damaged');
+  network.downloadFile = async (...args) => { await originalDownload(...args); fs.unlinkSync(file); fs.linkSync(protectedFile, file); };
+  await controller.check(); await assert.rejects(controller.download(), /链接/); assert.equal(fs.lstatSync(file).nlink, 2);
+  assert.equal(fs.readFileSync(protectedFile, 'utf8'), 'unrelated user data'); assert.equal(installer.invoked, undefined);
+});
 test('real locked NsisUpdater preparation and installation state bind verified local payload, never unsigned latest.yml', async t => {
   const dir = directory(t); const value = signed(); const release = verifyManifest(value.bytes, value.signature, policy); const stateStore = new ReleaseState(dir); stateStore.accept(release, policy, '1.0.0');
   const cache = path.join(dir, 'ota-pinned'); fs.mkdirSync(cache); const file = path.join(cache, '1-' + release.manifestSha256 + '-' + release.manifest.file); fs.writeFileSync(file, payload);

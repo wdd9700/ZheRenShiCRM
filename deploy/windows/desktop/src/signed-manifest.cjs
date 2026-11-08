@@ -64,16 +64,25 @@ class ReleaseState {
 function verifyBoundInstallerSync(receipt, policy, currentVersion, state, cacheDirectory) {
   const release = authorizeRelease(verifyManifest(receipt.bytes, receipt.signature, policy), policy, currentVersion, state);
   const expected = path.join(cacheDirectory, release.manifest.sequence + '-' + release.manifestSha256 + '-' + release.manifest.file);
-  if (path.resolve(receipt.file) !== expected || fs.realpathSync(receipt.file).toLowerCase() !== expected.toLowerCase()) throw new Error('安装器不在受控缓存路径');
+  if (path.resolve(receipt.file) !== expected) throw new Error('安装器不在受控缓存路径');
+  controlledCacheFileSync(receipt.file, cacheDirectory);
   verifyPackageBytesSync(receipt.file, release.manifest);
   return release;
 }
+function controlledCacheFileSync(file, cacheDirectory) {
+  if (path.dirname(file) !== path.resolve(cacheDirectory) || fs.realpathSync(cacheDirectory).toLowerCase() !== path.resolve(cacheDirectory).toLowerCase()) throw new Error('安装器不在受控缓存路径');
+  let stat;
+  try { stat = fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || fs.realpathSync(file).toLowerCase() !== path.resolve(file).toLowerCase()) throw new Error('更新缓存必须是受控普通文件，拒绝链接或其它类型');
+  return stat;
+}
 function verifyPackageBytesSync(file, manifest) {
   const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== manifest.size) throw new Error('签名安装包大小/类型不符');
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('签名安装包类型不符');
+  if (stat.size !== manifest.size) throw Object.assign(new Error('签名安装包大小不符'), { code: 'OTA_PACKAGE_SIZE_MISMATCH' });
   const fd = fs.openSync(file, 'r'); const hash = createHash('sha256'); const buffer = Buffer.alloc(1024 * 1024);
   try { let count; while ((count = fs.readSync(fd, buffer, 0, buffer.length, null))) hash.update(buffer.subarray(0, count)); }
   finally { fs.closeSync(fd); }
-  if (hash.digest('hex') !== manifest.sha256) throw new Error('签名安装包 SHA256 不匹配');
+  if (hash.digest('hex') !== manifest.sha256) throw Object.assign(new Error('签名安装包 SHA256 不匹配'), { code: 'OTA_PACKAGE_HASH_MISMATCH' });
 }
-module.exports = { FORMAT, MAX_PACKAGE, sha256, versionParts, compareVersions, validatePinnedPolicy, validateManifest, verifyManifest, authorizeRelease, ReleaseState, verifyBoundInstallerSync, verifyPackageBytesSync };
+module.exports = { FORMAT, MAX_PACKAGE, sha256, versionParts, compareVersions, validatePinnedPolicy, validateManifest, verifyManifest, authorizeRelease, ReleaseState, verifyBoundInstallerSync, verifyPackageBytesSync, controlledCacheFileSync };

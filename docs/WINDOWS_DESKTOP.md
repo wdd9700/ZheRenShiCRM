@@ -246,3 +246,9 @@ Terra 已加载当前 Windows 桌面技能并完整读取 API reference，但此
 此轮没有创建任何用户本机连接配置、没有读取SSH私钥正文或旧浏览器资料、没有向服务器开放8088或修改公网入口。已请求M17停止为客户端传播管理员机器路径；最终真实HTTPS默认值等M17与主控证据后再填。
 
 本轮定向验证：`npm test` **37/37 PASS、0跳过**；包含真实 Ed25519原字节正负例、错误key/签名/包替换、版本/序号回退、半包网络失败后合法重试、用户取消/flush失败、真实锁定NsisUpdater缓存准备与同步安装守卫（spawn仅spy，未执行任何未知包）、测试专用ACL密钥生成和真实离线签发CLI、HTTPS新profile初始化/旧origin不覆盖。`node --check` 全部JS/CJS、默认配置 `prepare-release` 和 `git diff --check` 通过。无生产密钥生成、无公网发布/SSH操作、无新包构建或GUI安装；这些边界未用测试结果替代。
+
+### seq137 定点修复：损坏缓存的合法恢复
+
+Sol seq137 对 `7001e8e` 指出唯一P2：已下载缓存损坏后虽然安装正确拒绝，但原 `existsSync` 令同一签名发布在同实例或重启后始终跳过重新下载。现改为先验证受控缓存；仅普通单链接文件的**大小/摘要不符**允许完整重新获取，仍先验原清单及高水位。新随机 `.part` 必须通过普通文件/实际size/SHA256校验，再复核目标缓存仍是受控普通文件后原子替换；下载/验包失败保留原坏缓存和高水位，清理仅本人该随机临时文件。链接、目录、路径变化、权限/I/O、签名或高水位错误不作为可恢复坏包吞掉；不会递归清用户目录或删高水位。安装前及真实NSIS同步入口的再次验签/实际文件校验保持。
+
+定向测试命令：`node --test --test-name-pattern='damaged ordinary cache|failed replacement|cache recovery rejects|post-download package substitution|real locked NsisUpdater|high-water rejects' deploy/windows/desktop/test/pinned-update.test.cjs`，**6/6 PASS、0跳过**。新增覆盖同实例同长度坏包/新控制器重启后截断包的同序号原清单重试，确认真实重新下载、恢复ready后才可安装；下载中断/新包hash错误不替换原文件、不改高水位；已有硬链接/目录及下载间目标换链接全部拒绝，不触无关哨兵。原坏包拒安装、回退与真实锁定NSIS同步守卫亦定向通过。仅重跑受影响范围，未重复旧GUI/密钥/网络矩阵。生产key/feed/HTTPS配置和旧四EXE字节均未改变，未重包、未生成生产私钥；GUI工具block仍保留。
