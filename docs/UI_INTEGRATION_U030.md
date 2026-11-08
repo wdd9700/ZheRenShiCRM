@@ -327,3 +327,15 @@ release身份为当前已测 index2f92/platform00481/config50a654，不是旧caf
 ### 最终交审状态
 
 实现、精确组合构建、低层归档、必要回归及限定核心Terra验收材料已齐；任务2/4按上述范围收口。真实未验登录截图/可读非阻断入口风格偏差/未全面多语言矩阵/未远端部署保留为限制，不假通过、不以新测试无限延长。当前没有新的必须交用户决定的产品价值卡点。TowerComplete仅请求最终独审与合并，不代表正式发布已完成。
+
+## M42 常用界面漏译后续接入（准备阶段）
+
+M37按后续授权恢复active；本轮不新增功能/本地站点或浏览器，只准备常用界面翻译的严格增量。M42最终冻结输入 `95e5ce6f7b967c62761fb06e61baf90ce3d110ae` 待Sol独审，目标实际为四件（含后加的Check Filter显示接线），不能按早期三目标遗漏：Notifications.vue、Activities/DataFields.vue、Filter.vue、IconPicker.vue。完整before/after以独立common-ui-localization manifest为准。
+
+已从本轮保存的**实际已上线2f92归档**选择性提取四SFC，逐个SHA与M42 before全部相符（不是只核master或模拟HEAD）；只公开源码，无sites/凭据。旧catalog SHA `ea598fe9e1b8c7a10ddd57e8c35950c30bc8462fe1e12ae3f3b2cbe6a8f6b551`，新冻结catalog SHA `f07c9e466f23dbe2847c9549a4e35f7c645e2ae9d01e1b9a66761aef9fabdbc5`（取代早期候选71d7，不使用未冻结值）。原词条必须逐值保留，不能借字典升级覆盖M39已审术语。
+
+新增独立 `prepare_common_ui.py` / `Dockerfile.common-ui` / `verify_common_ui.py` / `check_common_ui.py`：固定FROM已上线2f92 tag，构建前必须核精确image2f92/config50a654与原七层，不依赖浮动tag。有限COPY仅common-ui apply/manifest、新catalog/manifest和独立guard，不整app覆盖，不重放原dark/localization/branding/onboarding/wording patch。原/home/frappe/u030完整最终guard前置通过；四SFC独立check/apply/verify，旧catalog按精确ea598→新after应用（当前translation/crm.py已在已上线后态，不能重新套原始before），并拒绝任何既有key值变更。
+
+最终增量guard完整重建原五app/source、M35/M38/M39、品牌56/Framework3/request版本后态预期，只显式覆四新SFC和catalog；原Framework32映射、所有standalone资产保持。仅标准 `bench build --app crm`，不重326或权限/恢复矩阵。候选Config仅新增commonUI来源labels、RootFS前七层必须等父且总层数≤16。实际build/测试仍等待M42审定，本段不宣通过。
+
+M43独占修改deploy/remote/trial.sh以保持HTTPS/socket配置，M37本轮不改该文件或其他远端流程。后继部署必须引用M43新审定工具来源，不误标仍是原242161；镜像归档验证合同不变。最终由M17真实服务器部署后Terra在HTTPS相关入口短验，不启动本地浏览器/站点。
