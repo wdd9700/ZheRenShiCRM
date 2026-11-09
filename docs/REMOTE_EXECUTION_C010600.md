@@ -518,3 +518,9 @@ M43 `3ec8f0919062e33084918ffdef080cb1dbda490c` 获seq144限定clean/merge后，�
 仅执行 `sudo -n /usr/bin/python3 /home/dev/c1109-reviewed-https-3ec8f09/deploy/https/manage.py preflight`，真实exit0（约7秒含小包传输）。脚本核宿主固定/usr/bin/python3兼容3.6、nginx>=1.19.3、已load官方config f0cfa005及全部11有序diffids；随后以network none、只tmpfs、read-only/cap-drop/no-new-privileges短命容器运行，实报 **Python3.12.10 / certbot5.4.0 / crm-https preflight: OK**。宿主既有Python3.6.8/nginx1.24.0未更换；容器由本次--rm结束，不触原卷。
 
 本次没有重新pull/load、重部署35d0、业务写入、签证、公网80探测、443/timer激活或数据库/权限修改。签证工具运行前置已通过；公网80可达阻碍及云安全组待确认状态仍在，**不将preflight通过冒充证书签发或公网HTTPS可用**。
+
+### 19.4 用户告知云放行后的单次公网复核仍未通过
+
+用户明确告知80/443已放行后，按主控续行授权只创建一个随机公开challenge文件并设0644，从Windows无代理直连 `http://8.133.190.46/.well-known/acme-challenge/<随机token>`；仍在TCP连接阶段20秒超时，没有取得HTTP响应。finally已仅删除本次探针，未循环探测。该次失败发生在后续命令之前，故没有将3ec8f09 staged manage安装成活动脚本、没有申请staging/production、没有激活443/overlay/timer或重部署35d0，原服务保持。原始失败输出在本会话agent420的task `bash-atu70h6l/output.log`。
+
+此事实不等于断言用户没有设置安全组，也不证明是哪条网络策略；最近已有服务器本机challenge200/0.0.0.0:80/INPUT ACCEPT事实可复用。需核放行规则确实绑定公网IP所在实例且入方向TCP80允许公众CA验证来源（通常0.0.0.0/0，仅80静态challenge与HTTPS跳转）、443允许期望用户来源，避免只改其他安全组或仅放客户端来源。没有云权限则报告，不关闭防火墙、扫端口或降公网HTTP登录；继续保持未签证/HTTPS不可用边界。
