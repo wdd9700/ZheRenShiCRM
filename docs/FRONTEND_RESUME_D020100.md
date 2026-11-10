@@ -36,7 +36,7 @@
 
 ## 补丁与固定证据
 
-`frontend-patches/c011000/manifest.json` 当前临时诊断候选包含 **39 个修改目标（9 payload + 30 strict source edits）及 4 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
+`frontend-patches/c011000/manifest.json` 当前清理候选包含 **38 个修改目标（9 payload + 29 strict source edits）及 5 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
 
 只读使用两份本地证据，不修改它们：
 
@@ -252,3 +252,21 @@ Terra 06:18:54.832UTC 正常任务导航出现 `C011100/READY/READY/ACCESS_UNCON
 本候选取代上文“任意catch首码”语义：resources只把原同字段上下文传给handleError→failed；failed原ACCESS_UNCONFIRMED条件实际成立、状态未终锁且上下文current=true时，才记录并立即执行原lock。没有新增字段/外发/存储，原敏感读/401/403/auth分类、HYDRATING早退、断言/track/abort/原Error均不变。退休/显式abort、不会锁页的普通读取及终锁后错误均不能占首码。当前非Abort、同generation且符合敏感读或认证错误的异常才可能是真正锁页失败；具体FETCH/解析/transform/callback形态仍待实际证据，不称导航修复。
 
 受影响定向3/3 PASS：实际payload退休后fetch零transport/ACTIVE/NONE，非敏感失败ACTIVE/NONE，然后当前敏感TypeError照常终锁并首码FETCH/TypeError/current1；后续auth失败不覆盖，旧login跨epoch仍原可调用而不锁/不占码。实际request off/on原6情形保留，explicitabort现在无锁/NONE，其他真实锁页情形同Error identity、403和阶段码不变、脱敏通过。没有重跑全矩阵/构建/部署。四目标合同仅boundary/resources after按当前表更新，utils及全部部署before不变；是否安排后继一次集中动作由主控决定，M42中文后态不动。临时诊断最终移除责任仍由M24承担，不能以本记录点修正冒称真实根因已修。
+
+
+## 当前结论：sort_options 权限契约错配，临时诊断已移除候选
+
+上文 D020102 代码/开关及四after表均为历史采证候选，不是本清理候选现状。Terra 唯一 adddbb 复现于08:14:09.453UTC得到 RESPONSE/Error/403/PermissionError/current1，已正常注销。M17一次限定全部API日志显示08:13:48.110498479Z `crm.api.doc.sort_options` 403、随后get_data499，而getdoctype/quick_filters/filterable_fields为200；不能再把get_data499当权限首因。固定 `SortBy.vue:174-182` 按props.doctype创建sort_options资源并在mounted发起，Tasks的ViewControls传CRM Task；M17公开后端doc.py24-51是真实whitelisted sort_options(doctype)排序字段元数据，team_access/request.py121却允许不存在的get_sort_options，126-128对protected doctype未allow拒绝。主控已亲核并交M44（sol-task-sort-endpoint-fix）独占后端request.py及测试核边界/最小拼名修复；M24不越scope改后端，不忽略403，不给Sales管理角色。真实任务成功仍须最终正常UI确认。
+
+本候选移除四目标全部临时诊断、WeakMap/阶段采集、D020102显示与VITE_CRM_READ_FAILURE_DIAGNOSTICS开关，生产payload/source_edits/manifest/apply逐字节恢复9403d5a。manifest回43entries=38修改+5guard（request.ts再次仅guard）。保留有价值的active错误分类5情形测试；删除依赖已移除诊断的临时tests及stripTypeScriptTypes依赖，不把旧断言用于新产物。原a8 oracle/config、main不装telemetry、ACL/CSRF/epoch/真正403终锁保持。
+
+M37集中最终修复构建必须保M42 Filter/catalog，不能整镜像回滚。实际adddbb诊断后态→清理后态的四目标（prefix frontend/node_modules/frappe-ui/src/）：
+
+| target | deployed diagnostic before | cleanup after |
+| --- | --- | --- |
+| resources/accountBoundary.js | f1bc6ff7cb401274313999b605bc740147b7071b27a0aa436b8cf158f46adbbd | a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421 |
+| resources/resources.js | c5774aa5f9f3ca715b9ea4c1229fe1d4eaff8f600db080375ca2c5b44a00ad68 | 5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80 |
+| utils/request.ts | 3058bab7efcea11d366d6ab08dec487f0f0b7501868d805500eea4f22001e61c | 752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b |
+| utils/frappeRequest.ts | 2c78687c0a02fd2c57ab96bd929b234c1d810ad8f34dc161b421652d663a8e17 | 83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9 |
+
+两resources取当前payload；request取固定原before（752f）；frappeRequest由恢复后的source_edits.transform从原5461 before生成83e4 after。M37若继续FROM35d0最终重构，以上cleanup after应直接等35d0前驱，不追加诊断COPY或buildenv；同时合入M44修复及保留M42，禁止重套整个upstream43apply到部署态。本轮定向3/3 PASS：active分类（真实403仍锁）、全部strict JS/TS/JSX/Vue script解析、实际main正常/恢复无遥测且权限拒绝保持；生产全量与9403零diff、diffcheck绿，未重跑无关矩阵/build/部署。临时诊断源码清理已实现；运行中旧adddbb仍需M37/M17最终集中替换，未称线上清理或任务恢复已成功。

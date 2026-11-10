@@ -158,9 +158,6 @@ export function createResource(options, vm) {
 
   async function runFetch(params, tempOptions, id) {
     let errorFunctions = [options.onError, tempOptions.onError]
-    const started = Date.now()
-    let failurePhase = 'PREPARE'
-    let requestSignal
     try {
       await accountBoundary.ready
       assertCurrent(id)
@@ -189,22 +186,18 @@ export function createResource(options, vm) {
 
       assertCurrent(id)
       controller = new AbortController()
-      requestSignal = controller.signal
-      failurePhase = 'FETCH'
       let data = await resourceFetcher({
         ...options,
-        signal: requestSignal,
+        signal: controller.signal,
         onError: undefined,
         params: params || options.params,
       })
       assertCurrent(id)
-      failurePhase = 'TRANSFORM'
       let transformed = transform(data)
       assertCurrent(id)
       saveLocal(cacheKey, data)
       out.data = transformed
       out.fetched = true
-      failurePhase = 'ON_SUCCESS'
       for (let fn of [options.onSuccess, tempOptions.onSuccess, options.onData, tempOptions.onData]) {
         assertCurrent(id)
         fn?.call(vm, data)
@@ -215,8 +208,7 @@ export function createResource(options, vm) {
         throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
       }
       if (error?.name === 'AbortError') throw error
-      handleError(error, errorFunctions, { phase: failurePhase, signal: requestSignal,
-        current: id === generation && (authAction || epoch === accountBoundary.epoch), started })
+      handleError(error, errorFunctions)
     } finally {
       if (id === generation) out.loading = false
     }
@@ -247,12 +239,12 @@ export function createResource(options, vm) {
     out.auto = options.auto
   }
 
-  function handleError(error, errorFunctions, readContext) {
+  function handleError(error, errorFunctions) {
     out.loading = false
     out.data = null
     out.previousData = null
     out.fetched = false
-    accountBoundary.failed(error, options.method === 'GET' || /(?:get_data|get_list|frappe.client.get)$/.test(options.url || ''), readContext)
+    accountBoundary.failed(error, options.method === 'GET' || /(?:get_data|get_list|frappe.client.get)$/.test(options.url || ''))
     out.error = error
     for (let fn of errorFunctions) {
       if (fn) {

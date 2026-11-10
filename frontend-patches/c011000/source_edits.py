@@ -86,12 +86,6 @@ SOURCE_EDITS = {
         ("async function openChildren(command) {", "async function openChildren(command) {\n  const epoch = accountBoundary.epoch"),
         ("    const commands = checkedFirst(await command.children())", "    const commands = checkedFirst(await command.children())\n    accountBoundary.assertActive(epoch)"),
     ],
-    'frontend/node_modules/frappe-ui/src/utils/request.ts': [
-        ("export interface RequestOptions", "import { accountBoundary } from '../resources/accountBoundary'\n\nexport interface RequestOptions"),
-        ("  return fetch(url, {", "  let responseReceived = false\n  return fetch(url, {"),
-        ("    .then((response) => {", "    .then((response) => {\n      responseReceived = true"),
-        ("    .catch((error) => {", "    .catch((error) => {\n      accountBoundary.markReadFailurePhase(error, responseReceived ? 'RESPONSE' : 'FETCH')"),
-    ],
     'frontend/node_modules/frappe-ui/src/utils/frappeRequest.ts': [
         ("import { getConfig }", "import { accountBoundary } from '../resources/accountBoundary'\nimport { getConfig }"),
         ("  return request<TResponse>({", "  const promise = request<TResponse>({"),
@@ -100,7 +94,7 @@ SOURCE_EDITS = {
         ("  const originalOptions = options", "  const resumeEpoch = accountBoundary.epoch\n  const authAction = ['login', 'logout', '/api/method/login', '/api/method/logout'].includes(options.url || '')\n  const assertResume = () => { if (!authAction) accountBoundary.assertRequest(resumeEpoch, options.url) }\n  assertResume()\n  const originalOptions = options"),
         ("    transformRequest: (options) => {", "    transformRequest: (options) => {\n      assertResume()"),
         ("    transformResponse: async (response, options) => {", "    transformResponse: async (response, options) => {\n      assertResume()"),
-        ("        const data = (await response.json()) as FrappeResponseBody", "        const data = (await response.json().catch((error) => {\n          accountBoundary.markReadFailurePhase(error, 'RESPONSE_PARSING')\n          throw error\n        })) as FrappeResponseBody\n        assertResume()"),
+        ("        const data = (await response.json()) as FrappeResponseBody", "        const data = (await response.json()) as FrappeResponseBody\n        assertResume()"),
         ("        let errorResponse = await response.text()", "        let errorResponse = await response.text()\n        assertResume()"),
         ("    transformError: (error) => {", "    transformError: (error) => {\n      assertResume()"),
     ],

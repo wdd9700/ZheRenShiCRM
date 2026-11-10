@@ -30,31 +30,7 @@ export function createAccountBoundary(env) {
   const resumeStages = new Set(['NONE', 'IDENTITY', 'ADAPTER', 'PERMISSION', 'FRESH_READ', 'HYDRATE', 'BOOT',
     'ROUTER', 'PAGE_MOUNT', 'READ_SETTLE', 'ROUTE_CHECK', 'COMMIT_IDENTITY', 'COMMIT', 'READY'])
   let resumeStage = 'NONE', resumeFailure = 'NONE'
-  const readDiagnostics = env.readFailureDiagnostics === true
-  const readPhases = new WeakMap()
-  const readPhaseNames = new Set(['PREPARE', 'FETCH', 'RESPONSE', 'RESPONSE_PARSING', 'TRANSFORM', 'ON_SUCCESS'])
-  let readFailureCode = 'NONE'
-  function markReadFailurePhase(error, phase) {
-    if (!readDiagnostics || !readPhaseNames.has(phase) || !error || typeof error !== 'object') return
-    if (!readPhases.has(error)) readPhases.set(error, phase)
-  }
-  function recordReadFailure(error, phase, signal, current, started) {
-    if (!readDiagnostics || readFailureCode !== 'NONE') return
-    try {
-      const name = ['AbortError', 'TimeoutError', 'TypeError', 'SyntaxError', 'Error'].includes(error?.name) ? error.name : 'OTHER'
-      const exc = ['PermissionError', 'AuthenticationError', 'SessionExpired', 'DoesNotExistError', 'CSRFTokenError', 'ValidationError'].includes(error?.exc_type) ? error.exc_type : 'OTHER'
-      const status = error?.status ?? error?.response?.status
-      const safeStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : 0
-      const elapsed = Date.now() - started
-      const bucket = elapsed < 1000 ? 'LT1S' : elapsed < 10000 ? 'LT10S' : elapsed < 30000 ? 'LT30S' : 'GE30S'
-      const tagged = error && typeof error === 'object' ? readPhases.get(error) : null
-      readFailureCode = ['D020102', tagged || (readPhaseNames.has(phase) ? phase : 'FETCH'), name, safeStatus, exc,
-        signal?.aborted === true ? 1 : 0, current === true ? 1 : 0, bucket].join('/')
-      publish()
-    } catch {}
-  }
-  const diagnostic = () => Object.freeze({ version: 'C011100', stage, failureStage, failure, resumeStage, resumeFailure,
-    ...(readDiagnostics ? { readFailureCode } : {}) })
+  const diagnostic = () => Object.freeze({ version: 'C011100', stage, failureStage, failure, resumeStage, resumeFailure })
   function recoveryStage(value, id) {
     if (id === epoch && resumeStages.has(value)) { resumeStage = value; publish() }
   }
@@ -247,14 +223,11 @@ export function createAccountBoundary(env) {
       : stage === 'MOUNT' ? 'MOUNT_EXCEPTION' : 'INITIALIZATION_EXCEPTION'
     lock('初始化失败，请重新确认登录。', code)
   }
-  function failed(error, sensitiveRead = false, readContext) {
+  function failed(error, sensitiveRead = false) {
     if (state === 'HYDRATING') return
     const status = error?.status || error?.response?.status
     if ((sensitiveRead && error?.exc_type !== 'DoesNotExistError') || [401, 403].includes(status) ||
         ['PermissionError', 'AuthenticationError', 'SessionExpired'].includes(error?.exc_type)) {
-      if (state !== 'IDENTITY_REQUIRED' && readContext?.current === true) {
-        recordReadFailure(error, readContext.phase, readContext.signal, true, readContext.started)
-      }
       lock('请求失败，无法确认当前数据访问权限。', 'ACCESS_UNCONFIRMED')
     }
   }
@@ -273,7 +246,7 @@ export function createAccountBoundary(env) {
   void resume()
   return { scope, ready, get user() { return user }, get epoch() { return epoch }, get state() { return state },
     get diagnostic() { return diagnostic() }, assertActive, failed, lock, markStage, initializationFailed,
-    resume, pause, assertRequest, track, markReadFailurePhase, recordReadFailure, get readRevision() { return readRevision },
+    resume, pause, assertRequest, track, get readRevision() { return readRevision },
     onHydrate(fn) { hydrators.add(fn); return () => hydrators.delete(fn) },
     hydrate() { for (const fn of [...hydrators]) fn() },
     setAdapter(value) { adapter = value },
@@ -293,7 +266,6 @@ function browserEnvironment() {
     document.documentElement.setAttribute('data-crm-resume-stage', value.resumeStage)
     document.documentElement.setAttribute('data-crm-resume-failure', value.resumeFailure)
     diagnosticText = `本地诊断 ${value.version} / ${value.stage} / ${value.failureStage} / ${value.failure}；恢复诊断 D020100 / ${value.resumeStage} / ${value.resumeFailure}`
-    if (value.readFailureCode) diagnosticText += `；请求诊断 ${value.readFailureCode}`
     const node = document.getElementById('crm-initialization-diagnostic')
     if (node) node.textContent = diagnosticText
   }
@@ -357,7 +329,6 @@ function browserEnvironment() {
     else document.addEventListener('DOMContentLoaded', render, { once: true })
   }
   return {
-    readFailureDiagnostics: import.meta.env?.VITE_CRM_READ_FAILURE_DIAGNOSTICS === '1',
     crypto: window.crypto, cookie: () => document.cookie, hidden: () => document.visibilityState === 'hidden',
     cover, diagnose,
     resumeState(value) { document.documentElement.setAttribute('data-crm-resume-state', value) },

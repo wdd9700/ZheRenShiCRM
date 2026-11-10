@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { createRequire, stripTypeScriptTypes } from 'node:module'
+import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 import { webcrypto } from 'node:crypto'
@@ -664,86 +664,4 @@ test('automatic load/render/save notifications observe rejected hooks without ch
   assert.ok(f.toasts.every(value => value === 'An error occurred while running the document script'))
   assert.equal(f.boundary.state, 'ACTIVE')
   f.close()
-})
-
-
-test('temporary read diagnostics classify actual request parsing and resource phases without changing errors or exposing data', async () => {
-  for (const enabled of [false, true]) for (const kind of ['fetch', 'parsing', 'transform', 'success', 'permission', 'abort']) {
-    const secret = 'DO-NOT-EXPOSE-message-stack-body-params-cookie-url'
-    const original = kind === 'parsing' ? new SyntaxError(secret) : new TypeError(secret)
-    const cache = new Map(), config = {}, observed = []
-    let startedFetch
-    const fetching = new Promise(resolve => { startedFetch = resolve })
-    const context = createContext({ console, Event, AbortController, Uint32Array, URLSearchParams,
-      window: { location: { hostname: 'synthetic.invalid' } },
-      __env: { crypto: webcrypto, cookie: () => secret, hidden: () => false,
-        readFailureDiagnostics: enabled, cover() {}, uncover() {}, on() {}, identify: async () => 'Synthetic',
-        diagnose(value) { observed.push(value) } },
-      fetch: async (url, options) => {
-        if (kind === 'abort') return new Promise((resolve, reject) => {
-          options.signal.addEventListener('abort', () => reject(original), { once: true }); startedFetch()
-        })
-        if (kind === 'fetch') throw original
-        return { ok: kind !== 'permission', status: kind === 'permission' ? 403 : 200,
-          async json() { if (kind === 'parsing') throw original; return { message: { rows: [] } } },
-          async text() { return JSON.stringify({ exc_type: 'PermissionError' }) } }
-      },
-    })
-    function synthetic(id, values) {
-      const mod = new SyntheticModule(Object.keys(values), function () {
-        for (const [key, value] of Object.entries(values)) this.setExport(key, value)
-      }, { context, identifier: id }); cache.set(id, mod); return mod
-    }
-    async function load(id) {
-      if (cache.has(id)) return cache.get(id)
-      if (id === 'vue') return synthetic(id, { reactive: x => x, watch() {} })
-      if (id === 'config') return synthetic(id, { getConfig: key => config[key] })
-      if (id === 'debounce') return synthetic(id, { default: fn => fn })
-      let code
-      if (['request', 'frappeRequest'].includes(id)) {
-        code = stripTypeScriptTypes(sources[`frontend/node_modules/frappe-ui/src/utils/${id}.ts`])
-      } else {
-        code = await readFile(new URL(`./payload/resources/${id}.${id === 'local' ? 'ts' : 'js'}`, import.meta.url), 'utf8')
-        if (id === 'local') code = stripTypeScriptTypes(code)
-        if (id === 'accountBoundary') code = code.replace('createAccountBoundary(browserEnvironment())', 'createAccountBoundary(globalThis.__env)')
-      }
-      const mod = new SourceTextModule(code, { context, identifier: id }); cache.set(id, mod); return mod
-    }
-    const link = specifier => load(specifier.split('/').at(-1))
-    await load('accountBoundary')
-    const resourceModule = await load('resources'); await resourceModule.link(link); await resourceModule.evaluate()
-    const requestModule = await load('frappeRequest'); await requestModule.link(link); await requestModule.evaluate()
-    const boundary = cache.get('accountBoundary').namespace.accountBoundary
-    await boundary.resume()
-    const failures = []
-    const originalFailed = boundary.failed
-    boundary.failed = (error, sensitive, readContext) => { failures.push({ name: error.name, sensitive }); return originalFailed(error, sensitive, readContext) }
-    const originalRecord = boundary.recordReadFailure
-    boundary.recordReadFailure = (...args) => { failures.push({ phase: args[1], current: args[3] }); return originalRecord(...args) }
-    config.resourceFetcher = requestModule.namespace.frappeRequest
-    const r = resourceModule.namespace.createResource({ url: 'crm.api.doc.get_data', params: { secret },
-      transform(data) { if (kind === 'transform') throw original; return data },
-      onSuccess() { if (kind === 'success') throw original },
-    })
-    assert.match(r.fetch.toString(), /runFetch/)
-    const pending = r.fetch()
-    if (kind === 'abort') { await fetching; r.abort() }
-    await assert.rejects(pending, error => kind === 'permission' ? error.status === 403 && error.exc_type === 'PermissionError'
-      : kind === 'abort' ? error.name === 'AbortError' : error === original)
-    assert.equal(boundary.state, kind === 'abort' ? 'ACTIVE' : 'IDENTITY_REQUIRED', `${enabled}/${kind}/${JSON.stringify(failures)}`)
-    if (enabled && kind === 'abort') assert.equal(boundary.diagnostic.readFailureCode, 'NONE')
-    else if (enabled) {
-      const phase = { fetch: 'FETCH', parsing: 'RESPONSE_PARSING', transform: 'TRANSFORM', success: 'ON_SUCCESS', permission: 'RESPONSE' }[kind]
-      const code = boundary.diagnostic.readFailureCode
-      assert.equal(code.split('/')[1], phase)
-      assert.equal(code.split('/')[3], kind === 'permission' ? '403' : '0')
-      assert.equal(code.split('/')[4], kind === 'permission' ? 'PermissionError' : 'OTHER')
-      assert.equal(code.split('/')[5], kind === 'abort' ? '1' : '0')
-      assert.equal(code.split('/')[6], kind === 'abort' ? '0' : '1')
-      boundary.markReadFailurePhase(original, 'ON_SUCCESS')
-      boundary.recordReadFailure(original, 'ON_SUCCESS', null, true, 0)
-      assert.equal(boundary.diagnostic.readFailureCode, code)
-    } else assert.equal('readFailureCode' in boundary.diagnostic, false)
-    assert.doesNotMatch(JSON.stringify(observed), /DO-NOT-EXPOSE|synthetic\.invalid|crm\.api|message-stack/)
-  }
 })
