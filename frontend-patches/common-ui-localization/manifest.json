@@ -12,7 +12,7 @@
   {
     "target": "frontend/src/components/Filter.vue",
     "before": "2151a1595a77a19f8ff07285278efc8e093a047b53f3beff01e294d42d625d99",
-    "after": "4a502a48935ab5312cdd9e5bfe6af000b92c7b25f0abb171aa4c8e21dc33fc1a"
+    "after": "82da91b378239ccc20b57a3f23292cbba856b02aed54a28b3c9e4f3709247fe6"
   },
   {
     "target": "frontend/src/components/IconPicker.vue",

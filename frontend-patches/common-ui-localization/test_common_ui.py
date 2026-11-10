@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -55,6 +56,8 @@ class CommonUITest(unittest.TestCase):
                 self.assertEqual(common.apply(root, 'verify'), 4)
                 filter_source = (root / 'frontend/src/components/Filter.vue').read_text(encoding='utf-8')
                 self.assertIn("label: fieldtype == 'Check' ? __(o) : o,\n        value: o,", filter_source)
+                subprocess.run(['node', str(HERE / 'runtime.test.cjs'),
+                                str(root / 'frontend/src/components/Filter.vue')], check=True)
                 result = target.read_text(encoding='utf-8')
                 self.assertIn(':title="__(\'No New Notifications\')"', result)
                 self.assertIn(':description="__(\'You have no new notifications\')"', result)

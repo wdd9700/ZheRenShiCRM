@@ -24,6 +24,44 @@ def transform(target, data):
             ('label="Save"', ':label="__(\'Save\')"'),
         ],
         'frontend/src/components/Filter.vue': [
+            ("const filterFieldOptions = computed(() => {\n  const fields = filterableFields.data || []",
+             """const systemFilterLabels = {
+  'CRM Lead': {
+    company_description: 'Company Description', lead_score: 'Lead Score',
+    lead_temperature: 'Lead Temperature', lead_owner: 'Lead Owner',
+    first_response_time: 'First Response Time', first_responded_on: 'First Responded On',
+    last_response_time: 'Last Response Time', last_responded_on: 'Last Responded On',
+    communication_status: 'Communication Status', response_by: 'Response By',
+    sla_creation: 'SLA Creation', sla_status: 'SLA Status',
+    annual_revenue: 'Annual Revenue', no_of_employees: 'No. of Employees',
+    middle_name: 'Middle Name', mobile_no: 'Mobile No.',
+    converted: 'Converted', lost_reason: 'Lost Reason', lost_notes: 'Lost Notes',
+    territory: 'Territory', total: 'Total', net_total: 'Net Total',
+  },
+  'CRM Deal': {
+    company_description: 'Company Description', deal_owner: 'Deal Owner',
+    first_response_time: 'First Response Time', first_responded_on: 'First Responded On',
+    last_response_time: 'Last Response Time', last_responded_on: 'Last Responded On',
+    communication_status: 'Communication Status', response_by: 'Response By',
+    sla_creation: 'SLA Creation', sla_status: 'SLA Status',
+    annual_revenue: 'Annual Revenue', no_of_employees: 'No. of Employees',
+    next_step: 'Next Step', lead_name: 'Lead Name', organization_name: 'Organization Name',
+    email: 'Primary email', mobile_no: 'Primary mobile no', phone: 'Primary phone',
+    deal_value: 'Deal Value', expected_deal_value: 'Expected Deal Value',
+    expected_closure_date: 'Expected Closure Date', closed_date: 'Closed Date',
+    currency: 'Currency', exchange_rate: 'Exchange Rate', lost_reason: 'Lost Reason',
+    lost_notes: 'Lost Notes', territory: 'Territory', total: 'Total', net_total: 'Net Total',
+  },
+}
+
+const filterFieldOptions = computed(() => {
+  const systemLabels = systemFilterLabels[props.doctype] || {}
+  const fields = (filterableFields.data || []).map((field) =>
+    !field.is_custom_field && !field.custom &&
+    systemLabels[field.fieldname] && field.label === systemLabels[field.fieldname]
+      ? { ...field, label: __(field.label) }
+      : field,
+  )"""),
             ('        label: o,\n        value: o,', "        label: fieldtype == 'Check' ? __(o) : o,\n        value: o,"),
         ],
         'frontend/src/components/IconPicker.vue': [

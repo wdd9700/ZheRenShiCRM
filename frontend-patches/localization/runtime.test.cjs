@@ -32,6 +32,8 @@ assert.equal(translate('No New Notifications'), '暂无新通知');
 assert.equal(translate('You have no new notifications'), '你目前没有新通知');
 assert.equal(translate('No results for "{0}"', ['客户']), '未找到与“客户”相关的结果');
 assert.equal(translate('mentioned you in {0}', ['Lead']), '在Lead中提到了你');
+assert.equal(translate('Lead Score'), '线索评分');
+assert.equal(translate('Last Response Time'), '最近响应时长');
 assert.equal(translate('Equals'), '等于');
 assert.equal(translate('Yes'), '是');
 assert.equal(translate('No'), '否');
