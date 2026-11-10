@@ -236,6 +236,57 @@ def verify_permission_signature(upstream):
     print("PASS exact Frappe has_permission public signature: unsupported keywords rejected; parent read/private write/snapshot native denials retained; ordinary ToDo assignment Comment validation succeeds without bypass")
 
 
+def verify_sort_options(upstream):
+    from unittest.mock import patch
+    from team_access import events, permissions as policy, request
+
+    task = put("CRM Task", "sort-private-task", custom_team_visibility="Private", assigned_to="")
+    before, before_writes = deepcopy(records), list(writes)
+    try:
+        with patch.object(frappe.session, "user", "b"), patch.object(frappe.local, "request", create=True), patch.object(frappe, "form_dict", create=True):
+            for path, http_method, command in (
+                ("/api/method/crm.api.doc.sort_options", "POST", None),
+                ("/api/v2/method/crm.api.doc.sort_options", "GET", None),
+                ("/", "POST", "crm.api.doc.sort_options"),
+            ):
+                frappe.local.request = types.SimpleNamespace(path=path, method=http_method)
+                frappe.form_dict = Doc(doctype="CRM Task")
+                if command:
+                    frappe.form_dict.cmd = command
+                request.guard()
+                assert frappe.local.team_access_doctype == "CRM Task"
+            for method in (
+                "crm.api.doc.get_sort_options", "crm.api.doc.sort_options_extra",
+                "crm.api.doc.sort_options.get_data", "crm.api.doc.unreviewed",
+                "crm.api.doc.update_quick_filters",
+            ):
+                frappe.local.request = types.SimpleNamespace(path="/api/method/" + method, method="POST")
+                frappe.form_dict = Doc(doctype="CRM Task")
+                forbidden(request.guard)
+            for method in ("frappe.client.get", "frappe.client.set_value"):
+                frappe.local.request = types.SimpleNamespace(path="/api/method/" + method, method="POST")
+                frappe.form_dict = Doc(doctype=task.doctype, name=task.name)
+                forbidden(request.guard)
+            assert not policy.can_reference(task.doctype, task.name, "b")
+            forbidden(lambda: events.validate_private(deepcopy(task), "b"))
+            native_denied.add((task.doctype, task.name, "a", "read"))
+            assert not policy.can_reference(task.doctype, task.name, "a")
+            if upstream:
+                namespace = {"frappe": frappe, "_": lambda value: value, "no_value_fields": {"Section Break"}}
+                load_native(upstream / "apps/crm/crm/api/doc.py", {"sort_options"}, namespace)
+                fields = [Doc(label="Title", fieldname="title", fieldtype="Data"), Doc(label="Layout", fieldname="layout", fieldtype="Section Break"), Doc(label="", fieldname="unlabelled", fieldtype="Data")]
+                with patch.object(frappe, "get_meta", return_value=Doc(fields=fields)) as metadata:
+                    result = namespace["sort_options"]("CRM Task")
+                metadata.assert_called_once_with("CRM Task")
+                assert [row["fieldname"] for row in result] == ["title", "name", "creation", "modified", "modified_by", "owner"]
+                assert all(set(row) == {"label", "fieldname", "value"} and row["value"] == row["fieldname"] for row in result)
+        assert records == before and writes == before_writes
+    finally:
+        native_denied.discard((task.doctype, task.name, "a", "read"))
+        records.pop((task.doctype, task.name))
+    print("PASS exact CRM sort_options metadata endpoint via v1/v2/cmd; old/unknown/similar/mutating endpoints and unauthorized private Task read/write still denied without mutations" + ("; fixed upstream metadata function returns only labels/fieldnames/standard fields" if upstream else ""))
+
+
 def run(upstream, website_source=None, request_source=None, jinja_source=None):
     build_environment(upstream)
     from verify_website import run as verify_website
@@ -247,6 +298,7 @@ def run(upstream, website_source=None, request_source=None, jinja_source=None):
 
         verify_website_render(sys.modules[__name__], website_source, request_source, jinja_source)
     verify_permission_signature(upstream)
+    verify_sort_options(upstream)
     from team_access import docinfo, events, files, install, permissions as policy, realtime, references, request, responses
 
     put("CRM Lead", "parent")

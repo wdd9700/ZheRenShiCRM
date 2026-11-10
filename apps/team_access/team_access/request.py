@@ -118,7 +118,7 @@ def guard():
         "crm.fcrm.doctype.fcrm_note.fcrm_note.set_pinned", "crm.api.doc.get_data",
         "crm.api.doc.get_linked_docs_of_document", "crm.api.doc.add_seen", "crm.api.doc.get_assigned_users",
         "crm.api.doc.get_quick_filters", "crm.api.doc.get_fields", "crm.api.doc.get_filterable_fields",
-        "crm.api.doc.get_sort_options", "crm.api.doc.get_group_by_fields",
+        "crm.api.doc.sort_options", "crm.api.doc.get_group_by_fields",
         "crm.fcrm.doctype.crm_fields_layout.crm_fields_layout.get_fields_layout",
         "crm.fcrm.doctype.crm_fields_layout.crm_fields_layout.get_sidepanel_sections",
     }
