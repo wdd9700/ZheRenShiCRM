@@ -375,3 +375,15 @@ tower在源码/接入审clean后明确授权导出。本轮构建产物测试通
 manifest明确parent2f92、commonUI95e5ce6/integration0efd1fc、来源receipt82d57798、static receipt6f87b250、未部署/HTTPS目标短验待做，不复用旧2f92 digest冒充新包。原181容器/136卷、daemon/mainlock六guard保持，无新资源；唯一新增测试probe与其两卷来自此前build验证，退出0并保留。所有本轮环境任务已结束，第一Ubuntu已明确ENV RELEASED给tower/M9，无后台。
 
 新包与201URL receipt已直接交M17部署owner，部署必须按tower后续窗口与M43独审新工具执行以保HTTPS/socket overlay；原242161仅归档verifier出处，不冒称仍是未修改部署工具。M37本轮无SSH/上传/目标服务器操作，本地未启浏览器/站点；M17部署后由Terra在真实HTTPS仅通知/相关常用入口短验，未验前不宣全站汉化或本轮目标UI通过。原默认zh/显式用户语言优先和2f92既有限制继续保留，不为本轮再次改DB/重矩阵。
+
+## Filter后态补修与临时只读失败分类集中准备
+
+按tower后续授权恢复M37，当前线上基底35d0/config310b，不重放原common-ui或full43apply。M42已审 `3bcad3233cf674a145d47cbe3c927ff9eb432743` 仅Filter已部署后态4a502→82da91和catalog f07c→7f305；旧三SFC after保持。独立`apply_filter_label_delta.py`核35d0前驱，离线仅唯一逆转既有Check显示行并核原upstream2151，再调用M42已审transform生成最终82da；在实际bench仅写Filter/catalog两个明确目标，全部旧key值保持。未知源/临时冲突/重复拒绝，替换失败尝试回滚原字节。已从存档35d0 tar抽原字节做3项定向测试PASS，不以原apply重套已patch文件。
+
+真实两次leads→筛选字段→任务都出现ACCESS_UNCONFIRMED，已有get_data499且无403；**根因未明，499不当权限失败证据**。M24作者实现临时默认关闭分类诊断，冻结 `d3e68f845d2bd71cbd375900ade70b9f3116916f` 待独审。M37从既有35d0受证归档只取三件公开源直接交作者：request752fdeb/frappeRequest83e4b44/ViewControls14383fb；根`deploy/.runtime/public-request-chain-35d0b0bd`，receipt6584a603c15a82760191fac0c06d5232cbe38226f54263b7a75eb227cd5304f7，无线上查询/环境操作。
+
+本轮集中入口`prepare_concentrated_ui.py`/`Dockerfile.concentrated-ui`显式FROM13层35d0，保现有全部业务/品牌/主题/Framework/request守卫，仅M42两目标与M24四目标有界after。生成诊断四payload时从已知未patch公开utils源（request752f/frappeRequest5461）运行作者`source_edits.transform`并核最终manifest.after，另外两resources直接精确payload；不在运行镜像逆变换/重apply43。full43manifest只允许预定四条变化，其他39条字典相等，所有最终payload/source/hash都有receipt。`verify_read_diagnostic.py`check/apply/verify守护四部署before、回滚与最终after，不新增目标。
+
+诊断源码默认关，prepare未显式flag时`diagnostics_enabled=false`；只有`--enable-read-failure-diagnostics`把冻结receipt设true，构建Vite进程`VITE_CRM_READ_FAILURE_DIAGNOSTICS=1`启用，不是运行containerenv/URL/storage开关。tower要求此次审后诊断候选显式1。分类只固定枚举/布尔/状态/耗时桶，WeakMap首条内存码由现有安全边界DOM展示，无message/stack/params/URL/身份，无外发/持久，原error/请求/拒绝状态及调用次数不变。M24负责采证后移除开关及四目标代码，按原四前驱恢复同时保M42新翻译/其他overlay；先off重建可停止采集/显示但不等于代码移除，不能整个回滚旧镜像丢新overlay。
+
+当前仅源码接入准备，M24诊断独审前不build，不部署/浏览器/本地站点，不重326/权限矩阵；M43 HTTPS/OTA运维工具不改不覆盖。后续必须一次集中标准build与受影响实际产物定向，真实诊断码/根因尚无，不能宣修复导航失败。
