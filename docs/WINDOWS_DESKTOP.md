@@ -2,7 +2,7 @@
 
 ## 状态与决策
 
-2026-11-09：既有安全壳/两版NSIS工件保留；Ed25519核心与坏缓存修复已获seq140 clean。**已按明确授权在独占ACL本机专用目录生成正式Ed25519密钥，公开根已固定但OTA仍disabled；没有签发生产manifest、没有启用渠道或猜定直连HTTPS地址。现有EXE未重包，尚不含新代码/公钥，实际GUI安装/覆盖保数据仍因工具缺失未验。** 缺 Windows Authenticode 证书不再被当作应用签名OTA必要前置，Windows未知发布者/SmartScreen边界仍存在。
+2026-11-10：真实 **1.0.2** 已一次标准NSIS构建，包含已审Ed25519/坏缓存修复、正式固定公钥、`https://8.133.190.46` 新profile默认入口及同源OTA feed。真实sequence1清单已由本机正式CLI签发并验证，公开三工件正交M17发布（服务端下载回验结果见末节）。**当前可直接交付本机EXE；实际GUI安装/覆盖保数据仍未验，Ed25519并非Windows公信代码签名，仍显示未知发布者/SmartScreen边界。** 旧1.0.0/1.0.1原字节保留不覆盖；历史未就绪记录按下文日期保留，不代表当前产物状态。
 
 - 用户明确要求真实 EXE、覆盖升级保留客户端数据、预留 OTA，Windows 优先；继续复用团队集中 CRM Web，不新增本地业务数据库。服务端数据、权限和升级归服务端流程，不由安装器迁移。
 - 暂选 Electron **45.2.3** + electron-builder **26.18.0** + electron-updater **6.8.11**，Node **22.20.0** / npm **11.6.3**。官方 registry 的 engines 已核，精确版本及 integrity 锁在 `deploy/windows/desktop/package-lock.json`。Edge PWA 不能交付独立 NSIS EXE；Tauri 会增加当前未验证的 Rust/WebView2 构建链，暂不采用。Electron 可替换但体积与升级成本较高。
@@ -96,8 +96,8 @@ node scripts/inspect-artifacts.cjs
 
 - **Ed25519 应用签名**：证明更新清单及安装包是固定私钥持有者授权；不需要先购买 Windows 代码签名证书。
 - **Authenticode/SmartScreen**：Windows 认可的发布者身份、系统警告/信誉属于另一层。Ed25519 成功不会把 EXE 变成公信 Windows 已签文件，仍可能显示未知发布者。不能关闭系统保护来冒充已认证。
-- 当前 `release/ota-policy.json` 固定正式Ed25519公钥/keyId，但仍 `enabled:false`、没有feedUrl；可信HTTPS OTA托管尚未上线，不启用渠道。测试密钥从未写入正式policy。Web服务升级、CRM HTTPS入口、EXE OTA三者独立。
-- **此前表中四个 EXE 属于核心83aaccd检查点，不含本轮新增 Ed25519/固定HTTPS源代码；保留原字节，不把旧包说成新功能已打包。** 等本轮代码独审及真实 HTTPS 入口就绪后统一最终构建，不逐项重复打包。
+- 2026-11-09正式公钥固定阶段为disabled/无feed，2026-11-10经真实HTTPS入口证据后启用固定feed `https://8.133.190.46/updates/windows/`，真实工件与发布回验证据见末节。测试密钥从未写入正式policy。Web服务升级、CRM HTTPS入口、EXE OTA三者独立。
+- 旧四个EXE属于核心83aaccd检查点，不含Ed25519/固定HTTPS代码；原字节保留。新1.0.2才包含已审新代码/正式公钥与实际入口，不能用旧包认证新能力。
 
 ### 推荐：pinned-key-ed25519
 
@@ -288,3 +288,21 @@ M17直交真实可信 origin **`https://8.133.190.46`**：Windows系统信任链
 顺序：本次配置定向审定 → 一次标准构建真实1.0.2 → 已审本机CLI签发sequence1清单（真实包hash/size） → M17先发布不可变EXE，再配对manifest+64Bsig → Windows正常HTTPS重新下载核实际字节、固定公钥签名和包size/hash。1.0.2客户端对同版清单显示current，不把同版伪造成新升级；旧不含公钥的安装器仍需可信人工分发新安装器。生产私钥只在本机保护目录供CLI使用，绝不上传。
 
 本轮仅配置/package根版本/检查脚本差异需要定向审查；Ed25519和坏缓存已审核心不变，不重未变大矩阵。GUI实际安装/覆盖保数据仍未验，不能据HTTPS/API或工件验证伪称通过，但会明确交付真实可用安装包路径/版本/摘要，不因GUIblock隐藏EXE。
+
+### 1.0.2真实构建及本机签发结果
+
+冻结源码/config `3f3be01`；src/core仍为已审Ed25519与seq140坏缓存修复，不修改身份或依赖。定向 `connection-policy.test.cjs` 3/3 PASS，root-only lock版本深等断言PASS，配置/schema与inspection语法/diffcheck PASS，未重未变大矩阵。
+
+一次标准命令实际exit0：`npm run dist --prefix deploy/windows/desktop -- --config.electronDist=P:/CRM/.tower/worktrees/wt-41/deploy/windows/desktop/.validation/electron-v45.2.3-win32-x64.zip`。原始官方zip SHA256再次核对相等，版本45.2.3不变。真实NSIS per-user x64、自有图标、ASAR源14件逐字节、HTTPS/OTA内置policy与源相等、fuses与Electron/Chromium许可证均inspection PASS；完整receipt保存在 `.validation/artifact-inspection-1.0.2.json`。`node scripts/inspect-artifacts.cjs --release` 可重算当前版本，不以旧4包匹配新源码。
+
+随后仅通过已审 `release-tools.cjs sign` 在本机保护密钥目录签发 **version1.0.2/sequence1** 的真实清单；未输出私钥、不传服务器、不签假更新。客户端固定公钥实际验证321字节清单及64字节签名PASS，真实包size/SHA256绑定PASS。Windows实际Authenticode状态为 **NotSigned**，不声称公信发布者签名。
+
+| 公开工件（工作区根下） | 字节 | SHA256 |
+|---|---:|---|
+| `deploy/windows/desktop/dist-1.0.2/PhilosopherStoneCRM-Setup-1.0.2-x64.exe` | 121677059 | `e9c766167e624e59b320e50acd92dff327e0d1c10c42a8f6a08cbaa30e369bca` |
+| `deploy/windows/desktop/.validation/release-1.0.2-seq1/manifest.json` | 321 | `4dbb0ad8052d779d32a740da60a35228103308abd4380379ce17d289428fbdb3` |
+| `deploy/windows/desktop/.validation/release-1.0.2-seq1/manifest.sig` | 64 | `3383cd48e9c3ba9889402c40f9c5c9d1cc1e3b50be078429da3391d35714d670` |
+
+**直接交付EXE绝对路径：** `P:\CRM\.tower\worktrees\wt-41\deploy\windows\desktop\dist-1.0.2\PhilosopherStoneCRM-Setup-1.0.2-x64.exe`，同目录有 `.exe.sha256`。不隐藏工件，也不把构建通过说成GUI安装已验；新profile首次使用内置真实HTTPS、无需运维密钥/本机隧道，已有profile仍需明确选择/保存新入口后重登，不删除旧origin资料。
+
+已直接向M17交接仅上述三公开工件绝对路径/大小/摘要/公钥合同；M17用其已授权传输发布，本worker没有拿运维私钥。发布与Windows下载回验结果后补，未收到真实服务端证据前不称OTA分发成功。
