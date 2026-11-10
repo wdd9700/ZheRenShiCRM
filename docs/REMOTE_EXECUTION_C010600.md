@@ -548,3 +548,21 @@ M43 `3ec8f0919062e33084918ffdef080cb1dbda490c` 获seq144限定clean/merge后，�
 审定service/timer已安装，systemd-analyze verify通过；timer active/enabled，第一次renew service **Result=success / ExecMainStatus=0**，manage check0，剩余至少48小时、服务leaf匹配。初次next为11:19:51 CST（仅当时快照，之后按每小时17分加抖动执行）。无邮箱登记没有CA联系/邮箱提醒，运营需每日查看check退出码/failed unit或接已有监控，不能宣永不失败；本轮未另建告警平台。短命Certbot容器仅自动rm自身，原卷未动。
 
 服务保持常驻。已立即向tower与M41直交可信origin/证书/正常登录与认证socket证据；M41将绑定真实HTTPS，真实签名安装包尚待其交付，不提前发布OTA。Terra后续仅简短直HTTPS检查主要入口。原始证据在ignored `m17-https-{staging,production,activate}.stdout.log`、`m17-public-https-verify.stdout.log`、`m17-https-final-docs.stdout.log`；均不含私钥/密码/cookie值。正式入口 `/login`、`/crm`、`/team-activities`、`/team-schedule`。
+
+## 21. Windows 1.0.2 签名静态交付发布（2026-11-10）
+
+M41 精确审定tip `d8139bfdfd2aa935783c35d0ad32b5a553c3842b` 获seq145静态发布/人工交付clean，整mission GUI hold不作绕过。本机只读三公开工件，先核bytes/SHA与固定SPKI公钥Ed25519精确manifest验签通过：keyId `746b9e5a91bea9de29f8eb061a2536e7`，manifest format philosopher-crm-ota-v1/version1.0.2/sequence1/win32/x64；公钥 `MCowBQYDK2VwAyEAql0KJJbJPvweE0CtfXkTxUoHCss7pJHF6i566RZnSL4=`。没有读取/上传签名私钥或客户资料。
+
+三件经独立 `/home/dev/c1110-windows-1.0.2-seq1` 上传（约18秒），传前/传后三SHA相等，随后按exe先、配对manifest/sig顺序复制到全新root-owned `/var/lib/crm-public/releases/1.0.2-seq1/updates/windows`：
+
+| 文件 | bytes | SHA256 |
+|---|---:|---|
+| PhilosopherStoneCRM-Setup-1.0.2-x64.exe | 121677059 | e9c766167e624e59b320e50acd92dff327e0d1c10c42a8f6a08cbaa30e369bca |
+| manifest.json | 321 | 4dbb0ad8052d779d32a740da60a35228103308abd4380379ce17d289428fbdb3 |
+| manifest.sig | 64 | 3383cd48e9c3ba9889402c40f9c5c9d1cc1e3b50be078429da3391d35714d670 |
+
+此前静态root不存在，因此无旧exe/快照覆盖；父目录0755、文件0644且root owner，无group/world写，只包含三文件，不含任意文件symlink。完整快照核SHA后通过同文件系统临时链接→os.replace原子切换current，未重载/重部署CRM或重新签证。静态白名单现有Nginx配置直接生效，无目录浏览、非白名单404，POST拒绝；不把静态发布当客户端安装成功。
+
+真实公开地址均为 `https://8.133.190.46/updates/windows/` 加上述文件名。Windows系统正常信任、Accept-Encoding identity逐件GET/HEAD均200，URL不变无重定向、无Content-Encoding、Content-Length精确；exe完整121,677,059B流式下载SHA与表一致（约286.8秒），一年immutable；manifest/sig完整原字节SHA一致、Cache-Control no-store，从真实HTTPS下载字节再次Ed25519验签通过。首轮180秒exe下载预算不足超时，未谎报SHA完成；第二次900秒预算完整运行约287秒exit0，不涉及重复发布。目录/非白名单404，POST拒绝。原始输出ignored `m17-public-release-verify.stdout.log`，三URL与证据已直接交tower/M41供其独立回验。
+
+这仅证明可信静态供应链与人工安装包交付可用；**不宣GUI安装、未知发布者提示消除或真实自动升级成功**。安装器本体Authenticode NotSigned，Ed25519绑定不能冒充Windows发行者签名。未读/上传私钥、不重签证/CRM/数据库/权限矩阵；服务保持，后续客户端是否启用OTA按M41已审策略与主控交付结论，不由M17静态发布自行扩大。
