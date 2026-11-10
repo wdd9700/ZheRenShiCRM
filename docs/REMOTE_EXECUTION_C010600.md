@@ -578,3 +578,11 @@ M41 精确审定tip `d8139bfdfd2aa935783c35d0ad32b5a553c3842b` 获seq145静态�
 公网HTTPS11重点静态资源bytes/SHA等冻结receipt，新入口 `index-DMxJXgQL.js` SHA `496b8da008d0cc5de5ff8c8203f4584550b1e1e7656e54e557c0618a0c64c85b`。诊断实际被分块在 `session-DCdxP5aX.js`，26,313B/SHA `770ef3c3900602326e131c51eaa933bc01e35b5192166e1e000a7736586ad9d0`，公网读回与201URLreceipt相同且包含D020102。最初局部检查误断言该字串应在入口JS而失败，核明正确chunk后通过；没有修改候选或放宽守卫。此是显式diagnostics1产物核，不冒充已采真实失败码。
 
 已立即通知tower/Terra `https://8.133.190.46` 可用时点，M17不登录复现任务、不写业务；Terra仅一次正常流程采安全边界D020102，M24负责采后移除四目标诊断代码/开关并保新筛选中文，不能整体回滚35d0丢修复。原始输出ignored `m17-59b37-{before,upgrade,after}.stdout.log`；服务常驻，无额外部署/权限或OTA GUI成功宣称。
+
+### 22.1 seq150 锁页记录点修正版替换（仍为临时诊断）
+
+主控批准3eee6e2+原3bc/d1c构建的adddbb候选，仅将首码记录移到真实failed锁页分支，不是任务根因修复。index `sha256:adddbb57d809f1e426b3396b99d8f797a6fd9b640ec3f27eb2b0abc7fd9624c0`，config `sha256:01971b83b27449e13e937c1e0518b9b0c18b466de64f3edc3e0a3d6a2322fb46`，新staging `/home/dev/c1110-candidate-adddbb/candidate-release`。四件传输SHA匹配：tar1,557,856,256B `fb5e690c0b89c6557563504fd7c3830dbead4ea6952eaf56fc4205cba0073564`；release `741e1940f232dcced13c4a524c13ab81252bc835978cb6484311ee2e7aa34b5f`；16层清单 `8e89b5819c8784f807297bdb4ac829600750694fc4ffbef365447e48d833695e`；manifest `f58b2c47f3da9303899afb39dd9e94e6ddebac6ef4b28de66accd55414928e16`。
+
+保存本次before后沿相同已审HTTPS保留工具正常image-only更新，真实exit0约134秒；标准新四件 `20261110_160649-crm_localhost` 可读。最终ready/锁01971，六应用同config运行、backend/frontend healthy，DB/双Redis健康；无install/migrate/改角色/删卷/业务写。六类完整doc摘要及五app集合与本次before逐字全等。TLS/overlay/timer check0，OTA1.0.2 manifest/signature原SHA未变。
+
+新公网index-C0DkAEDU.js SHA `01a7e9ed53b344b935c69d8b6ba9585a6228616902d9a72c34440aafb88829c1`，11重点资源及session-DJNRb72_.js均HTTPS200、bytes/SHA匹配冻结receipt；后者26,406B SHA `23cd59227bf09f19e5047fc517a0187ed44157da385a829b4985bbb3c4861021`，D020102启用产物已核。已立即通知tower/Terra可在真实HTTPS一次正常流程采首码后退出，M17不自行复现任务。采后仍由M24修因/移除四诊断代码保Filter/catalog，不能整体回旧35d0。原始输出ignored `m17-adddbb-{before,upgrade,after}.stdout.log`；服务常驻，无后台或额外矩阵。
