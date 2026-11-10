@@ -387,3 +387,9 @@ manifest明确parent2f92、commonUI95e5ce6/integration0efd1fc、来源receipt82d
 诊断源码默认关，prepare未显式flag时`diagnostics_enabled=false`；只有`--enable-read-failure-diagnostics`把冻结receipt设true，构建Vite进程`VITE_CRM_READ_FAILURE_DIAGNOSTICS=1`启用，不是运行containerenv/URL/storage开关。tower要求此次审后诊断候选显式1。分类只固定枚举/布尔/状态/耗时桶，WeakMap首条内存码由现有安全边界DOM展示，无message/stack/params/URL/身份，无外发/持久，原error/请求/拒绝状态及调用次数不变。M24负责采证后移除开关及四目标代码，按原四前驱恢复同时保M42新翻译/其他overlay；先off重建可停止采集/显示但不等于代码移除，不能整个回滚旧镜像丢新overlay。
 
 当前仅源码接入准备，M24诊断独审前不build，不部署/浏览器/本地站点，不重326/权限矩阵；M43 HTTPS/OTA运维工具不改不覆盖。后续必须一次集中标准build与受影响实际产物定向，真实诊断码/根因尚无，不能宣修复导航失败。
+
+### 集中准备的离线验证与诊断归属待修
+
+准备接入提交 `1813b7d`：M42 Filter后态增量独立3tests PASS；从实际35d0归档四诊断前驱+Filter/catalog组合check/apply/verify的2tests PASS，原三commonSFC和未知源零写保持。旧诊断d3e68临时context `deploy/.runtime/concentrated-ui-fe87f705aca74bd2bc2ca625a1c37be3` receipt `139f944397eb4ae89a6120af31791bd4b23b2a4c8a0f0ec3be5ec3d349d98b26` 仅用于离线pre-review检查，显式enabled=true，**未构建/上线**。Windows既有Node22.20有`node:module.stripTypeScriptTypes`，未安装新依赖；实际镜像工具链仍须后继真实检查。
+
+Sol诊断审seq147指出：仅比较generation会把已退休创建epoch的延迟请求错误标current，M24正按tower仅修诊断归属联合epoch（不改安全行为）并更新after。M37明确不以d3e68旧tip构建；等新tip/after窄审后重新冻结正式集中context，旧记录保留不擦除。到目前没有WSL/HTTP/浏览器/部署操作，没有真实诊断码或根因结论，不增加额外矩阵。
