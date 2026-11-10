@@ -479,3 +479,43 @@ M44主分支request.py原0a654aae→3c7fa425，只有`crm.api.doc.get_sort_optio
 新增独立`prepare_final_navigation.py`/`Dockerfile.final-navigation`/`verify_final_navigation.py`/`check_final_navigation.py`：有限COPY仅Filter补丁/新catalog、M44公开原前后输入和品牌前态，以及集成guard。原35d0全继承guard先过，最后仅Filter/catalog及request唯一后态override；原四clean source SHA、源码/构建JS无D020102/readFailureCode等临时标记守卫，原主题/rail/品牌/login/accessversion/Framework映射不变。清理原43生产零diff证据记receipt但**不COPY旧full43apply**。M43 HTTPS/OTA脚本不碰。
 
 当前仅有限接入/离线合同准备，冻结后交集中窄审；用户持续限定第一Ubunturoot授权覆盖最终修复/清理构建，但不提前build/上线。相关测试保M44普通Sales精确方法允许、旧错名/相似/写方法拒绝、私域/403保护；不重无关矩阵。真正任务正常路径需M17统一更新后Terra验证，未测前不宣问题收尾。
+
+
+### 最终无诊断候选：唯一标准构建与同镜像定向续验
+
+接入 `058693bd4cea13789a78f78c1cbfea353b2594c5` 经Sol精确审定clean/hold并准集中构建，主控已授权成功后直接归档交M17。冻结context `deploy/.runtime/final-navigation-9043bb5dc09a4abc9d562c7bcf2ef4d2`，receipt **`6881112756fda3df1ff66766fbf5af33867217b9a96142489d39ba44c668be62`**；来源M44 `83d1cd4`、M24 cleanup `5c2470e`、M42 `3bcad32`，FROM原无诊断35d0，不叠临时16层adddbb57。
+
+在用户持续限定第一实验Ubuntu root授权下，唯一标准build `bash-mjyhuzrt` / Windows PID23260实际exit0，原35d0继承source/asset、Filter/catalog增量、单一sort端点更正和无诊断守卫全过。首runner随后在docker create之前因单个`-c`参数超Linux参数长度限制报`OSError: [Errno 7] Argument list too long: 'docker'`，尚无probe创建；不是产品回归失败。旧红报告 `deploy/.runtime/final-navigation-build-f2a58ef484334e26a500949502bfb19d/result.json` 保留，唯一standard-build日志SHA `4d34eeecdec36d783c1048cfe6b2feab56aba0a91b5c4e8b2052f4083a91a55f`，原资源finally守卫保持。没有为此重build、改产品或重冻输入。
+
+仅ignored runner把完全相同测试body无损zlib压缩并以短bootstrap解压执行，续验同一已build镜像。`bash-yrcan794` / Windows PID35216 **45.280秒exit0**：实际导入最终`apps/team_access/team_access/request.py`执行M44原有focused回归，v1/v2/cmd精确sort_options允许，旧错名/未知/相似/写方法及未授权私域Task读写仍拒、无mutation；真实上游sort_options元数据函数返回范围通过。Filter实际SFC编译/runtime（固定标签、自定义标签、原值及其他Doctype）、清理后原active敏感读失败分类 **1/1 PASS**（真403保护未绕过）、locale与两次最终完整source/asset/无临时标记守卫全部PASS。没有站点/DB、浏览器、线上或326/权限恢复全矩阵。
+
+| 最终候选身份 | 值 |
+|---|---|
+| tag | `crm-local:final-navigation-9043bb5dc09a4abc9d562c7bcf2ef4d2` |
+| index | `sha256:e14b6cce43cf861f92ffaf4f55935434897ed156efea04f8eacc56311e39a4dd` |
+| amd64 manifest | `sha256:732034ffab2cb7b8d6aed7a65c32e79d3fb2cb2baea252a8a30d6cd3832435a8` |
+| config | `sha256:c2601699d018675f1e2fc87a13c7fa4963090182eccfc70a8e51ed5ccdfbe062` |
+| layers | **16**，前13严格等无诊断35d0，完整Config仅新增navigation来源labels；无诊断启用env/临时labels |
+
+最终request SHA **`2c2af77470977b879b4fc8ade72f5b3eca91bb0bba7d55dcc7eef8c094a67505`**，仅将品牌bd6后态白名单错名纠正，access.js完整query `7d26cdb3a226da9094e9e2f7ed5b1aadef2790de46fc0c3d47fea244bee043d6`保持。四clean请求源SHA分别为accountBoundary `a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421`、resources `5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80`、request.ts `752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b`、frappeRequest.ts `83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9`。它们通过原基底直接继承，最终JS无D020102/readFailureCode，源码无诊断开关及采码函数，不把关闭开关冒充移除。
+
+成功结果目录 `deploy/.runtime/final-navigation-resume-a9380bbe607c4bf6a91598fa8df39296/`：`result.json` SHA **`c9f3e805283c6a6f1c187db2286243d244d712f698403941bd9ce07f7021bad2`**；`final-navigation-artifact.log` SHA `3ae0afded7edc4ae3a613a9c85e9154434b27e58caf731287801f6d17ebf8f3a`；`static-receipt.json` SHA **`9379552d2048a6dd8443b0ed457ca9e5632e054fef21929e72d27c2241af4b3a`**，完整201动态URL/78HTML引用/11重点asset、diagnostics_present=false及sort后态。新入口`index-DO6EgA-F.js` SHA `6b26b029487f7184822a8bd96d2bc43c1cff1bbfd814e767ee11eec6ef202019`；独立主题、日程、access及品牌资产守卫保持。
+
+原183容器/140卷、daemon/mainlock六guard保持；仅新增none/restartno probe `249c258fc94b258aa002de4797ede7b00aff6210a0ee0146c304864c215a09ec`退出0非OOM及两自有匿名卷保留。没有修改组/socket/defaultuser/daemon配置或第二Ubuntu，M43 HTTPS/OTA脚本未改。以下归档只save此已测image，不重build。真实任务正常导航仍需M17更新后由Terra验证；构建与受控定向回归不是用户UI验收，不提前声明故障收尾。
+
+
+### 最终无诊断包归档交M17与环境释放
+
+同一已测镜像仅save，`bash-6tl5dtml` / Windows PID56120 **113.012秒exit0**。原242161 archive verifier SHA `ac13f1f9dfecc21eb6cc6df06ae1471f0d4aa20645a9eab9906c478b992b1b4a` 未变，完整blob/index→唯一linux/amd64 manifest→config/逐gzip解压16个diff_id均PASS，归档完整Config与实际受测inspect等值。原184容器/142卷、daemon/mainlock六guard保持，导出无新资源，现无后台，第一Ubuntu明确 **ENV RELEASED**；root限定授权没有扩为组/socket/defaultuser/daemon配置或第二Ubuntu，也没有任何线上操作。
+
+冻结目录：`P:/CRM/.tower/worktrees/wt-37/deploy/.runtime/final-navigation-release-e14b6cce43cf/`
+
+| 文件 | bytes / SHA256 |
+|---|---|
+| `image.tar` | **1557808128 bytes** / `0a91cbcc298ef599de35f46b0ab09ab696bc389fc0697c6d1feedaf163441679` |
+| `release.env` | 七字段 / `b4b2cbcb5292da32561c63e4ab0289a3c274524e8a799fbc79f7569bd10c2818` |
+| `image-rootfs-layers.txt` | 16有序diff_id / `fb75287484298a947b53d7d2f3b8822fdeae478e8607ac6da3a4e317a2fda083` |
+| `candidate-manifest.json` | `488476adbd04d049ae8c9d7652cbf1fc87f5b8f2c4ee73d31a3b011d39ced404` |
+| `export-result.json` | `4da87b2d1fa95fb6ca996170886e89c45b3acfbdf83b30254be0fb8c227dac9c` |
+
+manifest明确format `crm-final-navigation-diagnostic-removed-v1`、精确83d1/5c247/3bc/058来源及688111 receipt，状态为build-tested、实际task UI待测、not-deployed；team_access label的531基底来源未冒充最终request字节，实际品牌query+端点唯一delta单独记录。精确包/七字段release/201URL receipt已直接交tower和M17，M24也已收到四clean原SHA及真403保护回归证据。M17仍须保持M43 HTTPS/OTA工具后态并统一更新，Terra随后验证真实正常任务导航和线上临时代码不再出现；M37不提前完成导航故障任务或宣告真实UI已修。当前没有需要新增用户决策的卡点，后继采用已授限定流程，不借归档权限另启站点或重矩阵。
