@@ -1,0 +1,25 @@
+FROM crm-local:common-ui-3c8a0ee657aa461d8d4f617807a5bf10
+USER frappe
+WORKDIR /home/frappe/frappe-bench
+COPY --chown=frappe:frappe . /home/frappe/final-navigation
+RUN --network=none env/bin/python -B /home/frappe/final-navigation/deploy/verify_final_navigation.py snapshot && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/apply_filter_label_delta.py apps/crm /home/frappe/final-navigation/frontend-patches --check && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/apply_filter_label_delta.py apps/crm /home/frappe/final-navigation/frontend-patches && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/apply_filter_label_delta.py apps/crm /home/frappe/final-navigation/frontend-patches --verify && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/apply_sort_endpoint_delta.py . /home/frappe/final-navigation --check && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/apply_sort_endpoint_delta.py . /home/frappe/final-navigation && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/apply_sort_endpoint_delta.py . /home/frappe/final-navigation --verify && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/verify_final_navigation.py sources && \
+    cp -a assets/. sites/assets/ && \
+    bench build --app crm && \
+    cp -a sites/assets/. assets/ && \
+    env/bin/python -B /home/frappe/final-navigation/deploy/verify_final_navigation.py assets
+ARG FILTER_LABEL_REVISION
+ARG SORT_ENDPOINT_REVISION
+ARG DIAGNOSTIC_CLEANUP_REVISION
+ARG FINAL_NAVIGATION_REVISION
+LABEL crm.navigation.filter-label.revision="${FILTER_LABEL_REVISION}" \
+      crm.navigation.sort-endpoint.revision="${SORT_ENDPOINT_REVISION}" \
+      crm.navigation.diagnostic-cleanup.revision="${DIAGNOSTIC_CLEANUP_REVISION}" \
+      crm.navigation.integration.revision="${FINAL_NAVIGATION_REVISION}" \
+      crm.navigation.base="sha256:35d0b0bd36ae08fa9d434b4275cb50bc4e202607c5f8ad95a34e6441c4922101"

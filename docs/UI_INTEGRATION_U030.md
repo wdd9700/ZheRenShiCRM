@@ -467,3 +467,15 @@ context `deploy/.runtime/concentrated-ui-d3bb22dfc1d54da3b3d0c7dce2ddcaa8`，rec
 | `export-result.json` | `4f169c68137284170a3c5a525208a93dbeabc844d043727ed6434d2a6cfebecd` |
 
 manifest含精确3eee/3bc/d1c与source receipt5a392a、temporary/显式1及rootcause未知/未部署限制，包与201URLreceipt已直接交tower/M17。此替代旧59b37提前catch采码点，不改变原安全锁页行为，也不是任务修复验收；后续真实采码仍须经过真正lock失败。采证后M24移除临时四源码/开关、保Filter82da/catalog7f305及其余overlay责任不变，off重建仅止采不当移除。M37本轮不部署/浏览器或重复大矩阵。
+
+## 最终sort_options根因修复与诊断清理集中准备
+
+主控已确认真正锁页链为任务`crm.api.doc.sort_options`请求403：team_access受限元数据白名单误写`get_sort_options`。M44 `83d1cd4bc8311e7dda49c1df518169be9d4556a9` seq152 clean/merge已合，唯一端点字符串纠正，不扩大未知/写方法或放宽真403终锁。M24清理`5c2470ef451d9c0d19905fe41ef4ccb2dd28c799` seq151 clean/hold准最终组合；M37独立Gitdiff核生产payload/source_edits/manifest/apply对9403全零diff，43合同回原38修改5guard，临时标记及stripAPI依赖删除。
+
+最终构建准备**FROM无诊断35d0**而非当前16层诊断镜像：四请求链字节直接等clean after，不需COPY诊断或再次生成utils；不传诊断env，无临时诊断启用labels，基底本身没有诊断工具目录。M42已审3bc Filter82da/catalog7f305继续严格部署后态增量。旧临时候选/归档/测试留证不删，不表示继续把其诊断代码带入最终产物。
+
+M44主分支request.py原0a654aae→3c7fa425，只有`crm.api.doc.get_sort_options`→`crm.api.doc.sort_options`一处；实际35d0已有品牌accessquery后态bd6ba3，不能整master文件复制。`apply_sort_endpoint_delta.py`核三方SHA及原upstream仅唯一字符串差异，然后只在bd6前态替换该一处并派生最终after，逆变换等原完整字节且保7d26query。不会改整个after_request/CSP/清洗或权限行为。
+
+新增独立`prepare_final_navigation.py`/`Dockerfile.final-navigation`/`verify_final_navigation.py`/`check_final_navigation.py`：有限COPY仅Filter补丁/新catalog、M44公开原前后输入和品牌前态，以及集成guard。原35d0全继承guard先过，最后仅Filter/catalog及request唯一后态override；原四clean source SHA、源码/构建JS无D020102/readFailureCode等临时标记守卫，原主题/rail/品牌/login/accessversion/Framework映射不变。清理原43生产零diff证据记receipt但**不COPY旧full43apply**。M43 HTTPS/OTA脚本不碰。
+
+当前仅有限接入/离线合同准备，冻结后交集中窄审；用户持续限定第一Ubunturoot授权覆盖最终修复/清理构建，但不提前build/上线。相关测试保M44普通Sales精确方法允许、旧错名/相似/写方法拒绝、私域/403保护；不重无关矩阵。真正任务正常路径需M17统一更新后Terra验证，未测前不宣问题收尾。
