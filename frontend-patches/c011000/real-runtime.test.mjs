@@ -717,7 +717,7 @@ test('temporary read diagnostics classify actual request parsing and resource ph
     await boundary.resume()
     const failures = []
     const originalFailed = boundary.failed
-    boundary.failed = (error, sensitive) => { failures.push({ name: error.name, sensitive }); return originalFailed(error, sensitive) }
+    boundary.failed = (error, sensitive, readContext) => { failures.push({ name: error.name, sensitive }); return originalFailed(error, sensitive, readContext) }
     const originalRecord = boundary.recordReadFailure
     boundary.recordReadFailure = (...args) => { failures.push({ phase: args[1], current: args[3] }); return originalRecord(...args) }
     config.resourceFetcher = requestModule.namespace.frappeRequest
@@ -731,8 +731,9 @@ test('temporary read diagnostics classify actual request parsing and resource ph
     await assert.rejects(pending, error => kind === 'permission' ? error.status === 403 && error.exc_type === 'PermissionError'
       : kind === 'abort' ? error.name === 'AbortError' : error === original)
     assert.equal(boundary.state, kind === 'abort' ? 'ACTIVE' : 'IDENTITY_REQUIRED', `${enabled}/${kind}/${JSON.stringify(failures)}`)
-    if (enabled) {
-      const phase = { fetch: 'FETCH', parsing: 'RESPONSE_PARSING', transform: 'TRANSFORM', success: 'ON_SUCCESS', permission: 'RESPONSE', abort: 'FETCH' }[kind]
+    if (enabled && kind === 'abort') assert.equal(boundary.diagnostic.readFailureCode, 'NONE')
+    else if (enabled) {
+      const phase = { fetch: 'FETCH', parsing: 'RESPONSE_PARSING', transform: 'TRANSFORM', success: 'ON_SUCCESS', permission: 'RESPONSE' }[kind]
       const code = boundary.diagnostic.readFailureCode
       assert.equal(code.split('/')[1], phase)
       assert.equal(code.split('/')[3], kind === 'permission' ? '403' : '0')

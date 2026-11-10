@@ -211,12 +211,12 @@ export function createResource(options, vm) {
       }
       return out.data
     } catch (error) {
-      accountBoundary.recordReadFailure(error, failurePhase, requestSignal, id === generation && (authAction || epoch === accountBoundary.epoch), started)
       if (id !== generation) {
         throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
       }
       if (error?.name === 'AbortError') throw error
-      handleError(error, errorFunctions)
+      handleError(error, errorFunctions, { phase: failurePhase, signal: requestSignal,
+        current: id === generation && (authAction || epoch === accountBoundary.epoch), started })
     } finally {
       if (id === generation) out.loading = false
     }
@@ -247,12 +247,12 @@ export function createResource(options, vm) {
     out.auto = options.auto
   }
 
-  function handleError(error, errorFunctions) {
+  function handleError(error, errorFunctions, readContext) {
     out.loading = false
     out.data = null
     out.previousData = null
     out.fetched = false
-    accountBoundary.failed(error, options.method === 'GET' || /(?:get_data|get_list|frappe.client.get)$/.test(options.url || ''))
+    accountBoundary.failed(error, options.method === 'GET' || /(?:get_data|get_list|frappe.client.get)$/.test(options.url || ''), readContext)
     out.error = error
     for (let fn of errorFunctions) {
       if (fn) {

@@ -247,11 +247,14 @@ export function createAccountBoundary(env) {
       : stage === 'MOUNT' ? 'MOUNT_EXCEPTION' : 'INITIALIZATION_EXCEPTION'
     lock('初始化失败，请重新确认登录。', code)
   }
-  function failed(error, sensitiveRead = false) {
+  function failed(error, sensitiveRead = false, readContext) {
     if (state === 'HYDRATING') return
     const status = error?.status || error?.response?.status
     if ((sensitiveRead && error?.exc_type !== 'DoesNotExistError') || [401, 403].includes(status) ||
         ['PermissionError', 'AuthenticationError', 'SessionExpired'].includes(error?.exc_type)) {
+      if (state !== 'IDENTITY_REQUIRED' && readContext?.current === true) {
+        recordReadFailure(error, readContext.phase, readContext.signal, true, readContext.started)
+      }
       lock('请求失败，无法确认当前数据访问权限。', 'ACCESS_UNCONFIRMED')
     }
   }

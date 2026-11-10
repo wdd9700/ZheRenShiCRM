@@ -230,8 +230,8 @@ M37只对35d0部署后态应用以下四目标精确delta，不能重套原43app
 
 | 目标（frontend/node_modules/frappe-ui/src/） | 35d0部署before SHA | 诊断after SHA |
 | --- | --- | --- |
-| resources/accountBoundary.js | a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421 | 096382c1a25a1a6cbab51f442216eaa4b8e60d2ff5a3ebb3be2a0b756b7bf9c1 |
-| resources/resources.js | 5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80 | 20c41d78ba89bf8d44586fba107eb6285365f0d5e1068a1bf38edeff3c0ff683 |
+| resources/accountBoundary.js | a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421 | f1bc6ff7cb401274313999b605bc740147b7071b27a0aa436b8cf158f46adbbd |
+| resources/resources.js | 5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80 | c5774aa5f9f3ca715b9ea4c1229fe1d4eaff8f600db080375ca2c5b44a00ad68 |
 | utils/request.ts | 752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b | 3058bab7efcea11d366d6ab08dec487f0f0b7501868d805500eea4f22001e61c |
 | utils/frappeRequest.ts | 83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9 | 2c78687c0a02fd2c57ab96bd929b234c1d810ad8f34dc161b421652d663a8e17 |
 
@@ -243,3 +243,12 @@ M37只对35d0部署后态应用以下四目标精确delta，不能重套原43app
 
 
 seq147 P2-1 回修仅诊断归属：current 改为 `id === generation && (authAction || epoch === accountBoundary.epoch)`。退休资源后发 fetch 即使自身 generation 最新也标 current0；login/logout 保留原 authAction 豁免，不重新定义其请求语义。原 assert/track/abort/failed 均不变，首条码仍不覆盖。新增实际 payload 对照先红（退休 epoch 首码current1），修后旧资源零transport、AbortError/ACTIVE/current0；当前新敏感读 TypeError 仍触发权限确认遮罩并进入 IDENTITY_REQUIRED，首码保留退休current0，不冒认当前首因。另核旧 login 在新epoch及终锁仍沿原豁免调用、有效 invocation 诊断current1；C011100历史PAGE_HIDDEN first-failure保留，不误要求覆写ACCESS_UNCONFIRMED。只运行受影响定向3/3 PASS（退休用例、既有active分类、实际request链off/on及explicitabort对照），未重跑全矩阵/构建/上线。本表仅resources after更新为20c41d…，其余三after/全部before不变，待新精确tip复审再交M37。
+
+
+## 59b37 一次实码后的最小记录点修正
+
+Terra 06:18:54.832UTC 正常任务导航出现 `C011100/READY/READY/ACCESS_UNCONFIRMED`、`D020100/READY/NONE`、`D020102/FETCH/AbortError/0/OTHER/0/0/LT1S`，随后按边界正常注销，无重试。该码current0，不能作为锁页原因。可证调用顺序是旧版本catch先记录，再检查旧generation/AbortError并直接拒绝；这两条分支都不会到handleError/failed。因此首码可被无关退休/旧generation异常占据，后来的真正锁页异常被first-only遮盖；现码不能区分退休epoch与旧generation，不能推出session/ACL或具体网络根因。
+
+本候选取代上文“任意catch首码”语义：resources只把原同字段上下文传给handleError→failed；failed原ACCESS_UNCONFIRMED条件实际成立、状态未终锁且上下文current=true时，才记录并立即执行原lock。没有新增字段/外发/存储，原敏感读/401/403/auth分类、HYDRATING早退、断言/track/abort/原Error均不变。退休/显式abort、不会锁页的普通读取及终锁后错误均不能占首码。当前非Abort、同generation且符合敏感读或认证错误的异常才可能是真正锁页失败；具体FETCH/解析/transform/callback形态仍待实际证据，不称导航修复。
+
+受影响定向3/3 PASS：实际payload退休后fetch零transport/ACTIVE/NONE，非敏感失败ACTIVE/NONE，然后当前敏感TypeError照常终锁并首码FETCH/TypeError/current1；后续auth失败不覆盖，旧login跨epoch仍原可调用而不锁/不占码。实际request off/on原6情形保留，explicitabort现在无锁/NONE，其他真实锁页情形同Error identity、403和阶段码不变、脱敏通过。没有重跑全矩阵/构建/部署。四目标合同仅boundary/resources after按当前表更新，utils及全部部署before不变；是否安排后继一次集中动作由主控决定，M42中文后态不动。临时诊断最终移除责任仍由M24承担，不能以本记录点修正冒称真实根因已修。
