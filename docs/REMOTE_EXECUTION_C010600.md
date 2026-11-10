@@ -524,3 +524,27 @@ M43 `3ec8f0919062e33084918ffdef080cb1dbda490c` 获seq144限定clean/merge后，�
 用户明确告知80/443已放行后，按主控续行授权只创建一个随机公开challenge文件并设0644，从Windows无代理直连 `http://8.133.190.46/.well-known/acme-challenge/<随机token>`；仍在TCP连接阶段20秒超时，没有取得HTTP响应。finally已仅删除本次探针，未循环探测。该次失败发生在后续命令之前，故没有将3ec8f09 staged manage安装成活动脚本、没有申请staging/production、没有激活443/overlay/timer或重部署35d0，原服务保持。原始失败输出在本会话agent420的task `bash-atu70h6l/output.log`。
 
 此事实不等于断言用户没有设置安全组，也不证明是哪条网络策略；最近已有服务器本机challenge200/0.0.0.0:80/INPUT ACCEPT事实可复用。需核放行规则确实绑定公网IP所在实例且入方向TCP80允许公众CA验证来源（通常0.0.0.0/0，仅80静态challenge与HTTPS跳转）、443允许期望用户来源，避免只改其他安全组或仅放客户端来源。没有云权限则报告，不关闭防火墙、扫端口或降公网HTTP登录；继续保持未签证/HTTPS不可用边界。
+
+## 20. 可信真实 IP HTTPS 已上线（2026-11-10）
+
+本轮用户再次确认云规则后，重新核Nginx active/nginx-t成功、80监听、主机INPUT ACCEPT、CRM pong。一次随机HTTP-01 challenge本机及Windows无代理公网均200且内容相等，删除仅本次探针；有界仅SYN/SYNACK头观察证实请求抵达主机，不捕获业务载荷。此前公网连接超时阻碍现已解除，未改云账户/防火墙/业务或重复镜像部署。
+
+将已审 `3ec8f0919062e33084918ffdef080cb1dbda490c` 的manage.py按精确字节安装到 `/usr/local/lib/crm-https/manage.py`，SHA256 `6023b2528645130569873a685ed5964a228cef44f13570602e36508b2b76695e`，旧文件root-only备份保留；原HTTPS保留trial仍为64daf948来源及§19所记SHA。无网preflight旧通过可复用，没有新pull/load。显式无邮箱登记，隔离staging一次成功后production一次成功，均使用固定官方config f0cfa005与其11层守卫；没有循环申请/force-renewal或容器host hook，未读取/输出证书私钥或账号秘密。
+
+生产证书公开信息：Let's Encrypt **YE1**，critical IP SAN **8.133.190.46**，`notBefore=2026-11-10 02:14:09 UTC`、`notAfter=2026-11-16 18:14:08 UTC`，寿命不超过160小时；SHA256 fingerprint `72:05:06:C1:6F:D4:6C:BD:2B:2F:45:53:AC:96:58:3B:40:2B:5D:B6:17:8D:FB:E2:10:97:FE:58:DC:C8:91:6B`。证书/私钥匹配、IP SAN、系统信任链、剩余有效期及实际服务leaf均由审定activate/check验证，Windows正常系统信任HTTPS亦通过，无-k/证书忽略。该leaf会正常续期轮换，客户端不固定本leaf。
+
+受控安装持久 `/etc/crm-https/{compose.yml,prepare_inner.py}`，合并Compose config --quiet成功，只重建backend/frontend，当次镜像模板严格守卫及内层nginx-t通过；原镜像35d0/config310b0d不变，其他应用/DB/双Redis未重建、无迁移/删卷。宿主nginx-t成功后activate443；ss最终22/80/443与127.0.0.1:8088，DB/Redis没有新增主机发布。80只challenge/固定HTTPS跳转，外来socket Origin403，错误Host策略保留。host_name/ssl_proxy及common回调备选均未设置，真实认证socket公网hairpin已可用，无需改公开配置或重启websocket。
+
+### 20.1 真实公网最小功能验证
+
+准确入口为 **`https://8.133.190.46`**，不再要求用户本机SSH/18088。用既有受保护普通Sales User凭据正常HTTPS登录，sid仅核属性：Secure、HttpOnly、SameSite=Lax，domain为公网host不含内部站点；身份正确。合法CSRF正常同值自有User.first_name保存200，保持语言/时区/密码不变；一次错误CSRF保存拒绝且没有业务写入。随后同cookie Engine.IO会话发正常Socket.IO `/crm.localhost` namespace连接，收到认证连接ack（不是仅101或匿名open），正常关闭本诊断transport并logout；cookie/token/密码值不输出。登录与跳转未出现内部/http降级URL。
+
+11重点公开资源从Windows直接HTTPS读取200、bytes/SHA全匹配35d0冻结receipt，含新index-DO9vnRFq、主题/品牌/中文/日程和完整access query。HTTP `/login`308到固定HTTPS；未发布 `/updates/windows/{manifest.json,manifest.sig}` 均404，OTA仍disabled，不造清单或签包。此为HTTP与身份/认证连通检查，不冒充Terra视觉确认或完整权限安全认证。
+
+业务最终只读：Lead11、Deal3、Organization5、Task7、Note13完整doc摘要与本轮既有before相同，五app集合不变。**Contact22数量未变但完整摘要不同**；限定只读metadata显示本轮唯一近期Contact修改时间11:14:19.477742，关联账号正是合成验收User，是正常同值User保存触发的Contact同步；不能称六类全部byte全等，也不反向伪造modified时间。没有删业务或改用户语言/时区，保留此测试夹具审计变化。
+
+### 20.2 自动续期与运维边界
+
+审定service/timer已安装，systemd-analyze verify通过；timer active/enabled，第一次renew service **Result=success / ExecMainStatus=0**，manage check0，剩余至少48小时、服务leaf匹配。初次next为11:19:51 CST（仅当时快照，之后按每小时17分加抖动执行）。无邮箱登记没有CA联系/邮箱提醒，运营需每日查看check退出码/failed unit或接已有监控，不能宣永不失败；本轮未另建告警平台。短命Certbot容器仅自动rm自身，原卷未动。
+
+服务保持常驻。已立即向tower与M41直交可信origin/证书/正常登录与认证socket证据；M41将绑定真实HTTPS，真实签名安装包尚待其交付，不提前发布OTA。Terra后续仅简短直HTTPS检查主要入口。原始证据在ignored `m17-https-{staging,production,activate}.stdout.log`、`m17-public-https-verify.stdout.log`、`m17-https-final-docs.stdout.log`；均不含私钥/密码/cookie值。正式入口 `/login`、`/crm`、`/team-activities`、`/team-schedule`。
