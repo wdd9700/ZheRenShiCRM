@@ -6,7 +6,7 @@ import { webcrypto } from 'node:crypto'
 
 const base = new URL('./payload/resources/', import.meta.url)
 
-async function fixture(identity = 'Sales A', identify, waitForIdentity = true) {
+async function fixture(identity = 'Sales A', identify, waitForIdentity = true, readFailureDiagnostics = false) {
   let cookie = 'user_id=misleading-cookie'
   let hidden = false
   const listeners = {}
@@ -18,9 +18,9 @@ async function fixture(identity = 'Sales A', identify, waitForIdentity = true) {
     crypto: webcrypto, cookie: () => cookie, hidden: () => hidden,
     cover: (...args) => covers.push(args), uncover: () => uncovered++,
     on: (type, fn) => { listeners[type] = fn },
-    broadcast: () => broadcasts++, identify: identify || (async () => identity),
+    broadcast: () => broadcasts++, identify: identify || (async () => identity), readFailureDiagnostics,
   }
-  const context = createContext({ __env: env, console, Event, AbortController, Uint32Array })
+  const context = createContext({ __env: env, console, Event, AbortController, Uint32Array, setTimeout, clearTimeout })
   const cache = new Map()
   function synthetic(id, values) {
     if (!cache.has(id)) cache.set(id, new SyntheticModule(Object.keys(values), function () {
@@ -720,4 +720,46 @@ test('ignored auto rejection is handled but published promise still rejects for 
     assert.equal(r.error.message, 'controlled auto failure: ' + failure)
     assert.equal(r.data, null)
   }
+})
+
+
+test('temporary diagnostic retired resource late fetch is not current and cannot mislabel a later sensitive failure', async () => {
+  const f = await fixture('Sales A', undefined, true, true)
+  let transports = 0
+  const failure = new TypeError('Synthetic current transport failure')
+  f.config.resourceFetcher = async () => { transports++; throw failure }
+  const retired = f.resources.createResource({ url: 'frappe.desk.search.search_link' })
+  const auth = f.resources.createResource({ url: 'login' })
+  const originalEpoch = f.boundary.epoch
+  f.boundary.setAdapter({ async refresh() { return { commit() {} } } })
+  f.boundary.pause()
+  await f.boundary.resume()
+  assert.equal(f.boundary.state, 'ACTIVE')
+  assert.ok(f.boundary.epoch > originalEpoch)
+  await assert.rejects(retired.fetch(), error => error.name === 'AbortError')
+  assert.equal(transports, 0)
+  assert.equal(f.boundary.state, 'ACTIVE')
+  const firstCode = f.boundary.diagnostic.readFailureCode
+  assert.equal(firstCode.split('/')[1], 'PREPARE')
+  assert.equal(firstCode.split('/')[2], 'AbortError')
+  assert.equal(firstCode.split('/')[6], '0')
+  const current = f.resources.createResource({ url: 'crm.api.doc.get_data' })
+  await assert.rejects(current.fetch(), error => error === failure)
+  assert.equal(transports, 1)
+  assert.equal(f.boundary.state, 'IDENTITY_REQUIRED')
+  assert.match(f.covers.at(-1)[0], /请求失败，无法确认当前数据访问权限/)
+  assert.equal(f.boundary.diagnostic.failure, 'PAGE_HIDDEN')
+  assert.equal(f.boundary.diagnostic.readFailureCode, firstCode)
+  await assert.rejects(auth.fetch(), error => error === failure)
+  assert.equal(transports, 2)
+
+  const a = await fixture('Sales A', undefined, true, true)
+  const login = a.resources.createResource({ url: 'login' })
+  a.boundary.setAdapter({ async refresh() { return { commit() {} } } })
+  a.boundary.pause()
+  await a.boundary.resume()
+  a.config.resourceFetcher = async () => { throw failure }
+  await assert.rejects(login.fetch(), error => error === failure)
+  assert.equal(a.boundary.state, 'ACTIVE')
+  assert.equal(a.boundary.diagnostic.readFailureCode.split('/')[6], '1')
 })

@@ -211,7 +211,7 @@ export function createResource(options, vm) {
       }
       return out.data
     } catch (error) {
-      accountBoundary.recordReadFailure(error, failurePhase, requestSignal, id === generation, started)
+      accountBoundary.recordReadFailure(error, failurePhase, requestSignal, id === generation && (authAction || epoch === accountBoundary.epoch), started)
       if (id !== generation) {
         throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
       }

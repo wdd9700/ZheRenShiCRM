@@ -231,7 +231,7 @@ M37只对35d0部署后态应用以下四目标精确delta，不能重套原43app
 | 目标（frontend/node_modules/frappe-ui/src/） | 35d0部署before SHA | 诊断after SHA |
 | --- | --- | --- |
 | resources/accountBoundary.js | a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421 | 096382c1a25a1a6cbab51f442216eaa4b8e60d2ff5a3ebb3be2a0b756b7bf9c1 |
-| resources/resources.js | 5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80 | 1b62f66bfa815d2ee2bd1d8b1a1fc596bfc90862480ed11ec65156091bce00c8 |
+| resources/resources.js | 5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80 | 20c41d78ba89bf8d44586fba107eb6285365f0d5e1068a1bf38edeff3c0ff683 |
 | utils/request.ts | 752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b | 3058bab7efcea11d366d6ab08dec487f0f0b7501868d805500eea4f22001e61c |
 | utils/frappeRequest.ts | 83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9 | 2c78687c0a02fd2c57ab96bd929b234c1d810ad8f34dc161b421652d663a8e17 |
 
@@ -240,3 +240,6 @@ M37只对35d0部署后态应用以下四目标精确delta，不能重套原43app
 新定向测试实际执行strict transformed request/frappeRequest、payload resources/boundary，VM只替换transport：开关off/on各6情形覆盖fetch原TypeError、response.json原SyntaxError、transform、onSuccess、HTTP403 PermissionError、显式abort。核原错误identity（退休abort保持原转换）、相同安全状态、first-only、status/exc/aborted/current字段与所有观察值无合成secret。测试VM预加载唯一boundary模块，避免异步链接竞态产生两个边界实例；不把该测试夹具问题当作现场根因。新增生产诊断后的受影响四suite69/69、严格重放39目标及所有拒写、afterfixture17/17均PASS；重放仍为mockHEAD fixture，非真实集中构建。新测试使用当前Node22的内建stripTypeScriptTypes，M37桥接须核其Node提供该API，不安装依赖绕过。
 
 交付顺序：冻结后一次独审，M37与M42已审3bcad32合并集中构建；诊断候选只用于一次正常UI复现并读取首码，无JS注入/各自上线。该码尚未真实采集，不宣称根因或修复已证。完成采证后M24负责移除开关及四目标临时诊断（恢复本表before字节、保留M42/其他overlays），再独审/集中构建；仅取消构建env重建可关闭采集/显示，但不等于已移除代码，不能以旧35d0整镜像回滚丢失后续修复。
+
+
+seq147 P2-1 回修仅诊断归属：current 改为 `id === generation && (authAction || epoch === accountBoundary.epoch)`。退休资源后发 fetch 即使自身 generation 最新也标 current0；login/logout 保留原 authAction 豁免，不重新定义其请求语义。原 assert/track/abort/failed 均不变，首条码仍不覆盖。新增实际 payload 对照先红（退休 epoch 首码current1），修后旧资源零transport、AbortError/ACTIVE/current0；当前新敏感读 TypeError 仍触发权限确认遮罩并进入 IDENTITY_REQUIRED，首码保留退休current0，不冒认当前首因。另核旧 login 在新epoch及终锁仍沿原豁免调用、有效 invocation 诊断current1；C011100历史PAGE_HIDDEN first-failure保留，不误要求覆写ACCESS_UNCONFIRMED。只运行受影响定向3/3 PASS（退休用例、既有active分类、实际request链off/on及explicitabort对照），未重跑全矩阵/构建/上线。本表仅resources after更新为20c41d…，其余三after/全部before不变，待新精确tip复审再交M37。
