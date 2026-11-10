@@ -1,3 +1,4 @@
 {
-  "enabled": false
+  "enabled": true,
+  "httpsOrigin": "https://8.133.190.46"
 }

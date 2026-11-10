@@ -1,7 +1,7 @@
 {
   "name": "philosopher-stone-crm",
   "productName": "哲人石CRM",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "哲人石CRM Windows 安全桌面客户端",
   "author": "Philosopher Stone CRM",
   "private": true,
@@ -11,7 +11,7 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "dist": "electron-builder --win nsis --x64 --publish never",
-    "dist:next": "electron-builder --win nsis --x64 --publish never --config.extraMetadata.version=1.0.1 --config.directories.output=dist-next"
+    "dist:next": "electron-builder --win nsis --x64 --publish never --config.extraMetadata.version=1.0.3 --config.directories.output=dist-1.0.3"
   },
   "dependencies": { "electron-updater": "6.8.11" },
   "devDependencies": { "electron": "45.2.3", "electron-builder": "26.18.0" },
@@ -20,7 +20,7 @@
     "executableName": "PhilosopherStoneCRM",
     "productName": "哲人石CRM",
     "artifactName": "PhilosopherStoneCRM-Setup-${version}-${arch}.${ext}",
-    "directories": { "output": "dist" },
+    "directories": { "output": "dist-1.0.2" },
     "files": ["src/**", "package.json"],
     "extraResources": [
       { "from": "release/ota-policy.json", "to": "ota-policy.json" },

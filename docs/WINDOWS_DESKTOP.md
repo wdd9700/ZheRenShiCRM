@@ -278,3 +278,13 @@ Sol seq137 对 `7001e8e` 指出唯一P2：已下载缓存损坏后虽然安装�
 - 使用独立白名单静态目录，不映射仓库、key目录、CRM客户业务/public/private/files目录；只公开签名发布产物。**私钥永不传服务器**，无需SSH key进客户端。公钥来自可信人工分发的客户端，不信服务器自报新根。
 
 本轮仅正式密钥生成、ACL实测、公开根固定和文档/合同交接；未签包/manifest、未公网发布、未重包、未执行GUI或更改全局安全设置。已审生成脚本无stdout；`checkKeyDirectory`及公开SPKI/keyId一致性校验通过，目录/三文件ACL仅当前用户+SYSTEM。OTA disabled仍被正常控制器拒绝，后续真正渠道启用与覆盖升级仍需各自证据。
+
+## 2026-11-10 最终直连/OTA配置冻结（构建与发布结果后补）
+
+M17直交真实可信 origin **`https://8.133.190.46`**：Windows系统信任链/IP SAN、普通登录Secure Cookie/CSRF和认证socket已实测，自动续期active。客户端只依赖正常系统TLS/IP校验，**不pin短期leaf，不加运维私钥或本机路径**。`connection-policy.json`固定该HTTPS，仍仅初始化新profile；已有settings和旧origin不覆盖，需明确切换后重新登录，服务端业务仍同库。
+
+版本选 **1.0.2**，输出独立 `dist-1.0.2/`；保留旧1.0.0/1.0.1字节不覆盖。下一升级验收保留1.0.3但本轮不先造假更新。`ota-policy.json`固定已生成正式Ed25519根及 `https://8.133.190.46/updates/windows/`，配置启用、minSequence1；这代表客户端可检查该受信渠道，**尚不代表服务端已有签名工件或完整OTA安装已验**。
+
+顺序：本次配置定向审定 → 一次标准构建真实1.0.2 → 已审本机CLI签发sequence1清单（真实包hash/size） → M17先发布不可变EXE，再配对manifest+64Bsig → Windows正常HTTPS重新下载核实际字节、固定公钥签名和包size/hash。1.0.2客户端对同版清单显示current，不把同版伪造成新升级；旧不含公钥的安装器仍需可信人工分发新安装器。生产私钥只在本机保护目录供CLI使用，绝不上传。
+
+本轮仅配置/package根版本/检查脚本差异需要定向审查；Ed25519和坏缓存已审核心不变，不重未变大矩阵。GUI实际安装/覆盖保数据仍未验，不能据HTTPS/API或工件验证伪称通过，但会明确交付真实可用安装包路径/版本/摘要，不因GUIblock隐藏EXE。
