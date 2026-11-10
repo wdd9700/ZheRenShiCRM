@@ -566,3 +566,15 @@ M41 精确审定tip `d8139bfdfd2aa935783c35d0ad32b5a553c3842b` 获seq145静态�
 真实公开地址均为 `https://8.133.190.46/updates/windows/` 加上述文件名。Windows系统正常信任、Accept-Encoding identity逐件GET/HEAD均200，URL不变无重定向、无Content-Encoding、Content-Length精确；exe完整121,677,059B流式下载SHA与表一致（约286.8秒），一年immutable；manifest/sig完整原字节SHA一致、Cache-Control no-store，从真实HTTPS下载字节再次Ed25519验签通过。首轮180秒exe下载预算不足超时，未谎报SHA完成；第二次900秒预算完整运行约287秒exit0，不涉及重复发布。目录/非白名单404，POST拒绝。原始输出ignored `m17-public-release-verify.stdout.log`，三URL与证据已直接交tower/M41供其独立回验。
 
 这仅证明可信静态供应链与人工安装包交付可用；**不宣GUI安装、未知发布者提示消除或真实自动升级成功**。安装器本体Authenticode NotSigned，Ed25519绑定不能冒充Windows发行者签名。未读/上传私钥、不重签证/CRM/数据库/权限矩阵；服务保持，后续客户端是否启用OTA按M41已审策略与主控交付结论，不由M17静态发布自行扩大。
+
+## 22. 一次临时诊断候选部署供Terra采码（2026-11-10）
+
+主控限定批准M24 7211550/M42 3bcad32/M37 d1c2988临时诊断+Filter/catalog集中包，**不是ACCESS根因修复**。index `sha256:59b37e9d855bc04b34412cae6b97feb17e69f2add8cbfd1eb55f94e03d18dd0b`，config `sha256:2e14852fe01fc026abf25bd1689368bf45424a125eff74f4111b9ae18ed75806`。新独立 `/home/dev/c1110-candidate-59b37/candidate-release`，900秒预算传输约172秒，四件本地与远端SHA一致：tar1,557,855,744B `c8c7862da48fd9a0f14ed663777abd2cb6874b7053d14abba8bd6e46d6cd9367`；release `120a2ee7d0be0f99ca7e8b41fd5cf0c55e30263e2e42456d9d6f7cfdf1f26d55`；16层清单 `f70402777f7c19fc7c648d3fc102eeb815e4d67fe7ccc779e6f0c11daa9adf99`；manifest `6863d6065b893dbafbd90ea01c82e2ba3968319bc3e15fac8baec4e1998ad871`。
+
+先核远端活动trial字节与精确3ec8f09相同（仍53d9eee8完整SHA，文件物理位于64daf948 staging但不冒称242161）、overlay存在、TLS/timer check0。保存before完整doc摘要后，正常 `update-site-image <新release目录> <image.tar> --confirm-site-image-update` **真实exit0约135秒**；新原生四件 `20261110_140923-crm_localhost` 备份可读，原工具/镜像/备份保留。无install/migrate/角色变更/删数据/手改源码，HTTPS持久overlay随标准Compose更新保留。
+
+最终ready/活动锁2e148，六应用同config运行，backend/frontend healthy，DB/双Redis healthy，TLS链/实际leaf/续期timer active+enabled检查保持；1.0.2 OTA manifest/signature原SHA不变，无重发签名或更新静态目录。六类全部完整业务doc数量+canonical SHA、五app集合与本次before逐字全等，未重业务矩阵。
+
+公网HTTPS11重点静态资源bytes/SHA等冻结receipt，新入口 `index-DMxJXgQL.js` SHA `496b8da008d0cc5de5ff8c8203f4584550b1e1e7656e54e557c0618a0c64c85b`。诊断实际被分块在 `session-DCdxP5aX.js`，26,313B/SHA `770ef3c3900602326e131c51eaa933bc01e35b5192166e1e000a7736586ad9d0`，公网读回与201URLreceipt相同且包含D020102。最初局部检查误断言该字串应在入口JS而失败，核明正确chunk后通过；没有修改候选或放宽守卫。此是显式diagnostics1产物核，不冒充已采真实失败码。
+
+已立即通知tower/Terra `https://8.133.190.46` 可用时点，M17不登录复现任务、不写业务；Terra仅一次正常流程采安全边界D020102，M24负责采后移除四目标诊断代码/开关并保新筛选中文，不能整体回滚35d0丢修复。原始输出ignored `m17-59b37-{before,upgrade,after}.stdout.log`；服务常驻，无额外部署/权限或OTA GUI成功宣称。
