@@ -586,3 +586,13 @@ M41 精确审定tip `d8139bfdfd2aa935783c35d0ad32b5a553c3842b` 获seq145静态�
 保存本次before后沿相同已审HTTPS保留工具正常image-only更新，真实exit0约134秒；标准新四件 `20261110_160649-crm_localhost` 可读。最终ready/锁01971，六应用同config运行、backend/frontend healthy，DB/双Redis健康；无install/migrate/改角色/删卷/业务写。六类完整doc摘要及五app集合与本次before逐字全等。TLS/overlay/timer check0，OTA1.0.2 manifest/signature原SHA未变。
 
 新公网index-C0DkAEDU.js SHA `01a7e9ed53b344b935c69d8b6ba9585a6228616902d9a72c34440aafb88829c1`，11重点资源及session-DJNRb72_.js均HTTPS200、bytes/SHA匹配冻结receipt；后者26,406B SHA `23cd59227bf09f19e5047fc517a0187ed44157da385a829b4985bbb3c4861021`，D020102启用产物已核。已立即通知tower/Terra可在真实HTTPS一次正常流程采首码后退出，M17不自行复现任务。采后仍由M24修因/移除四诊断代码保Filter/catalog，不能整体回旧35d0。原始输出ignored `m17-adddbb-{before,upgrade,after}.stdout.log`；服务常驻，无后台或额外矩阵。
+
+## 23. 排序接口根因修正与临时诊断移除正式更新（2026-11-10）
+
+主控批准M44 83d1cd4、M24 cleanup5c247、M37接入058693已审最终包，替换临时adddbb。index `sha256:e14b6cce43cf861f92ffaf4f55935434897ed156efea04f8eacc56311e39a4dd`，config `sha256:c2601699d018675f1e2fc87a13c7fa4963090182eccfc70a8e51ed5ccdfbe062`，新独立staging `/home/dev/c1110-candidate-e14b6/candidate-release`。四件上传约162秒，全部本地/远端SHA一致：tar1,557,808,128B `0a91cbcc298ef599de35f46b0ab09ab696bc389fc0697c6d1feedaf163441679`；release `b4b2cbcb5292da32561c63e4ab0289a3c274524e8a799fbc79f7569bd10c2818`；16层清单 `fb75287484298a947b53d7d2f3b8822fdeae478e8607ac6da3a4e317a2fda083`；manifest `488476adbd04d049ae8c9d7652cbf1fc87f5b8f2c4ee73d31a3b011d39ced404`。
+
+沿同一已审HTTPS保留3ec8f09工具正常image-only，真实exit0约135秒；标准新四件 `20261110_170105-crm_localhost` 可读后load/readiness。最终ready/活动锁c260，六应用同config运行，backend/frontend healthy、DB/双Redishealthy；原六类全部完整doc摘要及五app集合与本次before逐字全等。无install/migrate/角色更改/业务写/删除/权限矩阵或浏览器复现。TLS/overlay/timer check0、OTA1.0.2 manifest/signatureSHA保持。
+
+线上实际request.py SHA精确 `2c2af77470977b879b4fc8ade72f5b3eca91bb0bba7d55dcc7eef8c094a67505`，唯一 `crm.api.doc.sort_options` allow、旧误拼 `get_sort_options` 不在，完整品牌access query不变。四clean请求链源码逐SHA匹配原非诊断态，源内及全部构建JS无D020102/临时记录标记：accountBoundary a899121b…、resources5c38ca06…、request752fdeb0…、frappeRequest83e4b44d…。HTTPS11重点static均bytes/SHA匹配最终201URLreceipt，入口index-DO6EgA-F.js；没有只关闭开关而保留诊断代码。
+
+允许的一次普通Sales User真实HTTPS只读验证：正常登录→`GET /api/method/crm.api.doc.sort_options?doctype=CRM%20Task` HTTP200、返回标准元数据含name→正常logout，无角色提权或业务写入。未知/私域权限未扩测，不以此单接口算全部UI通过。已立即给tower/Terra可用时点，随后一次原失败流程/任务列表/日程短验由Terra完成；成功前不宣完整v1验收。原始输出ignored `m17-e14b6-{before,upgrade,after}.stdout.log`，服务保持常驻。
