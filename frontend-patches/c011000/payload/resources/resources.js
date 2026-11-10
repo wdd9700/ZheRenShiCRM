@@ -158,6 +158,9 @@ export function createResource(options, vm) {
 
   async function runFetch(params, tempOptions, id) {
     let errorFunctions = [options.onError, tempOptions.onError]
+    const started = Date.now()
+    let failurePhase = 'PREPARE'
+    let requestSignal
     try {
       await accountBoundary.ready
       assertCurrent(id)
@@ -186,24 +189,29 @@ export function createResource(options, vm) {
 
       assertCurrent(id)
       controller = new AbortController()
+      requestSignal = controller.signal
+      failurePhase = 'FETCH'
       let data = await resourceFetcher({
         ...options,
-        signal: controller.signal,
+        signal: requestSignal,
         onError: undefined,
         params: params || options.params,
       })
       assertCurrent(id)
+      failurePhase = 'TRANSFORM'
       let transformed = transform(data)
       assertCurrent(id)
       saveLocal(cacheKey, data)
       out.data = transformed
       out.fetched = true
+      failurePhase = 'ON_SUCCESS'
       for (let fn of [options.onSuccess, tempOptions.onSuccess, options.onData, tempOptions.onData]) {
         assertCurrent(id)
         fn?.call(vm, data)
       }
       return out.data
     } catch (error) {
+      accountBoundary.recordReadFailure(error, failurePhase, requestSignal, id === generation, started)
       if (id !== generation) {
         throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
       }

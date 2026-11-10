@@ -36,7 +36,7 @@
 
 ## 补丁与固定证据
 
-`frontend-patches/c011000/manifest.json` 当前包含 **38 个修改目标（9 payload + 29 strict source edits）及 5 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
+`frontend-patches/c011000/manifest.json` 当前临时诊断候选包含 **39 个修改目标（9 payload + 30 strict source edits）及 4 个只读 guard**。`apply.py` 仍要求真实 CRM HEAD `36bd8859f2a6345a620477bc708d0546e8c3f08a` 和每个 before SHA 完全匹配；所有目标检查完成才写。source edits 每个 anchor 必须唯一，输出 after SHA 同样校验；拒绝漂移、缺文件、重复应用、链接目标与已有临时文件。此补丁面向固定未 patch 源，不可直接覆盖 M19/M20 已 patch 运行目录。
 
 只读使用两份本地证据，不修改它们：
 
@@ -216,3 +216,27 @@ Terra 既有记录：2026-11-10 04:18:15.971UTC 在 Leads 打开筛选字段菜�
 主控已安排 Terra 一次连续正常新会话 Leads→筛选菜单→任务，不人为等待、不注入或绕边界；成功则顺带日程只读，失败记时刻后注销停止。先确认是否持续阻断，不因单次499立即增加诊断构建；原生工具没有 console 就明确无。暂无生产错误采集或宽松处理授权，代码 worker 不占环境空等；当前公开源码 receipt 改向 sol-ui-brand-build-integration 定点索取。
 
 仅当该次复核仍失败且主控另行授权时，最小运行时分类需求为首个失败的 endpoint 允许枚举、固定 epoch/state、阶段 TRANSPORT/RESPONSE_JSON/TRANSFORM/ON_SUCCESS、错误 name 允许枚举、code 已知枚举/数值、status 数字或无、exc_type 允许枚举、signal.aborted、generation 是否仍 current，以及耗时分桶。不得采 message/stack/body/params/身份/cookie，不改变请求/路由/visibility、不吞错，保留原返回及同一 Error 重抛；取得首条即停止，不一轮轮加日志。现阶段没有证据充分的生产修复可交 M37；线上 full43 和后续 UI/locale overlays 全保持。
+
+
+## 获批的一次临时请求阶段诊断（D020102，非根因修复）
+
+Terra 连续正常新会话再次复现：04:43:43.048UTC Leads 正常，04:46:02.260 筛选字段菜单，任务导航后 04:46:49.127 再次 ACCESS_UNCONFIRMED；未注入/编辑/重试。主控据此批准最小临时诊断。M37 已从35d0本地archive抽取公开三源，receipt `deploy/.runtime/public-request-chain-35d0b0bd/source-manifest.json` SHA `6584a603c15a82760191fac0c06d5232cbe38226f54263b7a75eb227cd5304f7`，request/frappeRequest/ViewControls 字节与上述固定链一致，未发现 request timeout overlay。
+
+仅四个运行时目标变化，main/telemetry、权限判断、epoch/generation/Abort拒绝、恢复白名单、43目标之外的 UI/locale overlays 不变。request.ts 用 WeakMap 给原 Error 标记 FETCH 或 RESPONSE；frappeRequest 的 response.json 拒绝优先标 RESPONSE_PARSING；resources 在 PREPARE/FETCH/TRANSFORM/ON_SUCCESS 各阶段出错时只冻结首条码，再执行原错误路径。原 Error 对象重抛不变，退休 generation 原本转换为 superseded AbortError 的行为也保持。诊断不会成为错误成功响应、不会跳过ACL/CSRF或让业务揭罩。
+
+显式测试开关只在前端 Vite 构建进程设置 `VITE_CRM_READ_FAILURE_DIAGNOSTICS=1`，默认关闭；不是运行时容器env、URL参数、全局JS或持久开关。启用后既有安全边界文字追加 `请求诊断 D020102/<phase>/<name>/<status>/<exc>/<aborted>/<current>/<elapsed>`，只存当前页面内存、首条不覆盖。phase固定为PREPARE/FETCH/RESPONSE/RESPONSE_PARSING/TRANSFORM/ON_SUCCESS；name为AbortError/TimeoutError/TypeError/SyntaxError/Error/OTHER；status仅100–599整数，否则0；exc仅PermissionError/AuthenticationError/SessionExpired/DoesNotExistError/CSRFTokenError/ValidationError/OTHER；两布尔为0/1；elapsed为LT1S/LT10S/LT30S/GE30S，起点是该resource.runFetch开始，包含等待ready时间。无原始code、message、stack、body、params、身份、cookie、URL或外发/持久化。首条可能是退休取消，current=0即不能当作当前锁定首因，不隐藏这一事实。
+
+M37只对35d0部署后态应用以下四目标精确delta，不能重套原43apply；原manifest仍43entries，request由guard转strict edit，现39修改+4guard，所有upstream before不放宽：
+
+| 目标（frontend/node_modules/frappe-ui/src/） | 35d0部署before SHA | 诊断after SHA |
+| --- | --- | --- |
+| resources/accountBoundary.js | a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421 | 096382c1a25a1a6cbab51f442216eaa4b8e60d2ff5a3ebb3be2a0b756b7bf9c1 |
+| resources/resources.js | 5c38ca06466ee52fc21625300fb15e6107e788cf849d3b797e8eb39e35458f80 | 1b62f66bfa815d2ee2bd1d8b1a1fc596bfc90862480ed11ec65156091bce00c8 |
+| utils/request.ts | 752fdeb0996e63fb65829e5eedb7942a4ebbbdfe15a4db6312c92d2869b9db1b | 3058bab7efcea11d366d6ab08dec487f0f0b7501868d805500eea4f22001e61c |
+| utils/frappeRequest.ts | 83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9 | 2c78687c0a02fd2c57ab96bd929b234c1d810ad8f34dc161b421652d663a8e17 |
+
+两resources直接取payload原字节；两utils以 `source_edits.transform(target, before_bytes)` 从固定未patch输入生成并核after：request upstream before为752f…，frappeRequest upstream before为5461f5925fdddc750b33e9cecf08953f98c740aea283e542c807b421a9fab444。现有输入根仍为 `P:/CRM/.tower/worktrees/wt-9/deploy/.runtime/m20-public-frontend-evidence-3828e3eb572143f99e2420809fd5f1b2/apps/crm`，不需要在运行镜像猜逆变换。
+
+新定向测试实际执行strict transformed request/frappeRequest、payload resources/boundary，VM只替换transport：开关off/on各6情形覆盖fetch原TypeError、response.json原SyntaxError、transform、onSuccess、HTTP403 PermissionError、显式abort。核原错误identity（退休abort保持原转换）、相同安全状态、first-only、status/exc/aborted/current字段与所有观察值无合成secret。测试VM预加载唯一boundary模块，避免异步链接竞态产生两个边界实例；不把该测试夹具问题当作现场根因。新增生产诊断后的受影响四suite69/69、严格重放39目标及所有拒写、afterfixture17/17均PASS；重放仍为mockHEAD fixture，非真实集中构建。新测试使用当前Node22的内建stripTypeScriptTypes，M37桥接须核其Node提供该API，不安装依赖绕过。
+
+交付顺序：冻结后一次独审，M37与M42已审3bcad32合并集中构建；诊断候选只用于一次正常UI复现并读取首码，无JS注入/各自上线。该码尚未真实采集，不宣称根因或修复已证。完成采证后M24负责移除开关及四目标临时诊断（恢复本表before字节、保留M42/其他overlays），再独审/集中构建；仅取消构建env重建可关闭采集/显示，但不等于已移除代码，不能以旧35d0整镜像回滚丢失后续修复。
