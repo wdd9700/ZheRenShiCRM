@@ -393,3 +393,41 @@ manifest明确parent2f92、commonUI95e5ce6/integration0efd1fc、来源receipt82d
 准备接入提交 `1813b7d`：M42 Filter后态增量独立3tests PASS；从实际35d0归档四诊断前驱+Filter/catalog组合check/apply/verify的2tests PASS，原三commonSFC和未知源零写保持。旧诊断d3e68临时context `deploy/.runtime/concentrated-ui-fe87f705aca74bd2bc2ca625a1c37be3` receipt `139f944397eb4ae89a6120af31791bd4b23b2a4c8a0f0ec3be5ec3d349d98b26` 仅用于离线pre-review检查，显式enabled=true，**未构建/上线**。Windows既有Node22.20有`node:module.stripTypeScriptTypes`，未安装新依赖；实际镜像工具链仍须后继真实检查。
 
 Sol诊断审seq147指出：仅比较generation会把已退休创建epoch的延迟请求错误标current，M24正按tower仅修诊断归属联合epoch（不改安全行为）并更新after。M37明确不以d3e68旧tip构建；等新tip/after窄审后重新冻结正式集中context，旧记录保留不擦除。到目前没有WSL/HTTP/浏览器/部署操作，没有真实诊断码或根因结论，不增加额外矩阵。
+
+### 最终721集中候选：执行身份阻断、明确root授权与实际验证
+
+最终诊断 `721155091b2cdcc672579b915f6178b374e05495` 修正current归属联合epoch，Sol clean/hold准临时构建；集中接入 `d1c298851cfecd7c0217af6841c8491ce41c950a` 也clean/hold。仅重新prepare最终输入，无产品接入代码改变或无意义提交：context `deploy/.runtime/concentrated-ui-12a16ee9a32b482b80e7b6d5e071c2f0`，receipt **`ca344b1fa9f73a158355eeac223529ad671e700fbcf866c6c0e5a9b31d1b1f86`**，显式diagnostics_enabled=true；原源码默认false不变。
+
+首次授权流程在实际build前失败：默认wdd无Docker socket权限，原metadata.environment的docker ps即permission denied，operations空、未create/build/test；报告`concentrated-build-b81ee98a70bd4116907b5a7327d92aea/result.json`保留。只读身份核wdd不在docker组/socketroot:docker0660，历史成功35d0/2f92客户端相同Ubuntu默认用户选择、没有root参数，未推断组变化原因或自行提权。用户随后明确授权**仅Ubuntu-24.04本窗口以root执行构建与相关验证/归档**；不改用户组/socket/默认用户/daemon配置、不碰第二Ubuntu。M37才显式`wsl.exe -d Ubuntu-24.04 -u root`续同最终context，无重prepare/源码修改，metadata保护不绕过。
+
+实际`bash-lu22g6vk` / Windows PID29088 **70.335秒exit0**，标准CRM build实际0（Vite7.09秒），完整继承source/asset guards保持。新临时候选：
+
+| 身份 | 值 |
+|---|---|
+| tag | `crm-local:concentrated-ui-12a16ee9a32b482b80e7b6d5e071c2f0` |
+| index | `sha256:59b37e9d855bc04b34412cae6b97feb17e69f2add8cbfd1eb55f94e03d18dd0b` |
+| amd64 manifest | `sha256:83badb240f9871d2dc91b071e4f874322793ecc3af797c54bde6ebc04ed88ab7` |
+| config | `sha256:2e14852fe01fc026abf25bd1689368bf45424a125eff74f4111b9ae18ed75806` |
+| layers | **16**，前13项严格等35d0，完整运行Config仅新增focused provenance labels |
+
+实际产物定向：原M24 active敏感失败分类/退休epoch两case **2/2 PASS**；原real-runtime末尾请求分类case独立入口 **1/1 PASS**（内部off/on各6情形，case body原字节SHA留存，仅必要header，未加载旧导航矩阵）；五实际文件（四新诊断+未变local.ts）逐SHA核后读取，现镜像Node`stripTypeScriptTypes`为function，未装依赖/替代API。实际browserEnvironment的off/on安全边界DOM文字读取有限D020102码、首码及敏感文本不泄漏合同PASS。Filter实际SFC编译/固定字段与用户自定义标签/rawvalue/其他Doctype runtime，以及原locale/占位符/server优先合同全部PASS。未326/权限恢复矩阵、本地站点/浏览器或部署。诊断VM使用原合成transport，不当真实失败根因已知；只证明临时码有界、保持原Error/安全行为，并可由内置browser读DOM。
+
+原181容器/136卷、daemon/mainlock八guard保持，仅新none/restartno probe `47fd743fad012f82ae5ed6d3dcc68e7f5d40beb647ac4dae9312c104bda21c52`退出0非OOM及两个自有匿名卷保留。结果`deploy/.runtime/concentrated-build-2f88c509aa95409b81122d2595d37ee1/result.json` SHA `58af305cd6cfa5dd86f50d6918bf025bfabf9d7b89db45d64970592765060e17`；同目录`static-receipt.json` SHA **`31320de6032d13243f6c6524c0d67dd57a804f0faf7b8d8047da54a625597903`**，201动态URL/11重点asset，附diagnostic_temporary/enabled与实际五源SHA。新入口`index-DMxJXgQL.js` SHA `496b8da008d0cc5de5ff8c8203f4584550b1e1e7656e54e557c0618a0c64c85b`，CSS及全部独立页/品牌accessquery等原资产守卫保持。
+
+本候选仅M42 Filter/catalog补修+显式启用临时诊断，**没有ACCESS_UNCONFIRMED真实根因或修复结论**。后继采证限已有安全边界DOM D020102固定码，不采message/stack/params/URL/身份或业务数据；M24采后负责移除四诊断目标及开关、保Filter/catalog和所有既有overlay。可先off重建停止采集显示，但不能当代码已移除，禁止整个回滚35d0丢M42。root授权只此窗口，原权限配置不变；归档后释放，不借此授权后续root/本地站点/线上操作。
+
+### 临时候选59b37归档与root窗口释放
+
+同一次明确root执行授权中，标准build/定向PASS后仅save同受测镜像，不重build。`bash-hoh6s093` / Windows PID45684 **111.498秒exit0**，原archive verifier全blob/index→唯一amd64manifest→config/逐gzip解压16diff_id、归档Config与受测inspect完整等值均PASS。182原容器/138卷、daemon/mainlock六guard保持，无新增export资源，无组/socket/默认用户/daemon配置改变。全部任务结束、无后台，第一Ubuntu明确ENV RELEASED给tower/M9，**本次root窗口授权到此结束**。
+
+冻结目录：`P:/CRM/.tower/worktrees/wt-37/deploy/.runtime/concentrated-final-59b37e9d855b-release/`
+
+| 文件 | bytes / SHA256 |
+|---|---|
+| `image.tar` | **1557855744 bytes** / `c8c7862da48fd9a0f14ed663777abd2cb6874b7053d14abba8bd6e46d6cd9367` |
+| `release.env` | 七字段 / `120a2ee7d0be0f99ca7e8b41fd5cf0c55e30263e2e42456d9d6f7cfdf1f26d55` |
+| `image-rootfs-layers.txt` | 16有序diff_id / `f70402777f7c19fc7c648d3fc102eeb815e4d67fe7ccc779e6f0c11daa9adf99` |
+| `candidate-manifest.json` | `6863d6065b893dbafbd90ea01c82e2ba3968319bc3e15fac8baec4e1998ad871` |
+| `export-result.json` | `53055783e5fd802ff4be9e299970c334daf91118356dbfcd1ef492765e9b4f14` |
+
+manifest明确temporary、显式enabled1、原source switch默认off、721/3bc/d1c来源与ca344b receipt、root cause未知/未部署等限制。包与完整201URL receipt已直接交M17/tower，M17后继须按主控新授权及M43 HTTPS/OTA保持工具后态部署；M37没有SSH/浏览器/线上或本地站点，也没有采真实诊断code。定位后M24移除临时代码/开关责任继续，禁止whole旧镜像回滚丢Filter/catalog。当前交付的是有界采证候选，不是ACCESS_UNCONFIRMED问题修复验收。
