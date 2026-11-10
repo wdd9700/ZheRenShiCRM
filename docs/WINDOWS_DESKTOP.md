@@ -2,7 +2,7 @@
 
 ## 状态与决策
 
-2026-11-10：真实 **1.0.2** 已一次标准NSIS构建，包含已审Ed25519/坏缓存修复、正式固定公钥、`https://8.133.190.46` 新profile默认入口及同源OTA feed。真实sequence1清单已由本机正式CLI签发并验证，公开三工件正交M17发布（服务端下载回验结果见末节）。**当前可直接交付本机EXE；实际GUI安装/覆盖保数据仍未验，Ed25519并非Windows公信代码签名，仍显示未知发布者/SmartScreen边界。** 旧1.0.0/1.0.1原字节保留不覆盖；历史未就绪记录按下文日期保留，不代表当前产物状态。
+2026-11-10：真实 **1.0.2** 已一次标准NSIS构建，包含已审Ed25519/坏缓存修复、正式固定公钥、`https://8.133.190.46` 新profile默认入口及同源OTA feed。真实sequence1清单已由本机正式CLI签发，M17公开发布及完整Windows HTTPS下载字节/验签已通过，实际PinnedUpdateController同版检查返回current（详见末节）。**当前可直接交付本机EXE及公开HTTPS下载；实际GUI安装/覆盖保数据仍未验，Ed25519并非Windows公信代码签名，仍显示未知发布者/SmartScreen边界。** 旧1.0.0/1.0.1原字节保留不覆盖；历史未就绪记录按下文日期保留，不代表当前产物状态。
 
 - 用户明确要求真实 EXE、覆盖升级保留客户端数据、预留 OTA，Windows 优先；继续复用团队集中 CRM Web，不新增本地业务数据库。服务端数据、权限和升级归服务端流程，不由安装器迁移。
 - 暂选 Electron **45.2.3** + electron-builder **26.18.0** + electron-updater **6.8.11**，Node **22.20.0** / npm **11.6.3**。官方 registry 的 engines 已核，精确版本及 integrity 锁在 `deploy/windows/desktop/package-lock.json`。Edge PWA 不能交付独立 NSIS EXE；Tauri 会增加当前未验证的 Rust/WebView2 构建链，暂不采用。Electron 可替换但体积与升级成本较高。
@@ -305,4 +305,16 @@ M17直交真实可信 origin **`https://8.133.190.46`**：Windows系统信任链
 
 **直接交付EXE绝对路径：** `P:\CRM\.tower\worktrees\wt-41\deploy\windows\desktop\dist-1.0.2\PhilosopherStoneCRM-Setup-1.0.2-x64.exe`，同目录有 `.exe.sha256`。不隐藏工件，也不把构建通过说成GUI安装已验；新profile首次使用内置真实HTTPS、无需运维密钥/本机隧道，已有profile仍需明确选择/保存新入口后重登，不删除旧origin资料。
 
-已直接向M17交接仅上述三公开工件绝对路径/大小/摘要/公钥合同；M17用其已授权传输发布，本worker没有拿运维私钥。发布与Windows下载回验结果后补，未收到真实服务端证据前不称OTA分发成功。
+### 公开分发与实际控制器同版检查（2026-11-10）
+
+seq145准许发布后，M17已按独立白名单静态目录原子发布三件；本worker没有拿运维私钥。公开地址：
+
+- **Windows安装器：** https://8.133.190.46/updates/windows/PhilosopherStoneCRM-Setup-1.0.2-x64.exe
+- 原字节签名清单：https://8.133.190.46/updates/windows/manifest.json
+- 64字节签名：https://8.133.190.46/updates/windows/manifest.sig
+
+M17真实Windows正常TLS HEAD/GET三件200，无redirect/Content-Encoding；小件no-store，版本EXE immutable。完整EXE GET耗286.8秒，121677059字节、SHA256 `e9c766167e624e59b320e50acd92dff327e0d1c10c42a8f6a08cbaa30e369bca` 与本机包完全相等；下载的321字节清单与64字节签名原字节相等、正式Ed25519验签PASS。原始证据 `P:\CRM\.tower\worktrees\wt-17\deploy\.runtime\m17-public-release-verify.stdout.log`，M17证据提交 `4c4aac44bdf805739fccba246f51b6cbae60389a`。按主控要求复用该完整下载，不重复抢121MB带宽。
+
+M41随后使用**实际 `PinnedUpdateController`、正式policy、真实HTTPS transport和锁定实际NsisUpdater**，只为非GUI独立临时profile提供app adapter，当前版本1.0.2执行一次真实 `check()`：返回 **`state:current / version:1.0.2 / trust:pinned-key-ed25519`**、sequence1，非虚假更新。实际取回manifest321B/SHA `4dbb0ad8052d779d32a740da60a35228103308abd4380379ce17d289428fbdb3` 与sig64B/SHA `3383cd48e9c3ba9889402c40f9c5c9d1cc1e3b50be078429da3391d35714d670`，由固定根验签成功；未请求下载/安装确认、未整包下载、未执行安装器、未写高水位、未使用用户profile。临时测试目录已清理，公开检查receipt保存在 gitignored `.validation/live-controller-check-1.0.2.json`。
+
+结论仅为**真实公开分发字节/签名与同版OTA检查已通过**，不是GUI安装/真实覆盖升级通过。首次安装仍须可信人工分发；WindowsAuthenticode仍NotSigned，SmartScreen未知发布者边界不变。实际Windows GUI启动与两版本覆盖保数据仍未验，任务2/4保持开放，不用本次网络检查替代。
