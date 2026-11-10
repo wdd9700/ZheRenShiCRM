@@ -431,3 +431,39 @@ Sol诊断审seq147指出：仅比较generation会把已退休创建epoch的延�
 | `export-result.json` | `53055783e5fd802ff4be9e299970c334daf91118356dbfcd1ef492765e9b4f14` |
 
 manifest明确temporary、显式enabled1、原source switch默认off、721/3bc/d1c来源与ca344b receipt、root cause未知/未部署等限制。包与完整201URL receipt已直接交M17/tower，M17后继须按主控新授权及M43 HTTPS/OTA保持工具后态部署；M37没有SSH/浏览器/线上或本地站点，也没有采真实诊断code。定位后M24移除临时代码/开关责任继续，禁止whole旧镜像回滚丢Filter/catalog。当前交付的是有界采证候选，不是ACCESS_UNCONFIRMED问题修复验收。
+
+## 锁页记录点3eee审定后集中候选（temporary）
+
+旧59b37真实采码`FETCH/AbortError/current0`来自未导致锁页的旧catch，不能作为任务导航锁页根因。M24 `3eee6e217e838c950e8937c5a366908cf7323cd8` 仅将记录点移至原failed的ACCESS条件真正成立、current且尚未终锁分支，去除catch提前占首码；相对721只accountBoundary/resources后态变`f1bc6ff7...`/`c5774aa5...`，utils两件/原安全行为不变。seq150对精确3eee clean/hold无finding并准临时后继。这里仍非任务修复，也无新真实根因结论。
+
+用户已明确持续限定授权：允许第一实验Ubuntu以root完成本导航故障收尾必要后继build/验证/清理，不改用户组/socket/默认用户/daemon配置、不碰第二Ubuntu，不扩至其他任务。M37在审定前只离线生成同现有机制context，接入产品d1c未变，没有为输入换tip制造提交。实际仍FROM原13层35d0+M42已审3bc，**不FROM16层59b37继续叠层**，Filter82da/catalog7f305和全部品牌/主题/M43运维工具后态保留。
+
+context `deploy/.runtime/concentrated-ui-d3bb22dfc1d54da3b3d0c7dce2ddcaa8`，receipt **`5a392a6332024919e5c1823ec7a0c9e7512a281e0e576f823f181610c9eecc1b`**。显式`diagnostics_enabled=true`只供有限采证，源码默认关/采后移除责任保持。
+
+唯一`bash-pcmr3hzv` / Windows PID56228 **69.648秒exit0**，标准CRMbuild实际0（Vite6.84秒），原active失败分类/退休请求2case PASS、3eee原末requestcase 1PASS（内部off/on各6形态，显式abort不占码NONE；body原字节留存）、actualbrowserEnvironment off/on通过真正failed锁页分支读DOM有限码，Filter实际编译/字段runtime/locale/完整继承sourceassetguards全部PASS。不再用721旧手动record DOM路径，未326/权限/恢复矩阵/本地站点/浏览器或线上。
+
+| 新临时候选 | 精确值 |
+|---|---|
+| tag | `crm-local:concentrated-ui-d3bb22dfc1d54da3b3d0c7dce2ddcaa8` |
+| index | `sha256:adddbb57d809f1e426b3396b99d8f797a6fd9b640ec3f27eb2b0abc7fd9624c0` |
+| amd64manifest | `sha256:a3ac48e69b6590333b60e76306c10a2e88e086fd896416f844bf5c2ae32ca678` |
+| config | `sha256:01971b83b27449e13e937c1e0518b9b0c18b466de64f3edc3e0a3d6a2322fb46` |
+| layers | **16**，前13严格等35d0，完整Config除focusedlabels外保持 |
+
+原182容器/138卷、daemon/mainlock八guard保持，只新增none/restartno退出0非OOM probe`c303f74dc70d27e9c48d0f314b122616020188a215ce4f728b7c17f0378c772d`及两自有匿名卷（保留）。结果`deploy/.runtime/lock-trigger-build-49979cc52fb541158e3187029337b084/result.json` SHA `e0bc1e4db08f17f7de308cd5aec9c88c7eb005a82820c0176d65d25363164398`；buildlogSHA `75b1ddae0002c300a0abdd01c618af6e646aaef5e0274f5a40635685a1d4e124`，artifactlogSHA `542a8425d96184ed05183849599be6b3c1518804002b5d1c505a47fdacba7546`。同目录201URL静态receipt SHA **`39067e62240159c04206676f8d3b72b90386f27441fc69aa8b45ebf4ff2c00e7`**，新入口index-C0DkAEDU.js SHA `01a7e9ed53b344b935c69d8b6ba9585a6228616902d9a72c34440aafb88829c1`，原CSS和独立资产不变。归档结果待随后追加；不将产物VM测试当真实HTTPS诊断原因。
+
+### 3eee临时adddbb57归档交接与环境释放
+
+标准build与定向全部PASS后，同持续限定root授权仅save同一已测image，不重build。`bash-x1y2f4wt` / Windows PID33556 **112.822秒exit0**；原archiveverifier全blob/index→唯一amd64manifest→config/16有序解压diff_id与归档完整Config对受测inspect等值PASS。原183容器/140卷、daemon/mainlock六guard保持，无新export资源，现无后台，第一Ubuntu明确ENV RELEASED。没有组/socket/defaultuser/daemon配置改动、第二Ubuntu或线上操作，M43 HTTPS/OTA工具未改。
+
+冻结目录：`P:/CRM/.tower/worktrees/wt-37/deploy/.runtime/concentrated-final-adddbb57d809-release/`
+
+| 文件 | bytes / SHA256 |
+|---|---|
+| `image.tar` | **1557856256 bytes** / `fb5e690c0b89c6557563504fd7c3830dbead4ea6952eaf56fc4205cba0073564` |
+| `release.env` | 七字段 / `741e1940f232dcced13c4a524c13ab81252bc835978cb6484311ee2e7aa34b5f` |
+| `image-rootfs-layers.txt` | 16有序diff_id / `8e89b5819c8784f807297bdb4ac829600750694fc4ffbef365447e48d833695e` |
+| `candidate-manifest.json` | `f58b2c47f3da9303899afb39dd9e94e6ddebac6ef4b28de66accd55414928e16` |
+| `export-result.json` | `4f169c68137284170a3c5a525208a93dbeabc844d043727ed6434d2a6cfebecd` |
+
+manifest含精确3eee/3bc/d1c与source receipt5a392a、temporary/显式1及rootcause未知/未部署限制，包与201URLreceipt已直接交tower/M17。此替代旧59b37提前catch采码点，不改变原安全锁页行为，也不是任务修复验收；后续真实采码仍须经过真正lock失败。采证后M24移除临时四源码/开关、保Filter82da/catalog7f305及其余overlay责任不变，off重建仅止采不当移除。M37本轮不部署/浏览器或重复大矩阵。
