@@ -204,3 +204,15 @@ M9 run `a6dc793202ef4d05b78edab68a2ca523` 对 1c586261 的原 a8 oracle/config �
 4. 不增加网络/业务注入。若环境已有不抢前台的只读网络采证，保留本轮必要身份/授权/只读请求及无 insert/set_value/onboarding 写证据；否则“零写请求”仅沿用组件测试结论，不冒称本轮真实网络已验证。真实撤权/换账号、离线重试、再次隐藏、旧响应、冲突及复杂编辑器安全退出仍需对应正常 UI/环境窗口，未有证据的项目不勾成现场通过。
 
 禁止注入 visibility/pagehide/pageshow、调用 boundary.pause/resume/API 代替 UI、更换 oracle/验收条件或无限重试。最小正向 case 通过只关闭“真实 hidden→visible + 显式草稿恢复”这一缺口；整体交付任务继续保留，直至剩余真实场景按证据对账。代码 worker 本轮仅文档/协议更新，不操作浏览器、部署或 M9 环境。
+
+## v1 HTTPS 任务导航 ACCESS_UNCONFIRMED 首轮定位
+
+Terra 既有记录：2026-11-10 04:18:15.971UTC 在 Leads 打开筛选字段菜单，未选字段/应用；随后点任务，04:18:59.848UTC 看到 C011100 READY/READY/ACCESS_UNCONFIRMED、D020100 READY/NONE，退出回执已在 tasks。M17 一次限定日志：04:18:39.847 getdoctype200、04:18:40.000 get_data499；相关 RPC 无401/403/500，限定 backend 异常过滤未命中。499只证明连接提前关闭，不能证明取消、超时或后端成功，也不能凭前次正常请求相隔约一小时断言 session 过期。已结束该轮服务日志查询，不要求继续扩日志/盲复现。
+
+固定受 SHA 守卫的 request.ts 仅 fetch(signal)→transformResponse→尾 catch，无内建 timeout；frappeRequest 的 transformError 原对象重抛，M24 strict edits 仅加边界断言/track/no-store，不包装错误 name。generic resources.abort 与 epoch invalidation 先 generation++ 再 abort，旧拒绝在 catch 转为 AbortError；当前 name=AbortError 也直接重抛，不调用 failed。固定 ViewControls.onBeforeUnmount 仅解绑 socket，无列表取消。当前 fixed 源不能证明线上浏览器/宿主额外 timeout 或后续 overlay 行为，已向 M17 索既有公开源码 receipt 定位，不查询凭据/业务数据。
+
+既有 controlled suite 新增一条定向分类对照（5情形），实际 payload resources/boundary：原生 DOMException AbortError、显式 resource.abort 均 ACTIVE；TypeError 传输、DOMException TimeoutError、成功 transport 后 onSuccess Error 均 IDENTITY_REQUIRED/ACCESS_UNCONFIRMED。定向 1/1 PASS，不重跑已绿全suite。此为分类对照，不是现场异常形态复现；没有证据把其中任何一项认作首因，不改生产错误分类或泛忽略网络/403。
+
+主控已安排 Terra 一次连续正常新会话 Leads→筛选菜单→任务，不人为等待、不注入或绕边界；成功则顺带日程只读，失败记时刻后注销停止。先确认是否持续阻断，不因单次499立即增加诊断构建；原生工具没有 console 就明确无。暂无生产错误采集或宽松处理授权，代码 worker 不占环境空等；当前公开源码 receipt 改向 sol-ui-brand-build-integration 定点索取。
+
+仅当该次复核仍失败且主控另行授权时，最小运行时分类需求为首个失败的 endpoint 允许枚举、固定 epoch/state、阶段 TRANSPORT/RESPONSE_JSON/TRANSFORM/ON_SUCCESS、错误 name 允许枚举、code 已知枚举/数值、status 数字或无、exc_type 允许枚举、signal.aborted、generation 是否仍 current，以及耗时分桶。不得采 message/stack/body/params/身份/cookie，不改变请求/路由/visibility、不吞错，保留原返回及同一 Error 重抛；取得首条即停止，不一轮轮加日志。现阶段没有证据充分的生产修复可交 M37；线上 full43 和后续 UI/locale overlays 全保持。

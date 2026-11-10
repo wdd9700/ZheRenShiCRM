@@ -123,6 +123,35 @@ test('same-account revoked permission clears generic data and locks page', async
   assert.match(f.covers.at(-1)[0], /未保存编辑/)
 })
 
+test('active sensitive read failure classification distinguishes native abort, explicit abort, transport and callback failures', async () => {
+  for (const kind of ['native-abort', 'explicit-abort', 'transport', 'timeout', 'callback']) {
+    const f = await fixture()
+    const failure = kind === 'native-abort' ? new DOMException('Synthetic abort', 'AbortError')
+      : kind === 'timeout' ? new DOMException('Synthetic timeout', 'TimeoutError')
+      : kind === 'transport' ? new TypeError('Synthetic transport failure')
+      : new Error('Synthetic failure')
+    let rejectPending, started
+    const begin = new Promise(resolve => { started = resolve })
+    f.config.resourceFetcher = kind === 'explicit-abort'
+      ? ({ signal }) => new Promise((resolve, reject) => {
+        rejectPending = reject
+        signal.addEventListener('abort', () => reject(failure), { once: true })
+        started()
+      })
+      : async () => { if (kind !== 'callback') throw failure; return { rows: [] } }
+    const r = f.resources.createResource({
+      url: 'crm.api.doc.get_data',
+      onSuccess() { if (kind === 'callback') throw failure },
+    })
+    const pending = r.fetch()
+    if (kind === 'explicit-abort') { await begin; r.abort(); assert.ok(rejectPending) }
+    const aborted = kind === 'native-abort' || kind === 'explicit-abort'
+    await assert.rejects(pending, error => aborted ? error.name === 'AbortError' : error === failure)
+    assert.equal(f.boundary.state, aborted ? 'ACTIVE' : 'IDENTITY_REQUIRED', kind)
+    assert.equal(f.boundary.diagnostic.failure, aborted ? 'NONE' : 'ACCESS_UNCONFIRMED', kind)
+  }
+})
+
 test('list failure clears originalData, rows, and lookup map', async () => {
   const f = await fixture()
   const { createListResource } = await f.load('listResource')
