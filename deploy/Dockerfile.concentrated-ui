@@ -1,0 +1,25 @@
+FROM crm-local:common-ui-3c8a0ee657aa461d8d4f617807a5bf10
+USER frappe
+WORKDIR /home/frappe/frappe-bench
+COPY --chown=frappe:frappe . /home/frappe/concentrated-ui
+ARG VITE_CRM_READ_FAILURE_DIAGNOSTICS=0
+RUN --network=none env/bin/python -B /home/frappe/concentrated-ui/deploy/verify_concentrated_ui.py snapshot && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/apply_filter_label_delta.py apps/crm /home/frappe/concentrated-ui/frontend-patches --check && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/apply_filter_label_delta.py apps/crm /home/frappe/concentrated-ui/frontend-patches && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/apply_filter_label_delta.py apps/crm /home/frappe/concentrated-ui/frontend-patches --verify && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/verify_read_diagnostic.py apps/crm /home/frappe/concentrated-ui --check && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/verify_read_diagnostic.py apps/crm /home/frappe/concentrated-ui && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/verify_read_diagnostic.py apps/crm /home/frappe/concentrated-ui --verify && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/verify_concentrated_ui.py sources && \
+    cp -a assets/. sites/assets/ && \
+    VITE_CRM_READ_FAILURE_DIAGNOSTICS="${VITE_CRM_READ_FAILURE_DIAGNOSTICS}" bench build --app crm && \
+    cp -a sites/assets/. assets/ && \
+    env/bin/python -B /home/frappe/concentrated-ui/deploy/verify_concentrated_ui.py assets
+ARG FILTER_LABEL_REVISION
+ARG READ_DIAGNOSTIC_REVISION
+ARG CONCENTRATED_INTEGRATION_REVISION
+LABEL crm.focused.filter-label.revision="${FILTER_LABEL_REVISION}" \
+      crm.focused.read-diagnostic.revision="${READ_DIAGNOSTIC_REVISION}" \
+      crm.focused.integration.revision="${CONCENTRATED_INTEGRATION_REVISION}" \
+      crm.focused.read-diagnostic.enabled="${VITE_CRM_READ_FAILURE_DIAGNOSTICS}" \
+      crm.focused.base="sha256:35d0b0bd36ae08fa9d434b4275cb50bc4e202607c5f8ad95a34e6441c4922101"

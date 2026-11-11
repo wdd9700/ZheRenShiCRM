@@ -1,0 +1,54 @@
+FROM crm-local:m9-lowdepth-ld2-195e623cfeb7458587597600e8e1e3e7
+
+USER frappe
+WORKDIR /home/frappe/frappe-bench
+COPY --chown=frappe:frappe . /home/frappe/u030
+RUN --network=none env/bin/python -B /home/frappe/verify_final.py after && \
+    env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py snapshot
+RUN --network=none env/bin/python -B /home/frappe/u030/frontend-patches/dark-ui/apply.py apps/crm --check && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/dark-ui/apply.py apps/crm && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/dark-ui/apply.py apps/crm --verify-after && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/localization/apply.py apps/crm --check && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/localization/apply.py apps/crm && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/localization/apply.py apps/crm --verify && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/apply.py apps/crm --check && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/apply.py apps/crm && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/apply.py apps/crm --verify-after && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/onboarding-localization/apply.py apps/frappe --check && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/onboarding-localization/apply.py apps/frappe && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/onboarding-localization/apply.py apps/frappe --verify && \
+    cp /home/frappe/u030/apps/resource_import/resource_import/www/resource-import.html apps/resource_import/resource_import/www/resource-import.html && \
+    cp /home/frappe/u030/apps/team_access/team_access/www/team-activities.html apps/team_access/team_access/www/team-activities.html && \
+    cp /home/frappe/u030/apps/team_access/team_access/public/access.js apps/team_access/team_access/public/access.js && \
+    cp /home/frappe/u030/apps/team_schedule/team_schedule/www/team-schedule.html apps/team_schedule/team_schedule/www/team-schedule.html && \
+    cp /home/frappe/u030/apps/team_schedule/team_schedule/public/crm-theme.css apps/team_schedule/team_schedule/public/crm-theme.css && \
+    cp /home/frappe/u030/apps/team_schedule/team_schedule/public/crm-zh-cn.js apps/team_schedule/team_schedule/public/crm-zh-cn.js && \
+    cp /home/frappe/u030/apps/team_schedule/team_schedule/public/team-schedule.css apps/team_schedule/team_schedule/public/team-schedule.css && \
+    cp /home/frappe/u030/apps/team_schedule/team_schedule/public/team-schedule.js apps/team_schedule/team_schedule/public/team-schedule.js && \
+    env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py wording && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/access_version.py . /home/frappe/u030/ui-source-manifest.json --check && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/access_version.py . /home/frappe/u030/ui-source-manifest.json && \
+    env/bin/python -B /home/frappe/u030/frontend-patches/branding/access_version.py . /home/frappe/u030/ui-source-manifest.json --verify && \
+    env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py source
+RUN --network=none mkdir -p sites/assets && \
+    cp -a assets/. sites/assets/ && \
+    bench build --app crm && \
+    bench build --app team_access && \
+    bench build --app team_schedule && \
+    cp -a sites/assets/. assets/ && \
+    env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py assets && \
+    bench version
+
+ARG DARK_UI_REVISION
+ARG LOCALIZATION_REVISION
+ARG BRANDING_REVISION
+ARG WORDING_REVISION
+ARG ONBOARDING_REVISION
+LABEL crm.ui.integration="u030-v4" \
+      crm.ui.base="sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9" \
+      crm.ui.order="c011000,l3-scheduling,dark-ui,localization,branding,onboarding-localization,wording" \
+      crm.ui.dark.revision="${DARK_UI_REVISION}" \
+      crm.ui.localization.revision="${LOCALIZATION_REVISION}" \
+      crm.ui.branding.revision="${BRANDING_REVISION}" \
+      crm.ui.wording.revision="${WORDING_REVISION}" \
+      crm.ui.onboarding.revision="${ONBOARDING_REVISION}"

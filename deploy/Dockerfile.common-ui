@@ -1,0 +1,25 @@
+FROM crm-local:ui-ebc790fba433470789113948e69f50fd
+USER frappe
+WORKDIR /home/frappe/frappe-bench
+COPY --chown=frappe:frappe frontend-patches/common-ui-localization /home/frappe/common-ui/frontend-patches/common-ui-localization
+COPY --chown=frappe:frappe frontend-patches/localization /home/frappe/common-ui/frontend-patches/localization
+COPY --chown=frappe:frappe deploy/Dockerfile.common-ui deploy/Dockerfile.common-ui.dockerignore deploy/verify_common_ui.py /home/frappe/common-ui/deploy/
+COPY --chown=frappe:frappe common-ui-source-manifest.json /home/frappe/common-ui/common-ui-source-manifest.json
+RUN --network=none env/bin/python -B /home/frappe/u030/deploy/ui_build_guard.py assets && \
+    env/bin/python -B /home/frappe/common-ui/deploy/verify_common_ui.py snapshot && \
+    env/bin/python -B /home/frappe/common-ui/frontend-patches/common-ui-localization/apply.py apps/crm --check && \
+    env/bin/python -B /home/frappe/common-ui/frontend-patches/common-ui-localization/apply.py apps/crm && \
+    env/bin/python -B /home/frappe/common-ui/frontend-patches/common-ui-localization/apply.py apps/crm --verify && \
+    env/bin/python -B /home/frappe/common-ui/deploy/verify_common_ui.py catalog-check && \
+    env/bin/python -B /home/frappe/common-ui/deploy/verify_common_ui.py catalog-apply && \
+    env/bin/python -B /home/frappe/common-ui/deploy/verify_common_ui.py catalog-verify && \
+    env/bin/python -B /home/frappe/common-ui/deploy/verify_common_ui.py sources && \
+    cp -a assets/. sites/assets/ && \
+    bench build --app crm && \
+    cp -a sites/assets/. assets/ && \
+    env/bin/python -B /home/frappe/common-ui/deploy/verify_common_ui.py assets
+ARG COMMON_UI_REVISION
+ARG COMMON_UI_INTEGRATION_REVISION
+LABEL crm.common-ui.revision="${COMMON_UI_REVISION}" \
+      crm.common-ui.integration.revision="${COMMON_UI_INTEGRATION_REVISION}" \
+      crm.common-ui.base="sha256:2f92c460d47948bf6f030e23b24687b82ca3a92c4af4b8a200da7de7ac97db1b"

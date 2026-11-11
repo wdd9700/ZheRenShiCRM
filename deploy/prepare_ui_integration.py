@@ -1,0 +1,213 @@
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import uuid
+
+from prepare_integration import ROOT, committed_files, ordinary_path, write_sources
+from verify_ui_integration import ORDER, WORDING_TARGETS, access_version_module, chain, framework_entries, wording_contract
+
+BASE_TAG = 'crm-local:m9-lowdepth-ld2-195e623cfeb7458587597600e8e1e3e7'
+BASE_IMAGE = 'sha256:e17300da434bd0c251adf618c86db26c718511fec6ab6bfe2a99e7fd91bebe41'
+BASE_CONFIG = 'sha256:caf102a5716f4be0fc16ac9590038867bbe34c8e5419ff9fa92753ed6f1bf6d9'
+CACHE = '9403d5a7ee4eb2d50eee3faf844d679a6aee5c80'
+NAVIGATION = '76f23be38dd993f32724c34d5184d8cf75c77146'
+PATCH_ORDER = ORDER + ('onboarding-localization',)
+UI_ORDER = PATCH_ORDER + ('wording',)
+PATCH_FILES = {
+    'c011000': frozenset('apply.py check_apply.py consumer-fixtures/router.js consumer-fixtures/users.js consumer-fixtures/views.js controlled.test.mjs initialization.test.mjs manifest.json payload/main.js payload/resources/accountBoundary.js payload/resources/documentResource.js payload/resources/listResource.js payload/resources/local.ts payload/resources/resources.js payload/resumeRuntime.js payload/safeResume.js payload/session.js real-runtime.test.mjs resume.test.mjs runtime-evidence/l3-scheduling-4ff499e.json runtime_sources.py sfc-request-diagnostics.mjs sfc-resume-diagnostic.test.mjs sfc-resume.test.mjs source_edits.py vitest-bridge.test.js vitest.sfc.config.mjs'.split()),
+    'l3-scheduling': frozenset('README.md apply.py check_apply.py expected/AppSidebar.fixed-crm.diff fixtures/AppSidebar.c011000-resume.vue fixtures/AppSidebar.fixed-crm.vue manifest.json sfc_check.mjs'.split()),
+    'dark-ui': frozenset('apply.py check_apply.py fixtures/App.vue fixtures/UserDropdown.vue fixtures/index.css manifest.json payload/crm-theme.css prerequisites.json'.split()),
+    'localization': frozenset('README.md apply.py manifest.json runtime.test.cjs test_localization.py zh-CN.json'.split()),
+    'branding': frozenset('.gitattributes access_version.py apply.py check_access_version.py check_apply.py fixtures/crm__hooks.py fixtures/frontend__index.html fixtures/frontend__vite.config.js fixtures/frontend__AppSidebar.m24-m30.vue fixtures/team_access__request.py manifest.json payload/PhilosopherLogo.vue payload/login-theme.css payload/ui_branding.py'.split()),
+    'onboarding-localization': frozenset('README.md apply.py manifest.json runtime.test.cjs test_onboarding.py'.split()),
+}
+DARK_OVERLAYS = frozenset({
+    'apps/team_access/team_access/public/access.js',
+    'apps/resource_import/resource_import/www/resource-import.html',
+    'apps/team_access/team_access/www/team-activities.html',
+    'apps/team_schedule/team_schedule/public/crm-theme.css',
+    'apps/team_schedule/team_schedule/public/team-schedule.css',
+    'apps/team_schedule/team_schedule/public/team-schedule.js',
+    'apps/team_schedule/team_schedule/www/team-schedule.html',
+})
+LOCAL_OVERLAYS = frozenset({'apps/team_schedule/team_schedule/public/crm-zh-cn.js'})
+DEPLOY_FILES = frozenset({'deploy/Dockerfile.ui', 'deploy/Dockerfile.ui.dockerignore', 'deploy/verify_ui_integration.py', 'deploy/ui_build_guard.py', 'deploy/ui_wording_manifest.json'})
+
+
+def selected(commit, prefix, expected):
+    source = committed_files(commit, prefix)
+    if not expected <= set(source):
+        raise RuntimeError('Missing required committed UI source: ' + str(sorted(expected - set(source))))
+    return {path: source[path] for path in expected}
+
+
+def sources(revisions):
+    if set(revisions) != set(UI_ORDER):
+        raise RuntimeError('UI revision set differs from the ordered contract')
+    if revisions['c011000'] != CACHE or revisions['l3-scheduling'] != NAVIGATION:
+        raise RuntimeError('M24/M30 revisions are fixed to the already-online production inputs')
+    contract = wording_contract(ROOT)
+    if revisions['dark-ui'] != contract['base_revision']:
+        raise RuntimeError('Wording requires its exact reviewed dark UI baseline')
+    result = {}
+    for name in PATCH_ORDER:
+        prefix = f'frontend-patches/{name}/'
+        found = committed_files(revisions[name], prefix)
+        if set(found) != {prefix + path for path in PATCH_FILES[name]}:
+            raise RuntimeError('Unexpected committed patch file whitelist: ' + name)
+        result.update(found)
+    result.update(selected(revisions['dark-ui'], 'apps/', DARK_OVERLAYS))
+    result.update(selected(revisions['localization'], 'apps/', LOCAL_OVERLAYS))
+    result.update(selected(revisions['branding'], 'deploy/', DEPLOY_FILES))
+    before = selected(revisions['dark-ui'], 'apps/', WORDING_TARGETS)
+    after = selected(revisions['wording'], 'apps/', WORDING_TARGETS)
+    for path, entry in contract['targets'].items():
+        if hashlib.sha256(before[path][1]).hexdigest() != entry['before'] or hashlib.sha256(after[path][1]).hexdigest() != entry['after']:
+            raise RuntimeError('Ordered wording source SHA mismatch: ' + path)
+        result['wording-overlays/' + path] = after[path]
+    return result
+
+
+def overlay_hashes(files, contract):
+    expected = {path: files[path] for path in DARK_OVERLAYS | LOCAL_OVERLAYS}
+    for path, entry in contract['targets'].items():
+        if path in expected and expected[path] != entry['before']:
+            raise RuntimeError('Wording before differs from the preceding UI overlay: ' + path)
+        if files['wording-overlays/' + path] != entry['after']:
+            raise RuntimeError('Wording payload differs from the reviewed after: ' + path)
+        expected[path] = entry['after']
+    return expected
+
+
+def prepare(dark, localization, integration, wording, onboarding):
+    if onboarding != localization:
+        raise RuntimeError('Framework onboarding and updated CRM catalog must use the same reviewed M39 revision')
+    revisions = dict(zip(UI_ORDER, (CACHE, NAVIGATION, dark, localization, integration, onboarding, wording)))
+    exported = sources(revisions)
+    runtime = ROOT / '.runtime'
+    ordinary_path(runtime)
+    runtime.mkdir(exist_ok=True)
+    if subprocess.run(['git', '-C', str(ROOT.parent), 'check-ignore', '--quiet', '--no-index', '--', 'deploy/.runtime/context-probe']).returncode:
+        raise RuntimeError('UI context must be Git-ignored')
+    context = runtime / ('ui-' + uuid.uuid4().hex)
+    context.mkdir()
+    files = write_sources(exported, context)
+    chain(context / 'frontend-patches')
+    framework_entries(context / 'frontend-patches')
+    contract = wording_contract(context / 'deploy')
+    overlays = overlay_hashes(files, contract)
+    versioner = access_version_module(context / 'frontend-patches')
+    access_version, _ = versioner.generate((context / versioner.ASSET).read_bytes())
+    manifest = dict(schema='u030-v4', base_tag=BASE_TAG, base_image=BASE_IMAGE, base_config=BASE_CONFIG, revisions=revisions, files=files, overlays=overlays, wording=contract, access_version=access_version)
+    (context / 'ui-source-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    receipt = hashlib.sha256((context / 'ui-source-manifest.json').read_bytes()).hexdigest()
+    load(context, receipt)
+    print('UI context:', context)
+    print('UI source manifest SHA256:', receipt)
+    return context, manifest, receipt
+
+
+def load(value, receipt):
+    context = Path(value)
+    ordinary_path(context)
+    if not context.is_absolute() or context.parent.resolve() != (ROOT / '.runtime').resolve() or not re.fullmatch('ui-[0-9a-f]{32}', context.name):
+        raise RuntimeError('UI context must be this checkout prepared directory')
+    ordinary_path(context / 'ui-source-manifest.json')
+    raw = (context / 'ui-source-manifest.json').read_bytes()
+    if not re.fullmatch('[0-9a-f]{64}', receipt) or hashlib.sha256(raw).hexdigest() != receipt:
+        raise RuntimeError('UI context receipt mismatch')
+    manifest = json.loads(raw)
+    if set(manifest) != {'schema', 'base_tag', 'base_image', 'base_config', 'revisions', 'files', 'overlays', 'wording', 'access_version'} or manifest['schema'] != 'u030-v4':
+        raise RuntimeError('UI context schema mismatch')
+    if (manifest['base_tag'], manifest['base_image'], manifest['base_config']) != (BASE_TAG, BASE_IMAGE, BASE_CONFIG):
+        raise RuntimeError('UI base identity mismatch')
+    revisions = manifest['revisions']
+    if set(revisions) != set(UI_ORDER) or revisions['c011000'] != CACHE or revisions['l3-scheduling'] != NAVIGATION:
+        raise RuntimeError('UI revision contract mismatch')
+    if any(not isinstance(value, str) or not re.fullmatch('[0-9a-f]{40}', value) for value in revisions.values()):
+        raise RuntimeError('Exact UI source commits required')
+    if revisions['onboarding-localization'] != revisions['localization']:
+        raise RuntimeError('CRM catalog and Framework onboarding revision mismatch')
+    paths = {f'frontend-patches/{name}/{path}' for name in PATCH_ORDER for path in PATCH_FILES[name]}
+    paths |= DARK_OVERLAYS | LOCAL_OVERLAYS | DEPLOY_FILES | {'wording-overlays/' + path for path in WORDING_TARGETS}
+    hashes = manifest['files']
+    if not isinstance(hashes, dict) or set(hashes) != paths or any(not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value) for value in hashes.values()):
+        raise RuntimeError('UI context differs from its exact source whitelist')
+    actual = set()
+    for path in context.rglob('*'):
+        ordinary_path(path)
+        if path.is_file():
+            if path.stat().st_nlink != 1:
+                raise RuntimeError('Hardlinked context refused')
+            actual.add(path.relative_to(context).as_posix())
+    if actual != set(hashes) | {'ui-source-manifest.json'}:
+        raise RuntimeError('Unmanifested or missing UI context source')
+    for path, digest in hashes.items():
+        if hashlib.sha256((context / path).read_bytes()).hexdigest() != digest:
+            raise RuntimeError('Prepared UI source drift: ' + path)
+    contract = wording_contract(context / 'deploy')
+    if manifest['wording'] != contract or revisions['dark-ui'] != contract['base_revision'] or manifest['overlays'] != overlay_hashes(hashes, contract):
+        raise RuntimeError('UI ordered wording contract differs')
+    chain(context / 'frontend-patches')
+    framework_entries(context / 'frontend-patches')
+    versioner = access_version_module(context / 'frontend-patches')
+    expected_version, _ = versioner.generate((context / versioner.ASSET).read_bytes())
+    if manifest['access_version'] != expected_version:
+        raise RuntimeError('Access version receipt differs from final exported access script')
+    return context, manifest
+
+
+def build(context, receipt):
+    context, manifest = load(context, receipt)
+    source = json.loads(subprocess.check_output(['docker', 'image', 'inspect', BASE_TAG], text=True))[0]
+    if source['Id'] != BASE_IMAGE or len(source['RootFS']['Layers']) != 2:
+        raise RuntimeError('Local lowdepth base identity/layer count differs')
+    tag = 'crm-local:' + context.name
+    labels = {'crm.ui.dark.revision': manifest['revisions']['dark-ui'], 'crm.ui.localization.revision': manifest['revisions']['localization'], 'crm.ui.branding.revision': manifest['revisions']['branding'], 'crm.ui.wording.revision': manifest['revisions']['wording'], 'crm.ui.onboarding.revision': manifest['revisions']['onboarding-localization']}
+    command = ['docker', 'build', '--network=none', '--pull=false', '--progress=plain']
+    for argument, name in (('DARK_UI_REVISION', 'dark-ui'), ('LOCALIZATION_REVISION', 'localization'), ('BRANDING_REVISION', 'branding'), ('WORDING_REVISION', 'wording'), ('ONBOARDING_REVISION', 'onboarding-localization')):
+        command += ['--build-arg', argument + '=' + manifest['revisions'][name]]
+    command += ['-t', tag, '-f', str(context / 'deploy/Dockerfile.ui'), str(context)]
+    subprocess.run(command, check=True)
+    image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', tag], text=True))[0]
+    if not re.fullmatch('sha256:[0-9a-f]{64}', image['Id']) or not 1 <= len(image['RootFS']['Layers']) <= 16:
+        raise RuntimeError('UI image identity or lowdepth layer budget differs')
+    labels.update({'crm.ui.integration': 'u030-v4', 'crm.ui.base': BASE_CONFIG, 'crm.ui.order': ','.join(UI_ORDER)})
+    expected_config = dict(source['Config'], Labels=dict(source['Config']['Labels'], **labels))
+    if image['Config'] != expected_config:
+        raise RuntimeError('UI image runtime Config or provenance labels drifted')
+    result = dict(source_manifest_sha256=receipt, manifest=manifest, candidate_tag=tag, candidate_inspect=image)
+    destination = ROOT / '.runtime' / (context.name + '-build-result.json')
+    with destination.open('x', encoding='utf-8') as stream:
+        json.dump(result, stream, indent=2, sort_keys=True)
+        stream.write('\n')
+    print('Candidate only; no runtime activation:', tag, image['Id'])
+    print('Build result:', destination)
+    return image
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Exact reviewed U030 inputs on the fixed lowdepth five-app base; never activates a site')
+    parser.add_argument('--dark-commit')
+    parser.add_argument('--localization-commit')
+    parser.add_argument('--integration-commit')
+    parser.add_argument('--wording-commit')
+    parser.add_argument('--onboarding-commit')
+    parser.add_argument('--context', type=Path)
+    parser.add_argument('--context-sha256')
+    parser.add_argument('--build', action='store_true')
+    args = parser.parse_args()
+    if args.context:
+        if any((args.dark_commit, args.localization_commit, args.integration_commit, args.wording_commit, args.onboarding_commit)) or not args.context_sha256:
+            parser.error('Context reuse requires only --context and its --context-sha256 receipt')
+        context, manifest = load(args.context, args.context_sha256)
+        receipt = args.context_sha256
+    else:
+        if args.context_sha256 or not all((args.dark_commit, args.localization_commit, args.integration_commit, args.wording_commit, args.onboarding_commit)):
+            parser.error('Five exact reviewed UI revisions are required')
+        context, manifest, receipt = prepare(args.dark_commit, args.localization_commit, args.integration_commit, args.wording_commit, args.onboarding_commit)
+    if args.build:
+        build(context, receipt)
