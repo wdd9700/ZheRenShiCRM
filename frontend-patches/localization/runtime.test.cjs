@@ -28,6 +28,15 @@ const translate = app.config.globalProperties.__;
 assert.equal(translate, window.__);
 assert.equal(translate('Lead'), '线索');
 assert.equal(translate('No leads yet'), '暂无线索');
+assert.equal(translate('No New Notifications'), '暂无新通知');
+assert.equal(translate('You have no new notifications'), '你目前没有新通知');
+assert.equal(translate('No results for "{0}"', ['客户']), '未找到与“客户”相关的结果');
+assert.equal(translate('mentioned you in {0}', ['Lead']), '在Lead中提到了你');
+assert.equal(translate('Lead Score'), '线索评分');
+assert.equal(translate('Last Response Time'), '最近响应时长');
+assert.equal(translate('Equals'), '等于');
+assert.equal(translate('Yes'), '是');
+assert.equal(translate('No'), '否');
 assert.equal(translate('Company Description'), '公司介绍');
 assert.equal(translate('Welcome to {0}', [translate('Frappe CRM')]), '欢迎使用哲人石CRM');
 assert.equal(translate('{0}/{1} steps completed', [2, 5]), '已完成 2/5 步');
@@ -45,6 +54,7 @@ for (const language of ['zh', 'zh_CN', 'zh-Hans', 'zh-Hans-CN']) {
 for (const language of ['en', 'fr', 'zh-TW', 'zh-Hant', '', null]) {
   window.philosopher_language = language;
   assert.equal(translate('Deal'), 'Deal', String(language));
+  assert.equal(translate('No New Notifications'), 'No New Notifications', String(language));
   assert.equal(translate('Only server'), '服务端消息');
 }
 const scope = {window: {}};

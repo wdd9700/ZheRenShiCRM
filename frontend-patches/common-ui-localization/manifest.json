@@ -1,0 +1,22 @@
+[
+  {
+    "target": "frontend/src/components/Notifications.vue",
+    "before": "a5a795b3914925ae3cac66009896eb2efa4b1ebf686edfae571ee12c6bbdd6b3",
+    "after": "f133d72297b14794e1740e280a56ff0f2bf2d453c7ce8c8eff5377e2dabcfecf"
+  },
+  {
+    "target": "frontend/src/components/Activities/DataFields.vue",
+    "before": "634d061e94b84574d70de0717948cb2c8d22d1bfbd0934b0953757e57839c10d",
+    "after": "3c86c21bec986b13d87ae0c637acfc0ba2d25c5204a1acd591155128a29cfe08"
+  },
+  {
+    "target": "frontend/src/components/Filter.vue",
+    "before": "2151a1595a77a19f8ff07285278efc8e093a047b53f3beff01e294d42d625d99",
+    "after": "82da91b378239ccc20b57a3f23292cbba856b02aed54a28b3c9e4f3709247fe6"
+  },
+  {
+    "target": "frontend/src/components/IconPicker.vue",
+    "before": "9e53082eead5aaca4c5748865d1db001130d243c550499726851a95a1deeee27",
+    "after": "1ac702a3433270031ff50c4f58a792e5b962d55c29536e3e7fb7f1bc1cff688a"
+  }
+]

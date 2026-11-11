@@ -20,7 +20,7 @@ python frontend-patches/localization/apply.py "$CRM_ROOT" --verify
 
 `get_boot` 增加 `philosopher_language`，取本次 Frappe 请求实际 `frappe.local.lang`；`translation.js` 仍使用原生 `getConfig('translatedMessages')`、context 优先与 `{0}` 格式化。仅当语言为 `zh`、`zh-CN`、`zh-Hans` 或 `zh-Hans-*`（大小写及下划线变体均可）查找简体中文补充词典，同键服务端翻译优先；其他语言仅走上游原行为。服务器不设语言时不猜测。中文默认须由集成者通过 Frappe 原生站点默认语言配置实现，不批量更改用户明确设置；Frappe 用户语言、请求语言选择行为保持原生。正式部署需验证目标站点具体语言值和会话刷新。
 
-此补丁只覆盖 CRM Vue 已经调用 `__` 且词典有记录的文本，不会覆盖未调用 `__` 的硬编码、动态用户内容、Frappe UI 内部独立翻译、服务端返回的未知文本或 Framework `/login`。相邻 `onboarding-localization` 单独将三个固定 Framework 引导组件接入此翻译器；登录/Guest、本地扩展静态页面、动态相对时间和余下文案需单独接入；不要将本词典描述为全站汉化。`Frappe CRM` / `CRM` 的可翻译展示名为“哲人石CRM”，PWA、页面标题等非翻译路径需由集成者单独处理。
+此补丁只覆盖 CRM Vue 已经调用 `__` 且词典有记录的文本，不会覆盖未调用 `__` 的硬编码、动态用户内容、Frappe UI 内部独立翻译、服务端返回的未知文本或 Framework `/login`。相邻 `common-ui-localization` 单独将通知空态等固定 CRM 硬编码接入此翻译器；`onboarding-localization` 单独接入三个固定 Framework 引导组件。登录/Guest、本地扩展静态页面、动态相对时间和余下文案需单独接入；不要将本词典描述为全站汉化。`Frappe CRM` / `CRM` 的可翻译展示名为“哲人石CRM”，PWA、页面标题等非翻译路径需由集成者单独处理。
 
 ## 检验
 
