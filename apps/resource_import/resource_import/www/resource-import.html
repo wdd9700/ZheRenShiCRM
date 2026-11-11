@@ -4,23 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token | e }}">
-  <title>六列资源导入</title>
+  <title>六列资源导入 · 哲人石CRM</title>
+  <link rel="stylesheet" href="/assets/team_schedule/crm-theme.css">
   <style>
-    body { font: 16px/1.6 system-ui,sans-serif; margin: 0; background: #f5f7fa; color: #172b4d; }
-    main { max-width: 1280px; margin: auto; padding: 24px; }
-    h1 { font-size: 28px; } a { color: #155ab6; }
-    section { background: white; border: 1px solid #d8dfe8; border-radius: 10px; padding: 20px; margin: 18px 0; }
-    button, select, input { font: inherit; } button { padding: 8px 16px; margin: 6px 8px 6px 0; cursor: pointer; }
-    button:disabled { cursor: not-allowed; } .scroll { overflow-x: auto; }
-    table { border-collapse: collapse; width: 100%; min-width: 1000px; font-size: 14px; }
-    th, td { text-align: left; vertical-align: top; border: 1px solid #d8dfe8; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 250px; }
-    th { background: #edf2f7; } select { max-width: 230px; } .error { color: #a51b1b; }
-    #status { white-space: pre-wrap; } .muted { color: #526079; } label { display: inline-block; }
-    @media(max-width:600px) { main { padding: 12px; } section { padding: 12px; } h1 { font-size: 24px; } }
+    table { min-width: 1000px; }
+    td { white-space: pre-wrap; max-width: 250px; }
+    select { max-width: 230px; }
+    #status { white-space: pre-wrap; }
   </style>
 </head>
-<body><main>
-  <a href="/crm">返回原生CRM</a>
+<body class="crm-standalone"><main>
+  <header class="crm-header"><a class="crm-brand" href="/crm">哲人石CRM</a><span class="crm-meta">资源导入</span></header>
   <h1>六列资源导入</h1>
   <p>上传 → 预览和消歧 → 显式确认 → 查看结果。创建企业、联系人与需求线索，不自动创建商机。</p>
   <section aria-labelledby="upload-heading">

@@ -184,6 +184,25 @@
 - **置信度/下一步**：用户意图与顺序高置信；实现方案尚待对应 owner 细化及验证。本轮只落路线/决策，不改其契约或产品。开工后用双普通成员验证受控关联、原记录读取、牵头分工、目的/结果分离、人工确认后时间线写回、撤权及忙闲不泄漏，并继续独立测试 L3；未测不得报交付。
 - **可逆性/复评/用户决策**：保持原业务记录与历史，不用复制私密内容或删除历史作捷径；后续实现应允许停用关联/写回而保留已有权限与审计。门槛证据不足或实现/权限测试出现阻断时报告并修复，不以并行安排降低验收标准；范围或阶段顺序变化须记录新决定。当前无需重复索取本项决定，敏感授权仍按原规则另行确认。
 
+### D-010｜哲人石CRM默认中性暗色与连续日程时间轴（M35）
+
+- **日期/状态**：2026-11-08 / Provisional，实施前记录。
+- **用户方向与目标**：产品展示名为“哲人石CRM”，默认暗色；玉青、蓝、金只用于高亮、细边和标识，不作大面积背景或正文。统一字号与间距；日程参考用户指定Class Widgets纵向时间轴和占用色块方向，不复制第三方源码/图片。
+- **选择与取舍**：采用固定上游原生dark scheme加独立`frontend-patches/dark-ui`覆盖，以及同源`crm-theme.css`；拒绝改写M24安全补丁或整套替换前端。集成必须按M24生产43 entries→M30导航→dark-ui→独立汉化顺序；本分支旧c011000不是生产最终前端。
+- **日程决定**：默认单日连续纵轴，所选IANA时区两次当地午夜由现有resolve_local解析；按真实UTC分钟定位、裁切跨日、重叠分列，短事件真实薄块配独立可读标签，不夸大占用时长。不新增拖拽/复杂重复规则，不改变API、权限、revision或会话清屏。
+- **字典与边界**：Terra独占中文字典，显示文案与Busy/Free/Read/Edit等原始值分离。共享主题接入日程、私域活动和导入页面；Framework登录不在本次页面scope内，不宣全站汉化/上线。
+- **置信度/验证追加**：受控源码与静态合同高、真实外观中；既有+新增Node33项、Python UI5项、dark-ui文件check/apply/after及拒绝4项、原access page.js验证均通过。精确e173/caf102镜像frappe-ui1.0.0-rc.2实际token生成器与底表证据已核，未猜变量。canonical与CRM payload同字节SHA，专用.gitattributes仅该CSS强制LF，避免Windows转换破坏契约。首轮新增分页测试因旧异步事件handler不返回promise而断言过早失败，补flush后通过，未改请求或放松断言。标准CRM构建和真实浏览器/三页外观验收由M37后续集成窗口负责；Framework登录与入口HTML/PWA品牌不外推完成。
+- **回退/复评/用户决定**：仅可逆展示层与独立补丁，无后端、数据迁移或部署；可撤回主题和时间轴展示但不能撤安全补丁。高并发可读性、实际浏览器表现或上游SHA变化触发复评。当前无新增必须由用户决定的卡点。
+- **M37集成暂定（owner交接，制作前）**：复用冻结两层e173/caf102精确源码，独立U030构建context保旧deploy路径不变；M37已核M24从1c586261到9403d5a生产补丁整目录无差异、M30从4ff到76f23be仅README差异。采用M24 43→M30→dark→localization→branding有序组合，最终逐target SHA承认有序重叠、不伪称全体disjoint；标准bench build沿既有资产preseed且不重装依赖，避免回到140层基底。登录展示由固定入口title/apple/lang（取boot.lang）及CRM原生update_website_context在Framework登录context后接线，限文案/CSS，不改认证、版权、包名或权限。中文System Settings.language=zh只在后续明确授权窗口配置，保用户/cookie/header和时区语义。此为M37源码合同交接、高置信于已核源码，标准build/真实UI仍待各冻结tip独审后实测，不是本次已执行或上线证据。
+
+- **Sol首审seq118后定点修复**：两项P2为午夜`top=0`被`||`滚动fallback跳过、分页未全量提示被读取详情的status覆盖；改为空值fallback，另在结果容器内保留分页提示，不与详情状态共用。新提示随原清屏一并移除，末页自然撤下。仅补既有DOM回归（午夜/跨日scrollTop、详情后提示仍在、加载末页/会话失效清除），18项DOM测试全过，不扩后端矩阵或执行build/部署；待新tip复审。
+
+- **d573视觉反馈后集中修复（2026-11-08）**：Terra `visual-8a9a3322-2c35-4ada-9607-31fd4eeb0da7` 于1280×720实测时间轴y647才开始，确认首屏信息密度不合预期；后续截图超时不当算法错误证据。采用实际DOM主轴前置、紧凑标题与日期/时区工具栏，说明筛选折叠在结果后、编辑区移后，轴视窗clamp(320px,100dvh−280px,680px)，不缩正文、不改ID/功能/清屏；代码合同先验，最终截图待集成；同步移除初始滚动的旧480px固定视窗cap，保首事件top−48并由浏览器按实际视窗裁限，午夜/末分钟目标有DOM回归。旧access注入白底链接未设color继承浅字、黄底编辑器提示均改中性前背景token/独立fallback，保Observer/通知/路由。默认紫标来源CRMLogo硬编码#EF0BF5，仅UserDropdown无brand.logo时改自有中性“哲”小标+3px三色点，明确自定义logo及原组件/版权/资源不删。GettingStartedBanner字面英文和theme=blue由实际固定源定位，M35只交rc2已核gray/subtle样式片段，M39同文本补丁合成、不并改文案。定向UI6项（内调Node35）、dark补丁5项与既有access page.js验证通过；首个布局合同用子串order误匹配border而红，已改CSS属性边界正则。M37须收新增access.js overlay及更新标记/同源CSS after SHA；本轮无环境/构建/浏览器操作，不据源码验证宣实际外观已过。
+
+- **二轮短块可识别性修复（2026-11-08）**：Terra `visual-41366c0f-3805-47cc-bff2-ddcf313d64be` 已证1280×720主轴y264–704/约440px及10分钟12px、25分钟30px分列正确，但短块无可见标题/编号，未满足一眼看清安排。保真实高度，新增独立24px编号按钮/连接线（按横向列区间避让，不作占用）并把完整标题/起止/状态移同viewport侧栏；保原生button/get核权、Cancelled明确及原清屏，窄屏局部横滚、不缩正文/不改时间算法。access残留白底的缓存/节点/级联根因仍未知，不盲改色；仅在one-shot返回前/annotate后幂等刷新自有节点，归一化样式后同值不写，Observer仍只childList一份、权限不改。M37负责最终SHA版本化加载及另一路HelpModal品牌，非本分支热改。定向合同与源码验证后交新tip审/最终截图，不宣视觉已通过；无环境/build操作。
+
+- **v4独立页色彩边界修复（2026-11-08）**：`visual-ea0e8060-8589-4c4d-af52-64117705a295` 活动页h1近黑、Framework顶栏白、owned入口白黑，CRM同入口已过。源码层级确认活动页内层crm-standalone不含base navbar，h1旧规则没color而不能覆盖Framework自身heading声明，无root data-theme亦不匹配Vue暗token；公开固定v15.125 website变量headings gray900/navbar white作来源佐证，未采实际computed故不冒称残留入口根因已证。采用standalone h1–3显式中性浅字并仅team-activities body路由重声明同palette与Framework已有bg/fg/navbar/card/popover/border/icon变量及有限navbar/menu/hover/focus样式；owned入口继承body同palette，保fallback/脚本/路由。导入纯HTML标题同规则保护，不重写模板或增环境；不全局important、不删导航、不并改M37登录/已过CRM日轴。canonical/payload同源和manifest同步；定向CSS/模板合同2项、全既有UI7项（内调Node36）、精确patch5项与access原page.js回归均通过，git diff检查通过；这是源码声明/范围测试而非computed或浏览器布局引擎，新候选实际截图另验。
+
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 
 ### D-XXX｜[一句话描述实际要解决的问题]

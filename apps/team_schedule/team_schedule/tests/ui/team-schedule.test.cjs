@@ -185,3 +185,39 @@ test('Framework non-envelope rejections stay distinct from explicit application 
   const application = createClient({csrfToken: 'token', fetchImpl: async () => response({message: {error: {code: 'INVALID_INPUT'}}}, false, 417)});
   await assert.rejects(application.post('resolve_local', {}), error => error.code === 'INVALID_INPUT' && error.status === 417 && error.business);
 });
+
+const {layoutTimeline, nextLocalDate} = require('../../public/team-schedule.js');
+
+test('timeline preserves exact arbitrary minutes, clips cross-day intervals and excludes adjacent outside items', () => {
+  const item = (name, start, end) => ({name, start_utc: start, end_utc: end});
+  const result = layoutTimeline([
+    item('short', '2026-11-01T09:07:00Z', '2026-11-01T09:08:00Z'),
+    item('overnight', '2026-10-31T23:00:00Z', '2026-11-01T01:00:00Z'),
+    item('continues', '2026-11-01T23:00:00Z', '2026-11-02T02:00:00Z'),
+    item('outside', '2026-11-02T00:00:00Z', '2026-11-02T01:00:00Z')
+  ], '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z');
+  assert.equal(result.height, 1728);
+  assert.equal(result.segments.length, 3);
+  const short = result.segments.find(segment => segment.schedule.name === 'short');
+  assert.equal(short.top, 547 * 1.2);
+  assert.equal(short.height, 1.2);
+  assert.equal(result.segments[0].continuesBefore, true);
+  assert.equal(result.segments[2].continuesAfter, true);
+});
+
+test('overlap clusters use separate columns while end-equals-start reuses a column', () => {
+  const values = [
+    ['a', '09:00', '10:00'], ['b', '09:30', '10:30'], ['c', '10:00', '11:00'], ['d', '11:00', '12:00']
+  ].map(([name, start, end]) => ({name, start_utc: '2026-11-01T' + start + ':00Z', end_utc: '2026-11-01T' + end + ':00Z'}));
+  const {segments} = layoutTimeline(values, '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z');
+  assert.deepEqual(segments.map(segment => segment.column), [0, 1, 0, 0]);
+  assert.deepEqual(segments.map(segment => segment.columns), [2, 2, 2, 1]);
+});
+
+test('DST elapsed-day heights are 23/25 hours and local date navigation does not add UTC 24 hours', () => {
+  assert.equal(layoutTimeline([], '2026-03-08T05:00:00Z', '2026-03-09T04:00:00Z').height, 23 * 72);
+  assert.equal(layoutTimeline([], '2026-11-01T04:00:00Z', '2026-11-02T05:00:00Z').height, 25 * 72);
+  assert.equal(nextLocalDate('2026-12-31'), '2027-01-01');
+  assert.equal(nextLocalDate('2026-03-01', -1), '2026-02-28');
+  assert.throws(() => nextLocalDate('2026-02-30'), ExpectedError);
+});

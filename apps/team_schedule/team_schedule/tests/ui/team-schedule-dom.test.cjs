@@ -435,3 +435,233 @@ test('init without BroadcastChannel keeps the existing visibility fallback', asy
   await fire(environment.document, 'visibilitychange');
   assert.match(environment.document.getElementById('session-status').textContent, /页面重新可见/);
 });
+
+function timelineItem(name, start, end, title = name) {
+  return {name, owner: 'owner@example.test', title, description: '', start_utc: start, end_utc: end,
+    source_timezone: 'UTC', availability: 'Busy', status: 'Active', revision: 1, members: []};
+}
+
+test('day view resolves both local midnights, renders true short blocks, continuation labels and paginated overlaps', async () => {
+  const calls = [];
+  const short = timelineItem('short', '2026-11-01T13:07:00Z', '2026-11-01T13:08:00Z', '<img src=x>');
+  const crossing = timelineItem('cross', '2026-11-01T03:00:00Z', '2026-11-01T05:00:00Z');
+  const environment = createDom(html, async (url, options) => {
+    const payload = JSON.parse(options.body); calls.push({url, payload});
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local.startsWith('2026-11-01') ? '2026-11-01T04:00:00Z' : '2026-11-02T05:00:00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: payload.cursor ? {items: [timelineItem('overlap', '2026-11-01T13:07:00Z', '2026-11-01T14:00:00Z')], next_cursor: null} : {items: [short, crossing], next_cursor: 'next'}});
+    if (url.endsWith('.get')) return jsonResponse({message: {schedule: short}});
+    throw new Error('unexpected request ' + url);
+  });
+  environment.window.PhilosopherCRMText = {enums: {Busy: '占用'}, timeline: {continuesBefore: '承接前日'}};
+  init(environment.document, environment.window);
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'America/New_York'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  assert.deepEqual(methodCalls(calls, '.resolve_local').map(call => call.payload.local), ['2026-11-01T00:00', '2026-11-02T00:00']);
+  const container = environment.document.getElementById('schedule-list');
+  assert.equal(container.querySelector('.timeline').style.height, '1800px');
+  assert.match(container.textContent, /25小时/);
+  assert.match(container.textContent, /承接前日/);
+  assert.match(container.textContent, /占用/);
+  assert.match(container.textContent, /<img src=x>/);
+  assert.equal(container.querySelectorAll('img').length, 0);
+  const thin = container.querySelectorAll('.timeline-block').find(button => button.title.includes('<img src=x>'));
+  assert.equal(thin.style.height, '1.2px');
+  assert.equal(thin.style.top, (547 * 1.2) + 'px');
+  assert.match(environment.document.getElementById('list-status').textContent, /不是完整结果/);
+  const ticks = container.querySelectorAll('.timeline-tick').map(tick => tick.textContent);
+  assert.ok(ticks.some(value => value.includes('01:00') && value.includes('GMT-4')));
+  assert.ok(ticks.some(value => value.includes('01:00') && value.includes('GMT-5')));
+  assert.equal(container.querySelector('.timeline-scroll').scrollTop, 0);
+  await thin.click();
+  assert.equal(methodCalls(calls, '.get').length, 1);
+  assert.match(environment.document.getElementById('list-status').textContent, /详情已按当前权限/);
+  assert.match(container.querySelector('.timeline-incomplete').textContent, /不是完整结果/);
+  await environment.document.getElementById('list-more').click();
+  await flush();
+  assert.equal(methodCalls(calls, '.list')[1].payload.cursor, 'next');
+  assert.ok(container.querySelectorAll('.timeline-block').some(block => block.style.width === 'calc(50% - 44px)'));
+  assert.match(environment.document.getElementById('list-status').textContent, /全部结果/);
+  assert.equal(container.querySelector('.timeline-incomplete'), null);
+  const sender = new environment.window.BroadcastChannel('crm-account-boundary-c011000');
+  sender.postMessage('changed');
+  assert.equal(container.children.length, 0);
+  assert.equal(container.textContent, '');
+});
+
+test('newer day navigation wins over a late old response and 409 clears all timeline labels', async () => {
+  const late = deferred(); let lists = 0;
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) {
+      lists += 1;
+      if (lists === 1) return late.promise;
+      return jsonResponse({message: {items: [timelineItem('new', '2026-11-02T09:00:00Z', '2026-11-02T10:00:00Z')], next_cursor: null}});
+    }
+    if (url.endsWith('.get')) return jsonResponse({message: {error: {code: 'REVISION_CONFLICT'}}}, false, 409);
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  const old = fire(environment.document.getElementById('day-form'), 'submit');
+  for (let i = 0; i < 5 && !lists; i += 1) await flush();
+  await environment.document.getElementById('day-next').click();
+  late.resolve(jsonResponse({message: {items: [timelineItem('old-private', '2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z')], next_cursor: null}}));
+  await old;
+  const container = environment.document.getElementById('schedule-list');
+  assert.match(container.textContent, /2026-11-02/);
+  assert.doesNotMatch(container.textContent, /old-private/);
+  await container.querySelectorAll('button')[0].click();
+  assert.equal(container.children.length, 0);
+  assert.match(environment.document.getElementById('list-status').textContent, /版本冲突/);
+});
+
+test('late detail from a previous day cannot reopen the detail panel after navigation', async () => {
+  const detail = deferred(); let getStarted = false;
+  const oldItem = timelineItem('old-detail', '2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z');
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items: payload.start_utc.startsWith('2026-11-01') ? [oldItem] : [], next_cursor: null}});
+    if (url.endsWith('.get')) { getStarted = true; return detail.promise; }
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  const pending = environment.document.getElementById('schedule-list').querySelectorAll('button')[0].click();
+  await flush();
+  assert.equal(getStarted, true);
+  await environment.document.getElementById('day-next').click();
+  detail.resolve(jsonResponse({message: {schedule: oldItem}}));
+  await pending;
+  assert.equal(environment.document.getElementById('detail-panel').hidden, true);
+  assert.doesNotMatch(environment.document.getElementById('detail-content').textContent, /old-detail/);
+});
+
+test('midnight and late events target their real position without a fixed viewport cap; session clear removes pagination notice', async () => {
+  let late = false;
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items: [late
+      ? timelineItem('late', '2026-11-01T23:59:00Z', '2026-11-02T00:00:00Z')
+      : timelineItem('midnight', '2026-11-01T00:00:00Z', '2026-11-01T00:20:00Z')], next_cursor: 'more'}});
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  const container = environment.document.getElementById('schedule-list');
+  assert.equal(container.querySelector('.timeline-block').style.top, '0px');
+  assert.equal(container.querySelector('.timeline-scroll').scrollTop, 0);
+  assert.match(container.querySelector('.timeline-incomplete').textContent, /不是完整结果/);
+  late = true;
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  assert.equal(container.querySelector('.timeline-scroll').scrollTop, 1439 * 1.2 - 48);
+  await fire(environment.document, 'visibilitychange');
+  assert.equal(container.children.length, 0);
+  assert.equal(container.querySelector('.timeline-incomplete'), null);
+});
+
+test('activity access injections use explicit neutral foreground/background without changing routes or observer deduplication', () => {
+  const vm = require('node:vm');
+  const links = [], notices = [];
+  const editor = {dataset: {}, closest: () => null, parentNode: {insertBefore: node => notices.push(node)}};
+  let writes = 0, observers = 0;
+  function makeNode(tag) {
+    let cssText = '';
+    const style = {get cssText() { return cssText; }, set cssText(value) { writes += 1; cssText = value; }};
+    return {tag, style, children: [], getAttribute(name) { return this[name]; }, querySelectorAll() { return this.children; }, append(child) { this.children.push(child); }};
+  }
+  const document = {
+    querySelectorAll: selector => selector === '.team-access-notice' ? notices : [editor],
+    getElementById: id => links.find(link => link.id === id),
+    createElement: makeNode,
+    body: {append: node => links.push(node)}
+  };
+  let annotate, observed;
+  const window = {};
+  const source = fs.readFileSync(path.join(__dirname, '../../../../team_access/team_access/public/access.js'), 'utf8');
+  const context = {document, window, MutationObserver: class {constructor(callback) { observers += 1; annotate = callback; } observe(target, options) { observed = {target, options}; }}};
+  vm.runInNewContext(source, context);
+  assert.equal(notices.length, 1);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].href, '/team-activities');
+  assert.equal(notices[0].children[0].href, '/team-activities');
+  assert.match(links[0].style.cssText, /color:var\(--crm-text,#E8EAED\)/);
+  assert.match(links[0].style.cssText, /background:var\(--crm-raised,#292D34\)/);
+  assert.match(notices[0].style.cssText, /color:var\(--crm-text,#E8EAED\)/);
+  assert.match(notices[0].style.cssText, /background:var\(--crm-surface,#202329\)/);
+  assert.doesNotMatch(links[0].style.cssText, /background:#fff/);
+  assert.match(notices[0].textContent, /Comment.*Private/);
+  assert.equal(observed.target, document.body);
+  assert.equal(observed.options.subtree, true);
+  const previousWrites = writes;
+  annotate();
+  assert.equal(writes, previousWrites);
+  links[0].style.cssText = 'background:#fff';
+  notices[0].style.cssText = 'background:#fef3c7';
+  vm.runInNewContext(source, context);
+  assert.match(links[0].style.cssText, /background:var\(--crm-raised,#292D34\)/);
+  assert.match(notices[0].style.cssText, /background:var\(--crm-surface,#202329\)/);
+  assert.equal(observers, 1);
+  const afterRepair = writes;
+  annotate();
+  assert.equal(writes, afterRepair);
+  vm.runInNewContext(source, context);
+  assert.equal(writes, afterRepair + 2);
+  assert.equal(observers, 1);
+  assert.equal(notices.length, 1);
+  assert.equal(links.length, 1);
+  const foreign = makeNode('a');
+  foreign.id = 'team-access-link'; foreign.href = '/unrelated'; foreign.style.cssText = 'color:purple';
+  links[0] = foreign;
+  vm.runInNewContext(source, context);
+  assert.equal(foreign.style.cssText, 'color:purple');
+  assert.equal(observers, 1);
+});
+
+test('10/25-minute events retain exact heights with visible independent numbers and same-viewport title/time rail', async () => {
+  const items = [
+    timelineItem('ten', '2026-11-01T09:00:00Z', '2026-11-01T09:10:00Z', '十分钟拜访'),
+    timelineItem('twenty-five', '2026-11-01T09:00:00Z', '2026-11-01T09:25:00Z', '二十五分钟电话'),
+    {...timelineItem('cancelled', '2026-11-01T09:10:00Z', '2026-11-01T09:15:00Z', '已撤安排'), status: 'Cancelled'},
+    timelineItem('adjacent', '2026-11-01T09:15:00Z', '2026-11-01T09:20:00Z', '接续短事项')
+  ];
+  const gets = [];
+  const environment = setup(async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (url.endsWith('.resolve_local')) return jsonResponse({message: {utc: payload.local + ':00Z', offset_minutes: 0}});
+    if (url.endsWith('.list')) return jsonResponse({message: {items, next_cursor: null}});
+    if (url.endsWith('.get')) { gets.push(payload.name); return jsonResponse({message: {schedule: items.find(item => item.name === payload.name)}}); }
+    throw new Error('unexpected request ' + url);
+  });
+  setValues(environment.document, {'day-date': '2026-11-01', 'list-timezone': 'UTC'});
+  await fire(environment.document.getElementById('day-form'), 'submit');
+  const container = environment.document.getElementById('schedule-list');
+  const viewport = container.querySelector('.timeline-day-viewport');
+  const rail = viewport.querySelector('.timeline-label-rail');
+  assert.equal(viewport.querySelector('.timeline-scroll').parentNode, rail.parentNode);
+  assert.match(rail.textContent, /十分钟拜访/);
+  assert.match(rail.textContent, /09:00.*09:10/);
+  assert.match(rail.textContent, /二十五分钟电话/);
+  assert.match(rail.textContent, /09:00.*09:25/);
+  assert.match(rail.textContent, /Cancelled/);
+  const blocks = viewport.querySelectorAll('.timeline-block');
+  assert.equal(blocks.find(block => block.title.includes('十分钟')).style.height, '12px');
+  assert.equal(blocks.find(block => block.title.includes('二十五')).style.height, '30px');
+  const markers = viewport.querySelectorAll('.timeline-marker');
+  assert.deepEqual(markers.map(marker => marker.textContent), ['1', '2', '3', '4']);
+  assert.equal(markers[0].tagName, 'BUTTON');
+  assert.equal(markers[0].type, 'button');
+  assert.equal(viewport.querySelectorAll('.timeline-connector').length, 4);
+  const sameColumn = markers.filter(marker => marker.style.left === markers[1].style.left);
+  for (let i = 1; i < sameColumn.length; i += 1) assert.ok(parseFloat(sameColumn[i].style.top) >= parseFloat(sameColumn[i - 1].style.top) + 28);
+  await markers[1].click();
+  assert.equal(gets.length, 1);
+  await rail.querySelectorAll('button')[0].click();
+  assert.equal(gets.length, 2);
+  assert.match(markers.find(marker => marker.className.includes('cancelled')).attributes['aria-label'], /Cancelled/);
+  await fire(environment.document, 'visibilitychange');
+  assert.equal(container.children.length, 0);
+  assert.equal(container.querySelector('.timeline-label-rail'), null);
+  assert.equal(container.querySelector('.timeline-marker'), null);
+});

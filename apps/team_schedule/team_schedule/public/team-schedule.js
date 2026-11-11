@@ -38,12 +38,13 @@
   class ExpectedError extends Error {}
   class StaleOperation extends Error {}
 
-  function safeErrorText(error) {
-    return ERROR_TEXT[error && error.code] || ERROR_TEXT.INVALID_RESPONSE;
+  function safeErrorText(error, catalog) {
+    return catalog?.errors?.[error && error.code] || ERROR_TEXT[error && error.code] || ERROR_TEXT.INVALID_RESPONSE;
   }
 
-  function formatIcsCode(code) {
-    return code && ERROR_TEXT[code] ? code + '；' + ERROR_TEXT[code] : code;
+  function formatIcsCode(code, catalog) {
+    const text = catalog?.errors?.[code] || ERROR_TEXT[code];
+    return code && text ? code + '；' + text : code;
   }
 
   function createClient({fetchImpl, csrfToken}) {
@@ -215,8 +216,50 @@
     return values.year + '-' + values.month + '-' + values.day + 'T' + values.hour + ':' + values.minute;
   }
 
+  function nextLocalDate(day, delta = 1) {
+    const date = new Date(day + 'T00:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day) throw new ExpectedError('请选择有效日期。');
+    date.setUTCDate(date.getUTCDate() + delta);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function layoutTimeline(items, startUtc, endUtc) {
+    const start = Date.parse(startUtc), end = Date.parse(endUtc);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new ExpectedError('时间轴窗口无效。');
+    const segments = items.map(schedule => {
+      const actualStart = Date.parse(schedule.start_utc), actualEnd = Date.parse(schedule.end_utc);
+      return {schedule, start: Math.max(start, actualStart), end: Math.min(end, actualEnd), continuesBefore: actualStart < start, continuesAfter: actualEnd > end};
+    }).filter(segment => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+      .sort((a, b) => a.start - b.start || b.end - a.end || String(a.schedule.name).localeCompare(String(b.schedule.name)));
+    let cluster = [], clusterEnd = -Infinity;
+    function finishCluster() {
+      const lanes = [];
+      for (const segment of cluster) {
+        let column = lanes.findIndex(end => end <= segment.start);
+        if (column < 0) column = lanes.length;
+        lanes[column] = segment.end;
+        segment.column = column;
+      }
+      for (const segment of cluster) segment.columns = lanes.length;
+    }
+    for (const segment of segments) {
+      if (segment.start >= clusterEnd) {
+        finishCluster();
+        cluster = [];
+        clusterEnd = -Infinity;
+      }
+      cluster.push(segment);
+      clusterEnd = Math.max(clusterEnd, segment.end);
+      segment.top = (segment.start - start) / 60000 * 1.2;
+      segment.height = (segment.end - segment.start) / 60000 * 1.2;
+    }
+    finishCluster();
+    return {segments, height: (end - start) / 60000 * 1.2};
+  }
+
   function resetMemoryState(state) {
     state.epoch += 1;
+    state.listGeneration = (state.listGeneration || 0) + 1;
     state.items = [];
     state.nextCursor = null;
     state.listQuery = null;
@@ -251,8 +294,12 @@
     const currentUser = document.body.dataset.currentUser;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
     const client = createClient({fetchImpl: window.fetch.bind(window), csrfToken});
+    const catalog = window.PhilosopherCRMText || {};
+    const enumText = value => catalog.enums?.[value] || value;
+    const timelineText = (key, fallback) => catalog.timeline?.[key] || fallback;
     const state = {
       epoch: 0,
+      listGeneration: 0,
       items: [],
       nextCursor: null,
       listQuery: null,
@@ -392,6 +439,7 @@
       $('schedule-submit').disabled = false;
       $('schedule-list').replaceChildren();
       $('list-more').hidden = true;
+      $('list-more').disabled = false;
       $('detail-panel').hidden = true;
       $('detail-content').replaceChildren();
       $('busy-results').replaceChildren();
@@ -419,7 +467,7 @@
     function fail(error, statusId) {
       const clearDrafts = requiresDraftClear(error);
       clearBusiness({clearDrafts});
-      message(statusId, safeErrorText(error), true);
+      message(statusId, safeErrorText(error, catalog), true);
       message('session-status', clearDrafts ? '身份、权限、版本或Framework拒绝边界已触发；内存业务数据和敏感草稿已清除。' : '请求失败；已清除旧业务显示，请重新加载并核验。', true);
     }
 
@@ -440,7 +488,7 @@
       for (const value of ['Read', 'Edit']) {
         const option = document.createElement('option');
         option.value = value;
-        option.textContent = value;
+        option.textContent = enumText(value);
         access.append(option);
       }
       access.value = member ? member.access : 'Read';
@@ -470,28 +518,113 @@
     }
 
     function renderSchedules() {
-      if (!state.items.length) {
-        $('schedule-list').textContent = '当前窗口没有返回日程。';
-        $('list-more').hidden = true;
-        return;
-      }
-      const timezone = state.listQuery ? state.listQuery.timezone : 'UTC';
-      const body = makeTable($('schedule-list'), ['开始', '结束', '标题', 'owner', '占用', '状态', 'revision', '操作']);
-      for (const schedule of state.items) {
-        const row = document.createElement('tr');
-        if (schedule.status === 'Cancelled') row.className = 'cancelled';
-        cell(row, formatUtc(schedule.start_utc, timezone));
-        cell(row, formatUtc(schedule.end_utc, timezone));
-        cell(row, schedule.title);
-        cell(row, schedule.owner);
-        cell(row, schedule.availability);
-        cell(row, schedule.status);
-        cell(row, schedule.revision);
-        const actions = cell(row, '');
-        actions.replaceChildren(makeButton('查看详情', () => viewSchedule(schedule.name)));
-        body.append(row);
-      }
+      const container = $('schedule-list');
+      container.replaceChildren();
       $('list-more').hidden = !state.nextCursor;
+      if (state.nextCursor) {
+        const warning = document.createElement('p');
+        warning.className = 'timeline-incomplete status';
+        warning.textContent = '仍有更多日程，当前时间轴不是完整结果，请加载更多。';
+        warning.setAttribute('role', 'status');
+        container.append(warning);
+      }
+      const query = state.listQuery;
+      const timezone = query ? query.timezone : 'UTC';
+      let segments = state.items.map(schedule => ({schedule}));
+      let dayViewport = null;
+      if (query?.day) {
+        const layout = layoutTimeline(state.items, query.startUtc, query.endUtc);
+        segments = layout.segments;
+        const zone = document.createElement('p');
+        zone.className = 'timeline-zone';
+        zone.textContent = query.day + ' · ' + timezone + ' · ' + (layout.height / 1.2 / 60) + '小时（真实经过时间）';
+        const scroll = document.createElement('div');
+        scroll.className = 'timeline-scroll';
+        const axis = document.createElement('div');
+        axis.className = 'timeline';
+        axis.style.height = layout.height + 'px';
+        const track = document.createElement('div');
+        track.className = 'timeline-track';
+        const columns = Math.max(1, ...segments.map(segment => segment.columns));
+        axis.style.minWidth = Math.max(340, 128 + columns * 160) + 'px';
+        for (let instant = Date.parse(query.startUtc); instant <= Date.parse(query.endUtc); instant += 3600000) {
+          const tick = document.createElement('div');
+          tick.className = 'timeline-tick';
+          tick.style.top = (instant - Date.parse(query.startUtc)) / 60000 * 1.2 + 'px';
+          const label = document.createElement('span');
+          label.textContent = new Intl.DateTimeFormat('zh-CN', {timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'shortOffset'}).format(new Date(instant));
+          tick.append(label);
+          axis.append(tick);
+        }
+        const markerSlots = [];
+        for (const [index, segment] of segments.entries()) {
+          const schedule = segment.schedule;
+          const button = makeButton(segment.height < 40 ? '' : (index + 1) + '. ' + schedule.title, () => viewSchedule(schedule.name));
+          button.className = 'timeline-block' + (segment.height < 40 ? ' short' : '') + (schedule.availability === 'Free' ? ' free' : '') + (schedule.status === 'Cancelled' ? ' cancelled' : '');
+          button.title = (index + 1) + '. ' + schedule.title + ' · ' + formatUtc(schedule.start_utc, timezone) + ' 至 ' + formatUtc(schedule.end_utc, timezone);
+          button.setAttribute('aria-label', button.title);
+          button.style.top = segment.top + 'px';
+          button.style.height = segment.height + 'px';
+          button.style.left = (segment.column / segment.columns * 100) + '%';
+          button.style.width = 'calc(' + (100 / segment.columns) + '% - 44px)';
+          track.append(button);
+          const left = segment.column / segment.columns;
+          const right = (segment.column + 1) / segment.columns;
+          let markerTop = segment.top;
+          for (const slot of markerSlots) {
+            if (left < slot.right && right > slot.left && markerTop < slot.bottom) markerTop = slot.bottom;
+          }
+          markerSlots.push({left, right, bottom: markerTop + 28});
+          const marker = makeButton(String(index + 1), () => viewSchedule(schedule.name));
+          marker.className = 'timeline-marker' + (schedule.status === 'Cancelled' ? ' cancelled' : '');
+          marker.setAttribute('aria-label', button.title + ' · ' + enumText(schedule.status));
+          marker.style.top = markerTop + 'px';
+          marker.style.left = 'calc(' + (right * 100) + '% - 38px)';
+          const connector = document.createElement('span');
+          connector.className = 'timeline-connector';
+          connector.setAttribute('aria-hidden', 'true');
+          connector.style.top = segment.top + 'px';
+          connector.style.height = (markerTop - segment.top + 12) + 'px';
+          connector.style.left = 'calc(' + (right * 100) + '% - 22px)';
+          track.append(connector, marker);
+        }
+        axis.style.marginBottom = Math.max(32, ...markerSlots.map(slot => slot.bottom - layout.height + 16)) + 'px';
+        axis.append(track);
+        scroll.append(axis);
+        dayViewport = document.createElement('div');
+        dayViewport.className = 'timeline-day-viewport';
+        dayViewport.append(scroll);
+        container.append(zone, dayViewport);
+        scroll.scrollTop = Math.max(0, (segments[0]?.top ?? 8 * 72) - 48);
+      }
+      const labels = document.createElement('ol');
+      labels.className = 'timeline-labels';
+      for (const [index, segment] of segments.entries()) {
+        const schedule = segment.schedule;
+        const row = document.createElement('li');
+        if (schedule.status === 'Cancelled') row.className = 'cancelled';
+        const button = makeButton((index + 1) + '. ' + schedule.title + (schedule.status === 'Cancelled' ? ' · ' + enumText(schedule.status) : '') + ' · ' + timelineText('view', '查看详情'), () => viewSchedule(schedule.name));
+        const metadata = document.createElement('span');
+        metadata.className = 'timeline-event-meta';
+        const continuation = [segment.continuesBefore ? timelineText('continuesBefore', '承接前日') : '', segment.continuesAfter ? timelineText('continuesAfter', '延续次日') : ''].filter(Boolean).join(' · ');
+        metadata.textContent = formatUtc(schedule.start_utc, timezone) + ' 至 ' + formatUtc(schedule.end_utc, timezone) + ' · ' + enumText(schedule.availability) + ' · ' + enumText(schedule.status) + (continuation ? ' · ' + continuation : '');
+        row.append(button, metadata);
+        labels.append(row);
+      }
+      if (!segments.length) {
+        const empty = document.createElement('p');
+        empty.textContent = timelineText('empty', '所选日期没有日程');
+        container.append(empty);
+      }
+      if (dayViewport) {
+        const rail = document.createElement('aside');
+        rail.className = 'timeline-label-rail';
+        rail.setAttribute('aria-label', '当日日程编号、标题与时间');
+        const heading = document.createElement('h3');
+        heading.textContent = '日程 · 编号对应时间块';
+        rail.append(heading, labels);
+        dayViewport.append(rail);
+      } else container.append(labels);
     }
 
     function renderDetails() {
@@ -511,9 +644,9 @@
         ['UTC开始／结束', schedule.start_utc + ' 至 ' + schedule.end_utc],
         ['源时区', schedule.source_timezone],
         ['owner', schedule.owner],
-        ['占用／状态', schedule.availability + '／' + schedule.status],
+        ['占用／状态', enumText(schedule.availability) + '／' + enumText(schedule.status)],
         ['revision', schedule.revision],
-        ['成员', (schedule.members || []).map(member => member.user + '（' + member.access + '，' + (member.occupies ? '已接受占用' : '未接受占用') + '）').join('\n') || '无']
+        ['成员', (schedule.members || []).map(member => member.user + '（' + enumText(member.access) + '，' + (member.occupies ? '已接受占用' : '未接受占用') + '）').join('\n') || '无']
       ];
       for (const [label, value] of values) {
         const row = document.createElement('tr');
@@ -543,10 +676,50 @@
       renderDetails();
     }
 
-    async function fetchList(query, append, epoch) {
+    function beginList() {
+      state.listGeneration += 1;
+      state.items = [];
+      state.nextCursor = null;
+      state.listQuery = null;
+      state.selected = null;
+      $('schedule-list').replaceChildren();
+      $('list-more').hidden = true;
+      renderDetails();
+      return state.listGeneration;
+    }
+
+    async function loadDay(delta = 0, today = false) {
+      const epoch = state.epoch;
+      const generation = beginList();
+      try {
+        const timezone = $('list-timezone').value;
+        const day = today ? zonedLocalInput(new Date().toISOString(), timezone).slice(0, 10) : $('day-date').value;
+        const selectedDay = nextLocalDate(day, delta);
+        $('day-date').value = selectedDay;
+        message('list-status', '正在解析当日时区边界…');
+        const start = await resolveLocal(client, selectedDay + 'T00:00', timezone);
+        assertOperation(state, epoch);
+        if (generation !== state.listGeneration) return;
+        const end = await resolveLocal(client, nextLocalDate(selectedDay) + 'T00:00', timezone);
+        assertOperation(state, epoch);
+        if (generation !== state.listGeneration) return;
+        await fetchList({startUtc: start.utc, endUtc: end.utc, timezone, day: selectedDay, includeCancelled: $('include-cancelled').checked}, false, epoch, generation);
+      } catch (error) {
+        if (error instanceof StaleOperation || epoch !== state.epoch || generation !== state.listGeneration) return;
+        if (error instanceof ExpectedError) message('list-status', error.message, true);
+        else if (error.code === 'AMBIGUOUS_LOCAL_TIME' || error.code === 'INVALID_INPUT') message('list-status', '无法明确解析该日期午夜（可能存在时区歧义或不存在的时间），请使用自定义窗口检查输入并明确选择DST offset。', true);
+        else fail(error, 'list-status');
+      }
+    }
+
+    async function fetchList(query, append, epoch, generation = state.listGeneration) {
       assertOperation(state, epoch);
+      if (generation !== state.listGeneration) return;
+      if (append && $('list-more').disabled) return;
+      $('list-more').disabled = true;
       if (!append) {
         state.items = [];
+        state.nextCursor = null;
         state.selected = null;
         state.listQuery = query;
         renderSchedules();
@@ -562,31 +735,35 @@
           limit: 100
         });
         assertOperation(state, epoch);
+        if (generation !== state.listGeneration) return;
         state.items = append ? state.items.concat(result.items || []) : (result.items || []);
         state.nextCursor = result.next_cursor || null;
         state.listQuery = query;
         renderSchedules();
-        succeeded('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC offset。');
+        succeeded('list-status', '已加载' + state.items.length + '条；时间均含显示时区与UTC offset。' + (state.nextCursor ? '仍有更多日程，当前时间轴不是完整结果，请加载更多。' : '已加载当前窗口全部结果。'));
       } catch (error) {
-        if (error instanceof StaleOperation || epoch !== state.epoch) return;
+        if (error instanceof StaleOperation || epoch !== state.epoch || generation !== state.listGeneration) return;
         fail(error, 'list-status');
+      } finally {
+        if (epoch === state.epoch && generation === state.listGeneration) $('list-more').disabled = false;
       }
     }
 
     async function viewSchedule(name) {
       const epoch = state.epoch;
+      const generation = state.listGeneration;
       state.selected = null;
       renderDetails();
       message('list-status', '正在读取当前详情…');
       try {
         const result = await client.post('get', {name});
-        if (epoch !== state.epoch) return;
+        if (epoch !== state.epoch || generation !== state.listGeneration) return;
         state.selected = result.schedule;
         renderDetails();
         message('detail-status', '');
         succeeded('list-status', '详情已按当前权限重新读取。');
       } catch (error) {
-        if (epoch === state.epoch) fail(error, 'list-status');
+        if (epoch === state.epoch && generation === state.listGeneration) fail(error, 'list-status');
       }
     }
 
@@ -674,6 +851,7 @@
     function editSelected() {
       const schedule = state.selected;
       if (!schedule) return;
+      $('editor-section').open = true;
       $('editing-name').value = schedule.name;
       $('editing-revision').value = String(schedule.revision);
       $('schedule-title').value = schedule.title;
@@ -837,7 +1015,7 @@
         message('ics-status', '文件已在内存读取；请选择预览，尚未写入。');
       } catch (error) {
         if (generation !== state.icsGeneration) return;
-        message('ics-status', error instanceof ExpectedError ? error.message : safeErrorText(error), true);
+        message('ics-status', error instanceof ExpectedError ? error.message : safeErrorText(error, catalog), true);
       }
     }
 
@@ -850,12 +1028,12 @@
       for (const item of state.ics.items) {
         const row = document.createElement('tr');
         cell(row, item.index);
-        cell(row, String(item.action || '') + (item.code ? '／' + formatIcsCode(item.code) : ''));
+        cell(row, String(catalog.icsActions?.[item.action] || item.action || '') + (item.code ? '／' + formatIcsCode(item.code, catalog) : ''));
         const preview = item.preview || {};
         cell(row, preview.title);
         cell(row, preview.description).className = 'detail-text';
         cell(row, preview.start_utc && preview.end_utc ? formatUtc(preview.start_utc, preview.source_timezone || 'UTC') + ' 至 ' + formatUtc(preview.end_utc, preview.source_timezone || 'UTC') : '—');
-        cell(row, String(preview.status || '—') + '／' + String(preview.availability || '—'));
+        cell(row, String(enumText(preview.status) || '—') + '／' + String(enumText(preview.availability) || '—'));
         cell(row, item.expected_revision);
         const choice = cell(row, '');
         const allowed = item.action === 'local_conflict' && (item.allowed_resolutions || []).includes('replace_from_source');
@@ -912,8 +1090,8 @@
         for (const item of result.items || []) {
           const row = document.createElement('tr');
           cell(row, item.index);
-          cell(row, item.result);
-          cell(row, formatIcsCode(item.code));
+          cell(row, catalog.icsActions?.[item.result] || item.result);
+          cell(row, formatIcsCode(item.code, catalog));
           cell(row, item.schedule_name);
           cell(row, item.revision);
           body.append(row);
@@ -937,6 +1115,7 @@
 
     populateTimezones();
     resetEditor();
+    for (const option of $('schedule-availability').querySelectorAll('option')) option.textContent = enumText(option.value);
     $('reload-page').addEventListener('click', () => window.location.reload());
     $('schedule-form').addEventListener('submit', saveSchedule);
     $('schedule-reset').addEventListener('click', () => { resetEditor(); message('schedule-status', '编辑已清空。'); });
@@ -954,21 +1133,28 @@
     }
     $('add-create-member').addEventListener('click', () => addMemberRow($('create-member-rows')));
     $('add-member').addEventListener('click', () => addMemberRow($('member-rows')));
+    $('day-date').value = zonedLocalInput(new Date().toISOString(), 'UTC').slice(0, 10);
+    $('day-form').addEventListener('submit', event => { event.preventDefault(); return loadDay(); });
+    $('day-prev').addEventListener('click', () => loadDay(-1));
+    $('day-next').addEventListener('click', () => loadDay(1));
+    $('day-today').addEventListener('click', () => loadDay(0, true));
     $('list-form').addEventListener('submit', async event => {
       event.preventDefault();
       const epoch = state.epoch;
+      const generation = beginList();
       try {
         const range = await resolveFormRange('list', epoch);
         assertOperation(state, epoch);
+        if (generation !== state.listGeneration) return;
         if (range.start_utc >= range.end_utc) throw new ExpectedError('窗口结束必须晚于开始。');
         await fetchList({
           startUtc: range.start_utc,
           endUtc: range.end_utc,
           includeCancelled: $('include-cancelled').checked,
           timezone: $('list-timezone').value
-        }, false, epoch);
+        }, false, epoch, generation);
       } catch (error) {
-        if (error instanceof StaleOperation || epoch !== state.epoch) return;
+        if (error instanceof StaleOperation || epoch !== state.epoch || generation !== state.listGeneration) return;
         if (error instanceof ExpectedError) message('list-status', error.message, true);
         else fail(error, 'list-status');
       }
@@ -1015,6 +1201,8 @@
     formatOffset,
     formatUtc,
     zonedLocalInput,
+    nextLocalDate,
+    layoutTimeline,
     resetMemoryState,
     bytesToBase64,
     readIcsFile,
