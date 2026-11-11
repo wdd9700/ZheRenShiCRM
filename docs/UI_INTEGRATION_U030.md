@@ -519,3 +519,21 @@ M44主分支request.py原0a654aae→3c7fa425，只有`crm.api.doc.get_sort_optio
 | `export-result.json` | `4da87b2d1fa95fb6ca996170886e89c45b3acfbdf83b30254be0fb8c227dac9c` |
 
 manifest明确format `crm-final-navigation-diagnostic-removed-v1`、精确83d1/5c247/3bc/058来源及688111 receipt，状态为build-tested、实际task UI待测、not-deployed；team_access label的531基底来源未冒充最终request字节，实际品牌query+端点唯一delta单独记录。精确包/七字段release/201URL receipt已直接交tower和M17，M24也已收到四clean原SHA及真403保护回归证据。M17仍须保持M43 HTTPS/OTA工具后态并统一更新，Terra随后验证真实正常任务导航和线上临时代码不再出现；M37不提前完成导航故障任务或宣告真实UI已修。当前没有需要新增用户决策的卡点，后继采用已授限定流程，不借归档权限另启站点或重矩阵。
+
+
+## 最终真实HTTPS验收与合并收口（2026-11-11）
+
+本节更新前述“实际任务UI待验/未部署”的阶段状态，不改写冻结归档manifest或抹除历史失败。M17已将同一最终e14b6候选正式更新并完成最终交付审，分支合入master `64ebd5c`；部署与线上字节核验证据见 `docs/REMOTE_EXECUTION_C010600.md` §23–23.1（由M17执行，M37未另行访问线上）。六应用最终同config c260运行、服务健康，完整业务摘要及五app集合保持；实际request SHA `2c2af774...`、四clean请求链SHA及构建JS无临时记录标记均已核，M43 HTTPS/OTA工具及既有签名供应保持。普通Sales User真实HTTPS排序元数据请求200且正常注销，不以单接口代替UI验收。
+
+Terra通过TowerInbox交付最终e14b6独立真实HTTPS只读短验：
+
+| 限定场景 | 实际证据 |
+|---|---|
+| 原失败任务导航进入任务列表 | 路由 `/crm/tasks/view/list`，DOM显示任务/列表及暂无任务；`text-a0af46df-1b87-4f35-ad86-bfead8804339` |
+| 筛选固定字段中文 | 公司介绍、线索评分、最近响应时长均中文；`text-22d57a80-98ee-4c33-992b-6137d9d76d07` |
+| 日程只读、暗色中文 | `visual-3dddfbe2-0e91-485f-93f3-0ab869a6e114` |
+| 正常退出 | Terra明确报告正常注销，全程未写业务 |
+
+据此，M37原hold的真实正常任务UI子门已满足：此前任务导航sort_options403的限定修复、保留Filter/catalog及最终临时诊断移除形成构建—部署—真实UI证据闭环，不再以同一待验项永久保持active。原四项任务均已对账：可重复严格组合与低层构建、品牌/语言原生优先、静态资产与缺失拒绝守卫、审定输入组合及Terra限定核心验收均有前述证据。本轮只补最终文档并请求合并审，不重build/测试/浏览器/线上，不修改生产、不自行rebase。
+
+边界仍保留：少量翻译/措辞尚未全面覆盖，不宣全站逐页全中文；原登录视觉捕获限制与非阻断风格偏差保留历史，不外推本次只读路径为全功能/全权限/安全认证。Windows真实GUI安装和已安装客户端OTA升级未验属于M41，不移入M37验收门；静态下载/签名校验不替代安装实测。当前无新增用户决策卡点。最终tip由主控安排精确审查与rebase/merge，M37不自行变基或合并主分支。
