@@ -596,3 +596,7 @@ M41 精确审定tip `d8139bfdfd2aa935783c35d0ad32b5a553c3842b` 获seq145静态�
 线上实际request.py SHA精确 `2c2af77470977b879b4fc8ade72f5b3eca91bb0bba7d55dcc7eef8c094a67505`，唯一 `crm.api.doc.sort_options` allow、旧误拼 `get_sort_options` 不在，完整品牌access query不变。四clean请求链源码逐SHA匹配原非诊断态，源内及全部构建JS无D020102/临时记录标记：accountBoundary a899121b…、resources5c38ca06…、request752fdeb0…、frappeRequest83e4b44d…。HTTPS11重点static均bytes/SHA匹配最终201URLreceipt，入口index-DO6EgA-F.js；没有只关闭开关而保留诊断代码。
 
 允许的一次普通Sales User真实HTTPS只读验证：正常登录→`GET /api/method/crm.api.doc.sort_options?doctype=CRM%20Task` HTTP200、返回标准元数据含name→正常logout，无角色提权或业务写入。未知/私域权限未扩测，不以此单接口算全部UI通过。已立即给tower/Terra可用时点，随后一次原失败流程/任务列表/日程短验由Terra完成；成功前不宣完整v1验收。原始输出ignored `m17-e14b6-{before,upgrade,after}.stdout.log`，服务保持常驻。
+
+### 23.1 最终限定交付对账
+
+主控已接Terra对最终e14b6真实HTTPS的独立短验：2026-11-10 09:09:37 UTC任务列表正常（text-a0af46df），日程只读正常（visual-3dddfbe2），随后正常注销。此前任务导航403的限定修复已获实际普通用户UI结果支持，临时诊断已移除；不外推为全权限/全业务矩阵。M17交付范围的安全基线、合成导入、普通授权流程、受控升级/保数据、可信IP HTTPS与静态签名供应已完成并保留历史失败证据。Windows真实GUI安装、已安装客户端自动升级仍未验，静态下载/Ed25519验签不替代它们。此次仅文档对账，不新增线上操作、构建或测试；分支最终exact-tip交tower独审及rebase/merge，不由worker清理远端备份/镜像/数据。
