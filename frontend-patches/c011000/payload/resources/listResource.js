@@ -4,9 +4,21 @@ import { saveLocal, getLocal } from './local'
 import { onDocUpdate } from './realtime'
 import { readSocket } from './socketAccess'
 import { getConfig } from '../utils/config'
+import { accountBoundary } from './accountBoundary'
 
 let listCache = reactive({})
 let resourcesByDocType = {}
+accountBoundary.onInvalidate(() => {
+  for (const resources of Object.values(resourcesByDocType)) {
+    for (const resource of resources) {
+      resource.originalData = null
+      resource.data = null
+      resource.dataMap = {}
+    }
+  }
+  listCache = reactive({})
+  resourcesByDocType = {}
+})
 
 export function createListResource(options, vm) {
   if (!options.doctype) {

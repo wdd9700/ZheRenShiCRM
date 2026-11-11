@@ -9,8 +9,10 @@ import { getLocal, saveLocal, deleteLocal } from './local'
 import { onDocUpdate } from './realtime'
 import { readSocket } from './socketAccess'
 import { getConfig } from '../utils/config'
+import { accountBoundary } from './accountBoundary'
 
 let documentCache = reactive({})
+accountBoundary.onInvalidate(() => { documentCache = reactive({}) })
 
 export function createDocumentResource(options, vm) {
   if (!(options.doctype && options.name)) return
@@ -273,7 +275,20 @@ export function createDocumentResource(options, vm) {
     })
   }
 
-  // cache
+  function clearRetiredDocument() {
+    out.doc = null
+    out.originalDoc = null
+    out.previousDoc = null
+    out.isDirty = false
+    scope.stop?.()
+    unsubscribe()
+    stopHydrate()
+  }
+  const unsubscribe = accountBoundary.onInvalidate(() => {
+    scope.stop?.()
+    if (accountBoundary.state === 'IDENTITY_REQUIRED') clearRetiredDocument()
+  })
+  const stopHydrate = accountBoundary.onHydrate(clearRetiredDocument)
   documentCache[cacheKey] = out
 
   if (out.auto) {

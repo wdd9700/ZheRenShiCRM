@@ -6,16 +6,80 @@ import { getConfig } from '../utils/config'
 import { accountBoundary } from './accountBoundary'
 
 let cached = {}
+const automaticRequests = new WeakMap()
+const sharedReads = new Set(['frappe.onboarding.get_onboarding_status', 'frappe.client.get',
+  'frappe.client.get_list', 'crm.api.doc.get_data'])
+
+function requestKey(options) {
+  const ancestors = new Set()
+  function encode(value) {
+    if (value === null) return 'null'
+    if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+    if (typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)) return String(value)
+    if (typeof value !== 'object' || ancestors.has(value)) throw Error('Non-JSON params')
+    const array = Array.isArray(value)
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== null) {
+      const constructor = Object.getOwnPropertyDescriptor(proto, 'constructor')?.value
+      const builtin = array ? Array : Object
+      if (typeof constructor !== 'function' ||
+          Function.prototype.toString.call(constructor) !== Function.prototype.toString.call(builtin) ||
+          Object.getOwnPropertyDescriptor(constructor, 'prototype')?.value !== proto) {
+        throw Error('Non-plain params')
+      }
+    } else if (array) throw Error('Non-plain array')
+    for (let current = value; current; current = Object.getPrototypeOf(current)) {
+      if (Object.getOwnPropertyDescriptor(current, 'toJSON')) throw Error('Custom JSON params')
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const keys = Reflect.ownKeys(descriptors)
+    if (keys.some(key => typeof key !== 'string')) throw Error('Symbol params')
+    ancestors.add(value)
+    try {
+      if (array) {
+        const length = descriptors.length.value
+        if (keys.length !== length + 1) throw Error('Sparse or extended array')
+        return '[' + Array.from({ length }, (_, index) => {
+          const field = descriptors[index]
+          if (!field?.enumerable || !Object.hasOwn(field, 'value')) throw Error('Non-data array')
+          return encode(field.value)
+        }).join(',') + ']'
+      }
+      return '{' + keys.sort().map(key => {
+        const field = descriptors[key]
+        if (!field.enumerable || !Object.hasOwn(field, 'value')) throw Error('Non-data params')
+        return JSON.stringify(key) + ':' + encode(field.value)
+      }).join(',') + '}'
+    } finally { ancestors.delete(value) }
+  }
+  try {
+    const params = options.params === undefined ? 'default' : encode(options.params)
+    return JSON.stringify([options.url, options.method, params])
+  } catch { return Symbol() }
+}
+
+function automaticFetch(resource, entry) {
+  resource.fetch()
+  entry.promise = resource.promise
+}
+accountBoundary.onInvalidate(() => { cached = {} })
 
 export function createResource(options, vm) {
   let cacheKey = null
   if (options.cache) {
     cacheKey = getCacheKey(options.cache)
     let cachedResource = cached[cacheKey]
+    const entry = cachedResource && automaticRequests.get(cachedResource)
+    const sameRequest = entry && entry.key === requestKey(options) &&
+      entry.key === requestKey({ ...options, params: cachedResource.params || options.params }) &&
+      entry.makeParams === options.makeParams && entry.resourceFetcher === options.resourceFetcher
 
-    if (cachedResource) {
+    if (cachedResource && (!(cachedResource.auto || options.auto) || sameRequest)) {
       if (cachedResource.auto) {
-        cachedResource.reload()
+        const read = options.method === 'GET' || (!options.method && sharedReads.has(options.url))
+        const shared = read && !options.force && !options.makeParams && !options.debounce &&
+          cachedResource.loading && cachedResource.promise === entry.promise
+        if (!shared) automaticFetch(cachedResource, entry)
       }
       return cachedResource
     }
@@ -59,12 +123,24 @@ export function createResource(options, vm) {
   })
 
   let generation = 0
+  const epoch = accountBoundary.epoch
+  const authAction = ['login', 'logout'].includes(options.url)
+  const unsubscribe = authAction ? () => {} : accountBoundary.onInvalidate(() => {
+    generation++
+    controller.abort()
+    out.data = null
+    out.previousData = null
+    out.params = null
+    out.loading = false
+    out.fetched = false
+    unsubscribe()
+  })
 
   function assertCurrent(id) {
     if (id !== generation) {
       throw Object.assign(new Error('Resource request superseded'), { name: 'AbortError' })
     }
-    if (!['login', 'logout'].includes(options.url)) accountBoundary.assertActive()
+    if (!authAction) accountBoundary.assertRequest(epoch, options.url)
   }
 
   function fetch(params, tempOptions = {}) {
@@ -72,6 +148,7 @@ export function createResource(options, vm) {
     let promise = runFetch(params, tempOptions, id)
     promise.catch(() => {})
     out.promise = promise
+    if (epoch === accountBoundary.epoch) accountBoundary.track(promise)
     if (id === generation) {
       out.loading = true
       out.error = null
@@ -209,12 +286,15 @@ export function createResource(options, vm) {
     return data
   }
 
-  if (cacheKey && !cached[cacheKey]) {
+  const automatic = { key: requestKey(options), makeParams: options.makeParams,
+    resourceFetcher: options.resourceFetcher, promise: null }
+  automaticRequests.set(out, automatic)
+  if (cacheKey) {
     cached[cacheKey] = out
   }
 
   if (options.auto) {
-    out.fetch()
+    automaticFetch(out, automatic)
   }
 
   return out
@@ -227,7 +307,7 @@ export function getCacheKey(cacheKey) {
   if (typeof cacheKey === 'string') {
     cacheKey = [cacheKey]
   }
-  return JSON.stringify([accountBoundary.scope, cacheKey])
+  return JSON.stringify([accountBoundary.scope, accountBoundary.epoch, cacheKey])
 }
 
 export function getCachedResource(cacheKey) {

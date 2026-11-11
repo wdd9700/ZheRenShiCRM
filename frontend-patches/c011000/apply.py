@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from source_edits import transform
 
 HERE = Path(__file__).resolve().parent
 COMMIT = '36bd8859f2a6345a620477bc708d0546e8c3f08a'
@@ -34,10 +35,14 @@ def apply(root, check=False):
         expected = entry['before']
         if (sha(current) if current is not None else None) != expected:
             raise ValueError('Baseline mismatch: ' + entry['target'])
-        if entry.get('payload'):
-            replacement = (HERE / 'payload' / entry['payload']).read_bytes()
+        if entry.get('payload') or entry.get('edits'):
+            replacement = ((HERE / 'payload' / entry['payload']).read_bytes()
+                           if entry.get('payload') else transform(entry['target'], current))
             if sha(replacement) != entry['after']:
-                raise ValueError('Patch payload mismatch: ' + entry['payload'])
+                raise ValueError('Patch payload mismatch: ' + entry['target'])
+            temporary = target.with_name(target.name + '.c011000-tmp')
+            if temporary.exists() or temporary.is_symlink():
+                raise ValueError('Existing temporary target refused: ' + entry['target'])
             changes.append((target, replacement))
     if not check:
         for target, data in changes:

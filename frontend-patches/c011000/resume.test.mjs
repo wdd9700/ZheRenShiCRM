@@ -1,0 +1,440 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
+import { webcrypto } from 'node:crypto'
+import { installRequestDiagnostics } from './sfc-request-diagnostics.mjs'
+
+const tick = () => new Promise(resolve => setImmediate(resolve))
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+async function fixture(identify = async () => 'Synthetic Sales', legacyTracking = false) {
+  let hidden = false, cookie = 'synthetic-cookie', uncovered = 0, identities = 0
+  const events = {}, covers = [], config = {}
+  const env = { crypto: webcrypto, cookie: () => cookie, hidden: () => hidden,
+    on(type, fn) { events[type] = fn }, cover: (...args) => covers.push(args), uncover: () => uncovered++,
+    identify: () => { identities++; return identify() }, broadcast() {} }
+  const context = createContext({ __env: env, Uint32Array, AbortController, Event, console, setTimeout, clearTimeout })
+  const modules = new Map()
+  function synthetic(id, values) {
+    if (!modules.has(id)) modules.set(id, new SyntheticModule(Object.keys(values), function () {
+      for (const [k, v] of Object.entries(values)) this.setExport(k, v)
+    }, { context }))
+    return modules.get(id)
+  }
+  async function load(id) {
+    if (modules.has(id)) return modules.get(id)
+    if (id === 'vue') return synthetic(id, { reactive: x => x, watch() {}, effectScope: () => ({ run: fn => fn(), stop() {} }) })
+    if (id === 'config') return synthetic(id, { getConfig: key => config[key] })
+    if (id === 'debounce') return synthetic(id, { default: fn => fn })
+    if (id === 'request') return synthetic(id, { request: options => config.resourceFetcher(options) })
+    if (id === 'realtime') return synthetic(id, { onDocUpdate() {} })
+    if (id === 'socketAccess') return synthetic(id, { readSocket() {} })
+    const path = ['safeResume', 'resumeRuntime'].includes(id) ? `./payload/${id}.js` : `./payload/resources/${id}.${id === 'local' ? 'ts' : 'js'}`
+    let code = await readFile(new URL(path, import.meta.url), 'utf8')
+    if (id === 'resources' && legacyTracking) {
+      const gate = 'if (epoch === accountBoundary.epoch) accountBoundary.track(promise)'
+      assert.equal(code.split(gate).length, 2)
+      code = code.replace(gate, 'accountBoundary.track(promise)')
+    }
+    if (id === 'local') code = code.replace(/<T = any>/g, '').replace(/: Promise<(?:T \| null|null)>/g, '').replace(/: string/g, '').replace(/: T/g, '')
+    if (id === 'accountBoundary') code = code.replace('createAccountBoundary(browserEnvironment())', 'createAccountBoundary(globalThis.__env)')
+    const mod = new SourceTextModule(code, { context, identifier: id })
+    modules.set(id, mod); return mod
+  }
+  async function namespace(id) {
+    const mod = await load(id)
+    if (mod.status === 'unlinked') await mod.link(spec => load(spec.split('/').at(-1)))
+    if (mod.status !== 'evaluated') await mod.evaluate()
+    return mod.namespace
+  }
+  const boundary = (await namespace('accountBoundary')).accountBoundary
+  await boundary.resume()
+  return { boundary, events, covers, config, env, namespace, setIdentify(fn) { identify = fn },
+    get uncovered() { return uncovered }, get identities() { return identities },
+    hide(value) { hidden = value; events.visibilitychange() }, cookie(value) { cookie = value } }
+}
+function adapter(f, refresh = async () => ({ commit() {} })) {
+  let captures = 0, discards = 0
+  f.boundary.setAdapter({ suspend() { captures++ }, discard() { discards++ }, refresh })
+  return { get captures() { return captures }, get discards() { return discards } }
+}
+
+test('diagnostic assertRequest wrapper records direct poison without changing closure barrier or thrown identity', async () => {
+  const f = await fixture()
+  const original = f.boundary.assertRequest
+  const observer = installRequestDiagnostics(f.boundary)
+  const previous = f.boundary.epoch
+  let thrown, tracks = 0
+  const originalTrack = f.boundary.track
+  f.boundary.track = (...args) => { tracks++; return originalTrack(...args) }
+  adapter(f, async context => {
+    assert.throws(() => f.boundary.assertRequest(previous, 'frappe.desk.search.search_link'), { name: 'AbortError' })
+    assert.equal(f.boundary.assertRequest(f.boundary.epoch, 'frappe.desk.search.search_link'), undefined)
+    try { f.boundary.assertRequest(f.boundary.epoch, 'frappe.client.insert') }
+    catch (error) { thrown = error }
+    assert.ok(thrown)
+    await assert.rejects(context.settleReads(), error => error === thrown)
+    await context.settleReads()
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(tracks, 0)
+  assert.equal(f.boundary.state, 'RETRY_COVERED')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+  assert.equal(observer.evidence.firstThrow.kind, 'AbortError')
+  assert.equal(observer.evidence.firstThrow.expected, previous)
+  const poison = observer.evidence.firstCurrentHydratingThrow
+  assert.equal(poison.method, 'frappe.client.insert')
+  assert.equal(poison.expected, poison.current)
+  assert.equal(poison.state, 'HYDRATING')
+  assert.equal(poison.kind, 'RECOVERY_UNDECLARED')
+  assert.equal(observer.evidence.firstUndeclared, poison)
+  observer.restore()
+  assert.equal(f.boundary.assertRequest, original)
+
+  const failure = Object.assign(Error('PRIVATE MESSAGE'), { stack: 'PRIVATE ROOT/src/example.vue:12:3\nPRIVATE USER' })
+  const fake = { epoch: 7, state: 'HYDRATING', assertRequest() { throw failure } }
+  const sanitized = installRequestDiagnostics(fake)
+  assert.throws(() => fake.assertRequest(7, '/private/customer-document?secret=value'), error => error === failure)
+  assert.equal(sanitized.evidence.firstThrow.method, 'OTHER_ENDPOINT')
+  assert.deepEqual(sanitized.evidence.firstThrow.locations, ['src/example.vue:12:3'])
+  assert.doesNotMatch(JSON.stringify(sanitized.evidence), /PRIVATE|secret|customer-document/)
+  sanitized.restore()
+})
+
+for (const legacyTracking of [true, false]) test(`retired Link 300ms callbacks: ${legacyTracking ? 'pre-fix barrier contamination' : 'current barrier stays isolated'}`, async () => {
+  const f = await fixture(undefined, legacyTracking)
+  const { createResource } = await f.namespace('resources')
+  const root = process.env.C011100_FRONTEND_ROOT
+  assert.ok(root, 'Fixed frontend source is required for the Link timer characterization')
+  const { resolve } = await import('node:path')
+  const { createHash } = await import('node:crypto')
+  const source = await readFile(resolve(root, 'src/components/Controls/Link.vue'), 'utf8')
+  assert.equal(createHash('sha256').update(source).digest('hex'), '7d479056e49265528060f02da13a950f7f3ef7a0efff4a884e6a385bdaf6f79b')
+  const reloadCode = source.slice(source.indexOf('function reload(val, force = false)'), source.indexOf('function clearValue(close)'))
+  const link = new SourceTextModule(`export function mount(options, props) { ${reloadCode}; return reload }`, { context: createContext({}) })
+  await link.link(() => { throw Error('Unexpected Link reload import') }); await link.evaluate()
+  const requests = [], assertions = []
+  f.config.resourceFetcher = async request => { requests.push(request); return [] }
+  const originalAssert = f.boundary.assertRequest
+  f.boundary.assertRequest = (expected, url) => {
+    assertions.push({ expected, current: f.boundary.epoch, state: f.boundary.state, url })
+    return originalAssert(expected, url)
+  }
+  const props = { doctype: 'User', filters: [] }
+  const makeLink = () => {
+    let callbacks = 0
+    const resource = createResource({ url: 'frappe.desk.search.search_link', method: 'POST',
+      onSuccess() { callbacks++ },
+      params: { txt: '', doctype: props.doctype, filters: props.filters } })
+    return { resource, reload: link.namespace.mount(resource, props), get callbacks() { return callbacks } }
+  }
+  const retired = makeLink()
+  const oldEpoch = f.boundary.epoch
+  let clock = 0
+  const timers = []
+  const schedule = callback => timers.push({ at: clock + 300, callback })
+  schedule(() => retired.reload(''))
+  schedule(() => retired.reload('', true))
+  const rejected = []
+  adapter(f, async context => {
+    const current = makeLink()
+    current.reload('')
+    await current.resource.promise
+    assert.equal(requests.length, 1, 'Current epoch search_link is already permitted')
+    clock = 300
+    for (const timer of timers.filter(timer => timer.at <= clock)) {
+      timer.callback()
+      rejected.push(retired.resource.promise)
+      await assert.rejects(retired.resource.promise, { name: 'AbortError' })
+    }
+    context.phase('READ_SETTLE')
+    await context.settleReads()
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(rejected.length, 2)
+  assert.equal(requests.length, 1, 'Retired timers cannot reach transport')
+  const oldAssertions = assertions.filter(item => item.expected === oldEpoch)
+  assert.equal(oldAssertions.length, 2)
+  assert.ok(oldAssertions.every(item => item.state === 'HYDRATING' && item.expected !== item.current))
+  assert.equal(retired.resource.data, null)
+  assert.equal(retired.callbacks, 0)
+  assert.equal(f.boundary.state, legacyTracking ? 'RETRY_COVERED' : 'ACTIVE')
+  assert.equal(f.boundary.diagnostic.resumeStage, legacyTracking ? 'READ_SETTLE' : 'READY')
+  assert.equal(f.boundary.diagnostic.resumeFailure, legacyTracking ? 'READ_FAILED' : 'NONE')
+})
+
+test('current epoch delayed reads remain tracked, including failures and invalidation after tracking', async () => {
+  for (const failure of [null, 'AbortError', 'network', 'permission', 'undeclared', 'retire']) {
+    const f = await fixture()
+    const { createResource } = await f.namespace('resources')
+    const response = deferred(), started = deferred()
+    let request, callbacks = 0, transports = 0, settled = false, commits = 0
+    f.config.resourceFetcher = async () => { transports++; return response.promise }
+    adapter(f, async context => {
+      const timer = () => {
+        request = createResource({ url: failure === 'undeclared' ? 'custom.undeclared' : 'frappe.desk.search.search_link',
+          onSuccess() { callbacks++ } })
+        request.fetch()
+      }
+      const scheduled = { at: 300, callback: timer }
+      const clock = 300
+      if (scheduled.at <= clock) scheduled.callback()
+      context.phase('READ_SETTLE')
+      const barrier = context.settleReads().then(() => { settled = true })
+      started.resolve()
+      await barrier
+      return { commit() { commits++ } }
+    })
+    f.hide(true); f.hide(false)
+    const recovery = f.boundary.resume()
+    await started.promise; await tick()
+    if (failure === 'undeclared') {
+      await recovery
+      assert.equal(transports, 0)
+      assert.equal(f.boundary.state, 'RETRY_COVERED')
+      assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+      continue
+    }
+    assert.equal(transports, 1)
+    assert.equal(settled, false, 'Current epoch read keeps the recovery barrier pending')
+    assert.equal(f.boundary.state, 'HYDRATING')
+    if (failure === 'retire') {
+      f.hide(true)
+      response.resolve([])
+      await recovery
+      assert.equal(f.boundary.state, 'SUSPENDED')
+    } else if (failure) {
+      response.reject(Object.assign(Error(failure), failure === 'AbortError' ? { name: 'AbortError' }
+        : failure === 'permission' ? { status: 403, exc_type: 'PermissionError' } : {}))
+      await recovery
+      assert.equal(f.boundary.state, failure === 'permission' ? 'IDENTITY_REQUIRED' : 'RETRY_COVERED')
+      assert.equal(f.boundary.diagnostic.resumeFailure, 'READ_FAILED')
+    } else {
+      response.resolve([])
+      await recovery
+      assert.equal(f.boundary.state, 'ACTIVE')
+      assert.equal(callbacks, 1)
+      assert.equal(commits, 1)
+    }
+    if (failure) {
+      assert.equal(callbacks, 0)
+      assert.equal(commits, 0)
+      assert.equal(request.data, null)
+    }
+  }
+})
+
+test('hidden-visible recovery is one flight, fresh read then second identity then atomic reveal', async () => {
+  const f = await fixture(), fresh = deferred(), order = []
+  const a = adapter(f, async context => { order.push('fresh'); await fresh.promise; context.assertCurrent(); return { commit() { order.push('commit') } } })
+  f.hide(true); assert.equal(f.boundary.state, 'SUSPENDED'); assert.equal(a.captures, 1)
+  assert.throws(() => f.boundary.assertActive())
+  f.hide(false); const one = f.boundary.resume(), two = f.boundary.resume()
+  assert.equal(one, two); await tick()
+  assert.equal(f.uncovered, 1); assert.equal(f.identities, 2)
+  fresh.resolve(); await one
+  assert.equal(f.identities, 3); assert.deepEqual(order, ['fresh', 'commit'])
+  assert.equal(f.boundary.state, 'ACTIVE'); assert.equal(f.uncovered, 2)
+  assert.equal(f.boundary.diagnostic.failure, 'PAGE_HIDDEN')
+})
+
+test('hide again while recovering invalidates first recovery and never commits it', async () => {
+  const f = await fixture(), first = deferred()
+  let calls = 0, commits = 0
+  adapter(f, async context => { if (++calls === 1) await first.promise; context.assertCurrent(); return { commit() { commits++ } } })
+  f.hide(true); f.hide(false); const old = f.boundary.resume(); await tick()
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  first.resolve(); await old
+  assert.equal(commits, 1); assert.equal(f.uncovered, 2)
+})
+
+test('resume diagnostics expose only fixed stages and failure classes, retaining first failure across retry', async () => {
+  for (const timeout of [false, true]) {
+    const f = await fixture()
+    adapter(f, async context => {
+      context.phase('READ_SETTLE')
+      context.phase('DO-NOT-EXPOSE-SYNTHETIC-PHASE')
+      throw Object.assign(Error('DO-NOT-EXPOSE-SYNTHETIC-RESPONSE'), { code: timeout ? 'RECOVERY_TIMEOUT' : 'DO-NOT-EXPOSE-SYNTHETIC-CODE' })
+    })
+    f.hide(true); f.hide(false); await f.boundary.resume()
+    assert.equal(f.boundary.state, 'RETRY_COVERED')
+    assert.equal(f.boundary.diagnostic.resumeStage, 'READ_SETTLE')
+    assert.equal(f.boundary.diagnostic.resumeFailure, timeout ? 'TIMEOUT' : 'LOCAL_FAILURE')
+    assert.equal(f.boundary.diagnostic.failure, 'PAGE_HIDDEN')
+    assert.doesNotMatch(JSON.stringify([f.boundary.diagnostic, f.covers]), /DO-NOT-EXPOSE/)
+    adapter(f); await f.boundary.resume()
+    assert.equal(f.boundary.diagnostic.resumeStage, 'READY')
+    assert.equal(f.boundary.diagnostic.resumeFailure, 'NONE')
+    assert.equal(f.boundary.diagnostic.failure, 'PAGE_HIDDEN')
+  }
+})
+
+test('late recovery phases from a superseded epoch cannot overwrite current diagnostics', async () => {
+  const f = await fixture(), first = deferred()
+  let calls = 0
+  adapter(f, async context => {
+    if (++calls === 1) { await first.promise; context.phase('PAGE_MOUNT'); context.assertCurrent() }
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); const old = f.boundary.resume(); await tick()
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  first.resolve(); await old
+  assert.equal(f.boundary.diagnostic.resumeStage, 'READY')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'NONE')
+})
+
+test('hidden during initial identity starts fresh on visible; old identity cannot initialize', async () => {
+  const before = deferred(), after = deferred()
+  const f = await fixture(async () => 'Synthetic Sales')
+  f.setIdentify(() => before.promise); adapter(f)
+  f.hide(true); f.hide(false); const stale = f.boundary.resume(); await tick()
+  f.hide(true); f.setIdentify(() => after.promise); f.hide(false); const current = f.boundary.resume()
+  after.resolve('Synthetic Sales'); await current
+  before.resolve('Other Account'); await stale
+  assert.equal(f.boundary.user, 'Synthetic Sales'); assert.equal(f.boundary.state, 'ACTIVE')
+})
+
+test('network failure stays covered, explicit retry works, and BFCache uses same barrier', async () => {
+  const f = await fixture(); let refreshes = 0
+  adapter(f, async () => { refreshes++; return { commit() {} } })
+  f.hide(true); f.setIdentify(async () => { throw Error('offline') }); f.hide(false)
+  await f.boundary.resume(); assert.equal(f.boundary.state, 'RETRY_COVERED'); assert.equal(refreshes, 0)
+  assert.equal(typeof f.covers.at(-1)[2], 'function')
+  f.setIdentify(async () => 'Synthetic Sales'); await f.covers.at(-1)[2]()
+  assert.equal(f.boundary.state, 'ACTIVE')
+  f.events.pageshow({ persisted: true }); await f.boundary.resume()
+  assert.equal(refreshes, 2)
+})
+
+test('changed identity, Guest, logout broadcast, cookie change all keep business and drafts inaccessible', async () => {
+  for (const mode of ['Other Account', 'Guest', 'broadcast', 'cookie']) {
+    const f = await fixture(); let refreshed = 0
+    const a = adapter(f, async () => { refreshed++; return { commit() {} } })
+    if (mode === 'broadcast') f.events['account-change']()
+    else if (mode === 'cookie') { f.cookie('changed'); f.events.focus() }
+    else { f.hide(true); f.setIdentify(async () => mode); f.hide(false); await f.boundary.resume() }
+    assert.equal(f.boundary.state, 'IDENTITY_REQUIRED'); assert.equal(f.uncovered, 1)
+    assert.equal(refreshed, 0); assert.equal(a.discards, 1)
+  }
+})
+
+test('old read success/error and pending write cannot transform, update new epoch, or replay', async () => {
+  for (const result of ['success', 'error', 'write']) {
+    const f = await fixture(), old = deferred()
+    const { createResource, getCachedResource } = await f.namespace('resources')
+    let transforms = 0, successes = 0, errors = 0, writes = 0
+    f.config.resourceFetcher = options => { if (options.url === 'frappe.client.set_value') writes++; return old.promise }
+    const resource = createResource({ url: result === 'write' ? 'frappe.client.set_value' : 'crm.api.doc.get_data', cache: 'current',
+      transform(data) { transforms++; return data }, onSuccess() { successes++ }, onError() { errors++ } })
+    const pending = resource.submit(); await tick()
+    adapter(f); f.hide(true); f.hide(false); await f.boundary.resume()
+    const fresh = createResource({ url: 'crm.api.doc.get_data', cache: 'current' })
+    f.config.resourceFetcher = async () => ({ name: 'fresh' }); await fresh.fetch()
+    if (result === 'error') old.reject(Error('old error')); else old.resolve({ name: 'old' })
+    await assert.rejects(pending, /superseded/)
+    assert.equal(transforms, 0); assert.equal(successes, 0); assert.equal(errors, 0)
+    assert.equal(writes, result === 'write' ? 1 : 0)
+    assert.equal(getCachedResource('current'), fresh); assert.equal(fresh.data.name, 'fresh')
+    await assert.rejects(resource.fetch(), /locked/)
+  }
+})
+
+test('recovery permits explicitly read-only endpoints, not method GET disguises or arbitrary reloads', async () => {
+  const f = await fixture(); const { createResource } = await f.namespace('resources')
+  let calls = 0
+  f.config.resourceFetcher = async () => { calls++; return {} }
+  adapter(f, async context => {
+    await createResource({ url: 'crm.api.doc.get_data' }).fetch()
+    await assert.rejects(createResource({ url: 'frappe.client.set_value', method: 'GET' }).fetch(), /undeclared recovery request/)
+    await context.settleReads()
+    return { commit() {} }
+  })
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(calls, 1); assert.equal(f.boundary.state, 'RETRY_COVERED')
+})
+
+async function draftFixture({ create = false } = {}) {
+  const f = await fixture(), draft = await f.namespace('safeResume')
+  const fields = [{ fieldname: 'title', fieldtype: 'Data' }, { fieldname: 'secret', fieldtype: 'Data' }]
+  let permission = { permissions: { read: 1, write: 1, create: 1 } }
+  const name = create ? '' : 'SYNTHETIC-1'
+  const original = { title: 'server', secret: 'base' }, document = { doc: { ...original }, originalDoc: { ...original } }
+  let dispose = draft.registerResumeDocument('CRM Lead', name, document, () => fields, () => permission)
+  draft.registerResumePage(create ? 'Leads' : 'Lead', () => ({ doctype: 'CRM Lead', filters: { status: 'New' } }))
+  document.doc.title = 'unsubmitted'; document.doc.secret = 'private draft'
+  const snapshot = draft.captureResume({ name: create ? 'Leads' : 'Lead', hash: '#data', fullPath: create ? '/leads' : '/leads/SYNTHETIC-1#data' })
+  dispose(); adapter(f); f.hide(true); f.hide(false); await f.boundary.resume()
+  const fresh = { doc: { ...original }, originalDoc: { ...original } }
+  draft.registerResumeDocument('CRM Lead', name, fresh, () => fields, () => permission)
+  return { ...f, draft, fields, fresh, snapshot, setPermission(value) { permission = value } }
+}
+
+test('draft is separate from fresh data and restoration is explicit without any network submission', async () => {
+  const f = await draftFixture()
+  assert.equal(f.fresh.doc.title, 'server')
+  const [plan] = f.draft.planDrafts(f.boundary.user)
+  assert.equal(plan.values.title, 'unsubmitted'); assert.equal(plan.conflict, false)
+  assert.equal(f.draft.restoreDraft(plan), true); assert.equal(f.fresh.doc.title, 'unsubmitted')
+  assert.equal(f.draft.planDrafts(f.boundary.user).length, 0)
+})
+
+test('revoked read/write/create/field permission and other identity never reveal old draft values', async () => {
+  for (const kind of ['read', 'write', 'fields', 'identity', 'create']) {
+    const f = await draftFixture({ create: kind === 'create' })
+    if (kind === 'fields') f.fields.forEach(field => { field.hidden = 1 })
+    else if (kind !== 'identity') f.setPermission({ permissions: { read: 1, write: 1, create: 1, [kind]: 0 } })
+    assert.equal(f.draft.planDrafts(kind === 'identity' ? 'Other Account' : f.boundary.user).length, 0)
+  }
+})
+
+test('server conflict is reported without automatic overwrite; lost rights are checked again at restore', async () => {
+  const f = await draftFixture(); f.fresh.doc.title = 'changed on server'
+  const [plan] = f.draft.planDrafts(f.boundary.user)
+  assert.equal(plan.conflict, true); assert.equal(f.draft.restoreDraft(plan), false)
+  assert.equal(f.fresh.doc.title, 'changed on server')
+  f.fresh.doc.title = 'server'; const [permitted] = f.draft.planDrafts(f.boundary.user)
+  f.setPermission({ permissions: { read: 1, write: 0 } })
+  assert.equal(f.draft.restoreDraft(permitted), false); assert.equal(f.fresh.doc.title, 'server')
+})
+
+test('creation draft requires current create rights and unsupported editors fail closed', async () => {
+  const f = await draftFixture({ create: true })
+  assert.equal(f.draft.reopenCreation('CRM Lead'), true)
+  assert.equal(f.draft.planDrafts(f.boundary.user).length, 1)
+  f.draft.registerResumePage('Lead')
+  assert.equal(f.draft.captureResume({ name: 'Lead', hash: '#activity', fullPath: '/leads/SYNTHETIC-1#activity' }).name, 'Lead')
+  assert.throws(() => f.draft.captureResume({ name: 'Note', hash: '#emails' }), /当前编辑器/)
+  f.draft.discardResume(); assert.equal(f.draft.planDrafts(f.boundary.user).length, 0)
+})
+
+test('unsupported editor retains covered old runtime across repeated hide; identity terminal still discards', async () => {
+  const f = await fixture()
+  const { createResumeAdapter } = await f.namespace('resumeRuntime')
+  let stops = 0
+  f.boundary.setAdapter(createResumeAdapter({ router: { currentRoute: { value: { name: 'Note' } } },
+    boot() { throw Error('Must not boot unsupported page') }, stop() { stops++ }, nextTick: async () => {}, read() {} }))
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(f.boundary.state, 'RETRY_COVERED'); assert.equal(stops, 0)
+  assert.match(f.covers.at(-1)[0], /当前编辑器/)
+  assert.equal(f.identities, 2)
+  assert.equal(f.boundary.diagnostic.resumeStage, 'ADAPTER')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'UNSUPPORTED_PAGE')
+  f.setIdentify(async () => { throw Error('DO-NOT-EXPOSE-IDENTITY-FAILURE') })
+  await f.boundary.resume()
+  assert.equal(f.boundary.state, 'RETRY_COVERED')
+  assert.equal(f.boundary.diagnostic.resumeStage, 'IDENTITY')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'IDENTITY_FAILED')
+  assert.doesNotMatch(JSON.stringify([f.boundary.diagnostic, f.covers]), /DO-NOT-EXPOSE/)
+  f.setIdentify(async () => 'Synthetic Sales')
+  f.hide(true); f.hide(false); await f.boundary.resume()
+  assert.equal(f.boundary.diagnostic.resumeStage, 'ADAPTER')
+  assert.equal(f.boundary.diagnostic.resumeFailure, 'UNSUPPORTED_PAGE')
+  assert.equal(stops, 0)
+  f.events['account-change'](); assert.equal(stops, 1)
+})

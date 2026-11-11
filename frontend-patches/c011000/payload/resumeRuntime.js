@@ -1,0 +1,72 @@
+import { accountBoundary } from '../node_modules/frappe-ui/src/resources/accountBoundary'
+import { captureResume, discardResume, pendingCreation, resumePage, resumeSectionReady, showDraftNotice } from './data/safeResume'
+
+export function createResumeAdapter({ router, boot, stop, nextTick, read }) {
+  let snapshot = null
+  let supported = true
+  return {
+    get unsupportedEditor() { return !supported },
+    stop() { if (supported) stop() },
+    suspend() {
+      if (accountBoundary.state !== 'ACTIVE') { if (supported) stop(); return }
+      try { snapshot = captureResume(router.currentRoute.value); supported = true }
+      catch { supported = false }
+      if (supported) stop()
+    },
+    discard() { discardResume(); stop() },
+    async refresh(context) {
+      if (!supported || !snapshot) throw Error('Current page has no safe resume adapter')
+      const doctype = ['Leads', 'Lead'].includes(snapshot.name) ? 'CRM Lead' : 'CRM Deal'
+      const route = router.resolve(snapshot.fullPath)
+      const name = route.params.leadId || route.params.dealId
+      context.phase?.('PERMISSION')
+      const readable = name
+        ? (await read('frappe.client.get_doc_permissions', { doctype, docname: name }))?.permissions?.read
+        : (await read('frappe.client.has_permission', { doctype, docname: '', perm_type: 'read' }))?.has_permission
+      context.assertCurrent()
+      if (!readable) {
+        discardResume()
+        throw Object.assign(Error('Current read access denied'), { status: 403 })
+      }
+      if (pendingCreation()) {
+        const create = await read('frappe.client.has_permission', { doctype: pendingCreation(), docname: '', perm_type: 'create' })
+        if (!create?.has_permission) {
+          discardResume()
+          throw Object.assign(Error('Current create access denied'), { status: 403 })
+        }
+      }
+      context.phase?.('FRESH_READ')
+      if (name) {
+        await read('frappe.client.get', { doctype, name })
+        await read('crm.api.activities.get_activities', { name })
+      } else await read('crm.api.doc.get_data', snapshot.params)
+      context.assertCurrent()
+      context.phase?.('HYDRATE')
+      accountBoundary.hydrate()
+      context.phase?.('BOOT')
+      await boot()
+      context.phase?.('ROUTER')
+      await router.isReady()
+      context.phase?.('PAGE_MOUNT')
+      const deadline = Date.now() + 15000
+      while (resumePage()?.epoch !== context.epoch || resumePage()?.name !== snapshot.name ||
+          (name && !resumeSectionReady('activity:' + name, context.epoch))) {
+        context.assertCurrent()
+        if (Date.now() > deadline) throw Object.assign(Error('Current page did not mount'), { code: 'RECOVERY_TIMEOUT' })
+        await new Promise(resolve => setTimeout(resolve, 25))
+      }
+      context.phase?.('READ_SETTLE')
+      let revision
+      do {
+        revision = accountBoundary.readRevision
+        await nextTick()
+        await context.settleReads()
+        await nextTick()
+      } while (revision !== accountBoundary.readRevision)
+      context.assertCurrent()
+      context.phase?.('ROUTE_CHECK')
+      if (router.currentRoute.value.fullPath !== snapshot.fullPath) throw Error('Route changed during recovery')
+      return { commit() {}, afterCommit: showDraftNotice }
+    },
+  }
+}

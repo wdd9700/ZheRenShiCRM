@@ -50,7 +50,7 @@ async function fixture(identity = 'Sales A', identify, waitForIdentity = true) {
   await root.link((specifier) => module(specifier === 'vue' ? 'vue' : 'entry/' + specifier.replace(/^.*\//, '')))
   await root.evaluate()
   const boundary = cache.get('entry/accountBoundary').namespace.accountBoundary
-  if (waitForIdentity) await boundary.ready
+  if (waitForIdentity) await boundary.resume()
   return {
     resources: root.namespace, boundary, config, env, covers, listeners,
     get uncovered() { return uncovered }, get broadcasts() { return broadcasts },
@@ -70,7 +70,7 @@ test('server identity, not editable cookie, gates startup; Guest and offline rem
   assert.equal(a.uncovered, 1)
   for (const f of [await fixture('Guest'), await fixture(null, async () => { throw Error('offline') })]) {
     assert.equal(f.uncovered, 0)
-    assert.throws(() => f.boundary.assertActive(), /locked/)
+    assert.throws(() => f.boundary.assertActive(), /locked|superseded/)
   }
 })
 
@@ -119,8 +119,37 @@ test('same-account revoked permission clears generic data and locks page', async
   f.config.resourceFetcher = async () => { throw Object.assign(Error('denied'), { status: 403 }) }
   await assert.rejects(r.fetch(), /denied/)
   assert.equal(r.data, null)
-  assert.throws(() => f.boundary.assertActive(), /locked/)
+  assert.throws(() => f.boundary.assertActive(), /locked|superseded/)
   assert.match(f.covers.at(-1)[0], /未保存编辑/)
+})
+
+test('active sensitive read failure classification distinguishes native abort, explicit abort, transport and callback failures', async () => {
+  for (const kind of ['native-abort', 'explicit-abort', 'transport', 'timeout', 'callback']) {
+    const f = await fixture()
+    const failure = kind === 'native-abort' ? new DOMException('Synthetic abort', 'AbortError')
+      : kind === 'timeout' ? new DOMException('Synthetic timeout', 'TimeoutError')
+      : kind === 'transport' ? new TypeError('Synthetic transport failure')
+      : new Error('Synthetic failure')
+    let rejectPending, started
+    const begin = new Promise(resolve => { started = resolve })
+    f.config.resourceFetcher = kind === 'explicit-abort'
+      ? ({ signal }) => new Promise((resolve, reject) => {
+        rejectPending = reject
+        signal.addEventListener('abort', () => reject(failure), { once: true })
+        started()
+      })
+      : async () => { if (kind !== 'callback') throw failure; return { rows: [] } }
+    const r = f.resources.createResource({
+      url: 'crm.api.doc.get_data',
+      onSuccess() { if (kind === 'callback') throw failure },
+    })
+    const pending = r.fetch()
+    if (kind === 'explicit-abort') { await begin; r.abort(); assert.ok(rejectPending) }
+    const aborted = kind === 'native-abort' || kind === 'explicit-abort'
+    await assert.rejects(pending, error => aborted ? error.name === 'AbortError' : error === failure)
+    assert.equal(f.boundary.state, aborted ? 'ACTIVE' : 'IDENTITY_REQUIRED', kind)
+    assert.equal(f.boundary.diagnostic.failure, aborted ? 'NONE' : 'ACCESS_UNCONFIRMED', kind)
+  }
 })
 
 test('list failure clears originalData, rows, and lookup map', async () => {
@@ -149,7 +178,7 @@ test('identity switch never shares cache, pending old response never calls succe
   await Promise.resolve()
   a.cookie('user_id=Sales A')
   resolve({ rows: ['administrator-only'] })
-  await assert.rejects(pending, /locked/)
+  await assert.rejects(pending, /locked|superseded/)
   assert.equal(r.data, null)
   assert.equal(successes, 0)
   assert.equal(b.resources.getCachedResource('Lead'), null)
@@ -160,7 +189,7 @@ test('background, BFCache and multi-tab changes cover without automatic draft de
     const f = await fixture()
     const draft = { text: 'unsubmitted synthetic draft' }
     action(f)
-    assert.throws(() => f.boundary.assertActive(), /locked/)
+    assert.throws(() => f.boundary.assertActive(), /locked|superseded/)
     assert.equal(draft.text, 'unsubmitted synthetic draft')
     assert.equal(f.uncovered, 1)
   }
@@ -183,7 +212,7 @@ test('identity changes during async validation prevent network submission', asyn
   const r = f.resources.createResource({ url: 'frappe.client.set_value', validate: async () => {
     f.cookie('user_id=Other Account')
   } })
-  await assert.rejects(r.submit(), /locked/)
+  await assert.rejects(r.submit(), /locked|superseded/)
   assert.equal(calls, 0)
 })
 
@@ -279,7 +308,7 @@ test('actual CRM session callbacks use confirmed identity and full navigation fo
   sales.config.resourceFetcher = async () => ({ message: 'Logged In' })
   await b.store.login.submit()
   assert.equal(b.location.href, '/crm')
-  assert.throws(() => sales.boundary.assertActive(), /locked/)
+  assert.throws(() => sales.boundary.assertActive(), /locked|superseded/)
 })
 
 function deferred() {
@@ -412,8 +441,15 @@ test('fixed router awaits identity gate and rejects Guest/offline without reques
     assert.equal(calls, 0)
     assert.equal(next.length, 0)
     if (failure === 'Guest') identity.resolve('Guest')
-    else identity.reject(Error('offline identity'))
-    await assert.rejects(users.promise, /locked/)
+    else {
+      identity.reject(Error('offline identity'))
+      await tick()
+      assert.equal(f.boundary.state, 'RETRY_COVERED')
+      assert.equal(calls, 0)
+      assert.equal(next.length, 0)
+      f.boundary.lock('Explicitly abandon startup for this test')
+    }
+    await assert.rejects(users.promise, /locked|superseded/)
     await navigating
     assert.equal(next.length, 1)
     assert.equal(next[0], false)
@@ -518,6 +554,154 @@ test('published promise includes processing; concurrent and callback reentry can
   await assert.rejects(cancelled, { name: 'AbortError' })
   assert.equal(r.data.processed, 'fresh')
   assert.equal(r.loading, false)
+})
+
+test('same-cache automatic read consumers share pending work without superseding it', async () => {
+  const f = await fixture()
+  const gate = deferred()
+  let calls = 0
+  f.config.resourceFetcher = () => { calls++; return gate.promise }
+  const options = { url: 'frappe.onboarding.get_onboarding_status', cache: 'onboarding_status', auto: true }
+  const first = f.resources.createResource(options)
+  const pending = first.promise
+  const second = f.resources.createResource({ ...options })
+  assert.equal(second, first)
+  assert.equal(second.promise, pending)
+  await tick()
+  assert.equal(calls, 1)
+  gate.resolve({ steps: [] })
+  await pending
+  assert.equal(first.fetched, true)
+  f.boundary.assertActive()
+})
+
+test('automatic reads with different params do not reuse another consumer request', async () => {
+  const f = await fixture()
+  const calls = []
+  f.config.resourceFetcher = async ({ params }) => { calls.push(params); return params }
+  const options = { url: 'frappe.client.get', cache: 'shared', auto: true }
+  const first = f.resources.createResource({ ...options, params: { name: 'A' } })
+  const second = f.resources.createResource({ ...options, params: { name: 'B' } })
+  await Promise.all([first.promise, second.promise])
+  assert.notEqual(first, second)
+  assert.equal(first.data.name, 'A')
+  assert.equal(second.data.name, 'B')
+  assert.equal(calls.length, 2)
+})
+
+test('automatic sharing compares parameter data and isolates pending old epochs', async () => {
+  const f = await fixture()
+  const gate = deferred()
+  let calls = 0, successes = 0
+  f.config.resourceFetcher = () => { calls++; return gate.promise }
+  const options = { url: 'frappe.client.get', cache: 'parameters', auto: true, onSuccess: () => successes++ }
+  const first = f.resources.createResource({ ...options, params: { doctype: 'CRM Lead', name: 'A' } })
+  const pending = first.promise
+  const second = f.resources.createResource({ ...options, params: { name: 'A', doctype: 'CRM Lead' } })
+  assert.equal(second.promise, pending)
+  await tick()
+  assert.equal(calls, 1)
+  f.hidden(true)
+  gate.resolve({ private: 'obsolete' })
+  await assert.rejects(pending, { name: 'AbortError' })
+  assert.equal(first.data, null)
+  assert.equal(successes, 0)
+})
+
+test('automatic sharing preserves original fetcher params and rejects lossy or effectful data', async () => {
+  let effects = 0
+  const cyclic = {}; cyclic.self = cyclic
+  const getter = Object.defineProperty({}, 'v', { enumerable: true, get() { effects++; return null } })
+  const custom = { toJSON() { effects++; return 'encoded' } }
+  const date = new Date('2026-01-01T00:00:00.000Z')
+  const symbolKey = { [Symbol('hidden')]: true }
+  const hidden = Object.defineProperty({}, 'v', { value: 1 })
+  const cases = [
+    [{ v: NaN }, { v: null }], [{ v: Infinity }, { v: null }],
+    [{ v: -Infinity }, { v: null }], [{ v: -0 }, { v: 0 }],
+    [{ v: date }, { v: date.toISOString() }],
+    [{ v: [undefined] }, { v: [null] }], [{ v: Array(1) }, { v: [null] }],
+    [{ v: undefined }, {}], [{ v: custom }, { v: 'encoded' }],
+    [new (class Params { constructor() { this.v = 1 } })(), { v: 1 }],
+    [cyclic, cyclic], [{ v() {} }, { v() {} }],
+    [{ v: Symbol('value') }, {}], [{ v: 1n }, { v: '1' }],
+    [getter, { v: null }], [symbolKey, {}], [hidden, {}],
+  ]
+  for (const [left, right] of cases) {
+    const f = await fixture()
+    const calls = []
+    const resourceFetcher = async ({ params }) => { calls.push(params); return params === left ? 'left' : 'right' }
+    const options = { url: 'frappe.client.get', cache: 'raw-params', auto: true, resourceFetcher }
+    const first = f.resources.createResource({ ...options, params: left })
+    const second = f.resources.createResource({ ...options, params: right })
+    await Promise.all([first.promise, second.promise])
+    assert.notEqual(first, second)
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0], left)
+    assert.equal(calls[1], right)
+    assert.equal(first.data, 'left')
+    assert.equal(second.data, left === right ? 'left' : 'right')
+    assert.equal(effects, 0, 'Parameter comparison must not invoke getters or toJSON')
+  }
+})
+
+test('automatic sharing keeps plain JSON types distinct and accepts nested key order', async () => {
+  const f = await fixture()
+  const calls = []
+  const resourceFetcher = async ({ params }) => { calls.push(params); return params }
+  const options = { url: 'frappe.client.get', cache: 'json-types', auto: true, resourceFetcher }
+  const resources = [null, false, 0, '0', { v: null }, { v: false }, { v: 0 }, { v: '0' }]
+    .map(params => f.resources.createResource({ ...options, params }))
+  await Promise.all(resources.map(resource => resource.promise))
+  assert.equal(new Set(resources).size, resources.length)
+  assert.equal(calls.length, resources.length)
+  const first = f.resources.createResource({ ...options, params: { b: [1, { y: true, x: null }], a: 'value' } })
+  const second = f.resources.createResource({ ...options, params: { a: 'value', b: [1, { x: null, y: true }] } })
+  assert.equal(second.promise, first.promise)
+  await first.promise
+})
+
+test('same-cache automatic failure remains observable and can retry', async () => {
+  const f = await fixture()
+  const options = { url: 'frappe.onboarding.get_onboarding_status', cache: 'retry', auto: true }
+  f.config.resourceFetcher = async () => { throw Error('network offline') }
+  const first = f.resources.createResource(options)
+  await assert.rejects(first.promise, /network offline/)
+  assert.equal(first.fetched, false)
+  f.config.resourceFetcher = async () => []
+  const retry = f.resources.createResource({ ...options })
+  await retry.promise
+  assert.equal(retry.fetched, true)
+  const previous = retry
+  f.hidden(true)
+  const fresh = f.resources.createResource({ ...options, auto: false })
+  assert.notEqual(fresh, previous)
+  assert.equal(fresh.data, null)
+  assert.equal(previous.data, null)
+})
+
+test('automatic write requests and force/reload/submit are not coalesced', async () => {
+  for (const action of ['write', 'force', 'reload', 'submit']) {
+    const url = action === 'write' ? 'frappe.client.insert' : 'frappe.onboarding.get_onboarding_status'
+    const f = await fixture()
+    const gates = []
+    f.config.resourceFetcher = () => { const gate = deferred(); gates.push(gate); return gate.promise }
+    const options = { url, cache: 'explicit', auto: true }
+    const resource = f.resources.createResource(options)
+    const first = resource.promise
+    await tick()
+    if (action === 'write' || action === 'force') f.resources.createResource({ ...options, force: action === 'force' })
+    else resource[action]()
+    const current = resource.promise
+    assert.notEqual(current, first)
+    await tick()
+    assert.equal(gates.length, 2)
+    gates[1].resolve('current')
+    await current
+    gates[0].resolve('old')
+    await assert.rejects(first, { name: 'AbortError' })
+    assert.equal(resource.data, 'current')
+  }
 })
 
 test('ignored auto rejection is handled but published promise still rejects for consumers', async () => {
