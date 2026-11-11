@@ -1,6 +1,6 @@
 # D020100 Safe Tab Resume — 候选实现与验收门槛
 
-状态：代码/测试契约与固定源重放已完成；telemetry 代码审查结论保留，1c586261 原字节完整 SFC 已通过，主控确认 8c5 / 2c695eb2 构建通过。**原生浏览器真实 hidden→visible 尚未触发并验收，整体交付门仍未关闭。**
+状态：M24 实现、严格补丁、测试及临时诊断清理已完成，提交最终合并审；telemetry 既有审查结论保留。最终 e14b6 已构建并由 Terra 在真实 HTTPS 普通会话通过原失败任务导航及日程只读，诊断源码/产物标记已移除。**这不是全部恢复场景的端到端认证：原生 hidden→visible 后显式草稿恢复仍无最终真实浏览器通过证据，具体限制见文末收口对账。**
 
 ## 起点与决策
 
@@ -270,3 +270,14 @@ M37集中最终修复构建必须保M42 Filter/catalog，不能整镜像回滚�
 | utils/frappeRequest.ts | 2c78687c0a02fd2c57ab96bd929b234c1d810ad8f34dc161b421652d663a8e17 | 83e4b44deed36b3bad35f9539b052f2e53b9e64a2f96eb6e98e4236b7a473ef9 |
 
 两resources取当前payload；request取固定原before（752f）；frappeRequest由恢复后的source_edits.transform从原5461 before生成83e4 after。M37若继续FROM35d0最终重构，以上cleanup after应直接等35d0前驱，不追加诊断COPY或buildenv；同时合入M44修复及保留M42，禁止重套整个upstream43apply到部署态。本轮定向3/3 PASS：active分类（真实403仍锁）、全部strict JS/TS/JSX/Vue script解析、实际main正常/恢复无遥测且权限拒绝保持；生产全量与9403零diff、diffcheck绿，未重跑无关矩阵/build/部署。临时诊断源码清理已实现；运行中旧adddbb仍需M37/M17最终集中替换，未称线上清理或任务恢复已成功。
+
+
+## 最终合并收口对账（取代历史待验状态，不抹除历史故障）
+
+M24 最后一项交付工作现已完成：可重复严格补丁及文档已交集成，5c2470e 诊断移除源码已独审；生产payload/source_edits/manifest/apply与9403d5a相同。M44已由权限owner修正后端sort_options契约并合入master，不属于M24前端改动；M37最终FROM无诊断35d0，保M42 Filter/catalog并组合M44构建镜像 `sha256:e14b6cce43cf861f92ffaf4f55935434897ed156efea04f8eacc56311e39a4dd`。最终actual四clean SHA等于本文件cleanup after，源码和builtJS无D020102/readFailureCode、无诊断env/temporarylabels，真实403保护测试仍通过；集成result SHA `c9f3e805283c6a6f1c187db2286243d244d712f698403941bd9ce07f7021bad2`。因此历史“等待原oracle/构建/任务UI/诊断清理”的记录不是当前阻塞。
+
+Terra 已在最终e14b6真实HTTPS普通会话完成原失败路径：Leads→关闭引导→筛选器添加字段菜单未选/应用（2026-11-10 09:08:50.930UTC，text-22d57a80-98ee-4c33-992b-6137d9d76d07）→任务（09:09:37.589UTC，text-a0af46df-1b87-4f35-ad86-bfead8804339），正常显示“任务 / 列表”“暂无任务”，实际路由/crm/tasks/view/list，无ACCESS_UNCONFIRMED；日程只读0条及中文时间轴（text-4205b1f7-c652-4acc-9f43-e79629f4b362）通过，随后正常注销，无业务写/注入。该证据关闭此次403任务导航故障，不抹除先前失败，也不证明未执行的写入/草稿恢复场景。
+
+恢复证据严格分层：实际Vue/Pinia和原a8完整SFC已执行草稿输入→受控hidden/SUSPENDED→首次resume ACTIVE→不自动回填→显式restore等值及零写断言，保留既有权限/身份/冲突/旧响应回归。历史正常可见浏览器发现过创建草稿往返失败并已推动源码回修；最终内置后台控制切tab未可靠产生原生hidden，因此**最终版本原生浏览器hidden→visible后的同身份创建/详情草稿显式恢复仍未验**。再次hidden、BFCache、离线重试、真实撤权/换账号、旧响应晚到、冲突不覆盖、复杂编辑器安全退出等若无对应真实现场记录，仅有既有自动化或静态安全边界证据，不能称全部端到端通过；移动详情/复杂编辑器不支持边界按上文继续保留。任务导航/日程通过不外推这些项。
+
+本次按主控要求收口为“实现可合并、集成及指定真实导航验收已完成，未验恢复场景明确列示”，不再仅因旧文档状态永远hold，也不宣称完整真实恢复矩阵已通过。后续针对原生生命周期须另有合规操作窗口：不抢前台/不开侧栏反复试、不注入visibility/API代UI。当前不新增功能、不改生产、不重跑已绿矩阵、不构建/操作线上、不自行rebase；统一rebase/merge由tower执行。M24提交完成通知供最终合并审，未验限制随交接保留。
