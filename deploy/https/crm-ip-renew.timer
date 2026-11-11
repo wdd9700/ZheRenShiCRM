@@ -1,0 +1,11 @@
+[Unit]
+Description=Check CRM short-lived IP certificate renewal every hour
+
+[Timer]
+OnCalendar=*-*-* *:17:00
+RandomizedDelaySec=5min
+Persistent=true
+Unit=crm-ip-renew.service
+
+[Install]
+WantedBy=timers.target

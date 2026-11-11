@@ -145,7 +145,19 @@ require_runtime() {
     esac
 }
 compose() {
-    docker_cli compose -p "$PROJECT" --env-file "$ENV_FILE" --env-file "$IMAGE_FILE" -f "$REMOTE/compose.yml" "$@"
+    HTTPS_OVERLAY=/etc/crm-https/compose.yml
+    if [ -e /etc/crm-https ] || [ -L /etc/crm-https ]; then
+        for HTTPS_PATH in / /etc /etc/crm-https "$HTTPS_OVERLAY" /etc/crm-https/prepare_inner.py; do
+            [ -e "$HTTPS_PATH" ] && [ ! -L "$HTTPS_PATH" ] || fail 'HTTPS overlay path is missing or a symlink'
+            HTTPS_OWNER=$(stat -c '%u' "$HTTPS_PATH") || fail 'cannot inspect HTTPS overlay ownership'
+            HTTPS_MODE=$(stat -c '%a' "$HTTPS_PATH") || fail 'cannot inspect HTTPS overlay mode'
+            [ "$HTTPS_OWNER" = 0 ] && [ "$((0$HTTPS_MODE & 0022))" -eq 0 ] || fail 'HTTPS overlay paths must be root-owned and not group/world writable'
+        done
+        [ -f "$HTTPS_OVERLAY" ] && [ -f /etc/crm-https/prepare_inner.py ] || fail 'HTTPS overlay files must be regular files'
+        docker_cli compose -p "$PROJECT" --env-file "$ENV_FILE" --env-file "$IMAGE_FILE" -f "$REMOTE/compose.yml" -f "$HTTPS_OVERLAY" "$@"
+    else
+        docker_cli compose -p "$PROJECT" --env-file "$ENV_FILE" --env-file "$IMAGE_FILE" -f "$REMOTE/compose.yml" "$@"
+    fi
 }
 verify_source() {
     (cd "$ROOT" && sha256sum -c --status "$REMOTE/SOURCE_SHA256SUMS") || fail 'exact source verification failed; preserve the delivery and investigate'

@@ -1,0 +1,8 @@
+services:
+  backend:
+    environment:
+      FORWARDED_ALLOW_IPS: '*'
+  frontend:
+    command: ["/home/frappe/frappe-bench/env/bin/python", "/etc/crm-https/prepare_inner.py", "--launch"]
+    volumes:
+      - /etc/crm-https/prepare_inner.py:/etc/crm-https/prepare_inner.py:ro
