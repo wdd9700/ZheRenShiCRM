@@ -1,0 +1,38 @@
+--- a/frontend/src/components/Layouts/AppSidebar.vue
++++ b/frontend/src/components/Layouts/AppSidebar.vue
+@@ -61,6 +61,18 @@
+               :label="unreadNotificationsCount"
+               variant="subtle"
+             />
++          </SidebarItem>
++
++          <SidebarItem
++            v-if="isCrmUser()"
++            href="/team-schedule"
++            :label="__('团队日程')"
++            @click="selectItem($event, 'TeamSchedule')"
++          >
++            <template #prefix>
++              <LucideCalendarClock class="size-4 text-ink-gray-7" />
++            </template>
++            <span class="truncate text-sm">{{ __('团队日程') }}</span>
+           </SidebarItem>
+ 
+           <CollapsibleSection
+@@ -209,6 +221,7 @@
+ import HelpIcon from '@/components/Icons/HelpIcon.vue'
+ import Notifications from '@/components/Notifications.vue'
+ import KeyboardShortcut from '@/components/KeyboardShortcut.vue'
++import LucideCalendarClock from '~icons/lucide/calendar-clock'
+ import LucideSearch from '~icons/lucide/search'
+ import { openCommandPalette } from '@/composables/useCommandPalette'
+ import Settings from '@/components/Settings/Settings.vue'
+@@ -390,7 +403,7 @@
+ 
+ // onboarding
+ const { user } = sessionStore()
+-const { users, isManager } = usersStore()
++const { users, isManager, isCrmUser } = usersStore()
+ const { isOnboardingStepsCompleted, setUp } = useOnboarding('frappecrm')
+ const { flushPendingSteps } = useCrmOnboarding()
+ 
