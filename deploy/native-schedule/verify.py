@@ -80,9 +80,12 @@ def verify_bundle(html_path, assets, previous_module):
     scripts = [data for name, data in graph.items() if name.endswith('.js')]
     if len(pages) != 1 or len(styles) != 1 or not graph[styles[0]].strip():
         raise RuntimeError('New CRM entry does not link the native schedule JS and CSS chunks')
-    route = re.compile(r'''path\s*:\s*["']/team-schedule["']\s*,\s*name\s*:\s*["']TeamSchedule["']''')
-    page_import = re.compile(r'''import\(["'](?:\./|/assets/crm/frontend/assets/)''' + re.escape(Path(pages[0]).name) + r'''["']\)''')
-    if not any(route.search(script) and page_import.search(script) for script in scripts):
+    route = re.compile(
+        r'''\{\s*path\s*:\s*(["'`])/team-schedule\1\s*,\s*name\s*:\s*(["'`])TeamSchedule\2'''
+        r'''\s*,\s*component\s*:\s*[^{};]{0,160}?\bimport\(\s*(["'`])(?:\./|/assets/crm/frontend/assets/)'''
+        + re.escape(Path(pages[0]).name) + r'''\3\s*\)'''
+    )
+    if not any(route.search(script) for script in scripts):
         raise RuntimeError('Compiled Vue route does not import the schedule page')
     page = graph[pages[0]]
     if '团队日程' not in page or not any('team_schedule.availability.api' in script for script in scripts):

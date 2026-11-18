@@ -42,6 +42,16 @@ class ArtifactTests(unittest.TestCase):
         self.assertTrue(entry.endswith('index-NEW.js'))
         self.assertEqual((page, css), ('assets/TeamSchedule-ABC.js', 'assets/TeamSchedule-ABC.css'))
 
+    def test_rolldown_backtick_route(self):
+        self.put('assets/router-456.js', self.route.replace('"', '`'))
+        self.check()
+
+    def test_unrelated_import_does_not_prove_route(self):
+        self.put('assets/router-456.js', self.route.replace(
+            'component:()=>p(', 'component:other},{path:"/other",component:()=>p('))
+        with self.assertRaisesRegex(RuntimeError, 'does not import'):
+            self.check()
+
     def test_old_module_rejected(self):
         self.old_module = '/assets/crm/frontend/assets/index-NEW.js'
         with self.assertRaisesRegex(RuntimeError, 'New, branded'):
