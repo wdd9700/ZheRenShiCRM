@@ -4,7 +4,7 @@
       <h1 class="text-lg font-semibold text-ink-gray-9">团队日程</h1>
     </template>
     <template #right-header>
-      <Button variant="solid" iconLeft="lucide-plus" :disabled="!ready" @click="openEditor">
+      <Button variant="solid" iconLeft="lucide-plus" :disabled="!ready" @click="openCreate">
         创建日程
       </Button>
     </template>
@@ -30,21 +30,18 @@ import './teamSchedule.css'
 
 const workspace = ref(null)
 const ready = ref(false)
-let dispose
+let controller
 let unsubscribe
 
-function openEditor() {
-  const editor = workspace.value.querySelector('#editor-section')
-  editor.open = true
-  editor.scrollIntoView({ block: 'start' })
-  editor.querySelector('#schedule-title').focus({ preventScroll: true })
+function openCreate() {
+  controller?.openCreate()
 }
 
 function start() {
-  if (dispose || !workspace.value || accountBoundary.state !== 'ACTIVE') return
+  if (controller || !workspace.value || accountBoundary.state !== 'ACTIVE') return
   const epoch = accountBoundary.epoch
   accountBoundary.assertActive(epoch)
-  dispose = init(document, window, {
+  controller = init(document, window, {
     root: workspace.value,
     currentUser: accountBoundary.user,
     csrfToken: window.csrf_token,
@@ -65,8 +62,8 @@ function start() {
 
 function stop() {
   ready.value = false
-  dispose?.()
-  dispose = undefined
+  controller?.dispose()
+  controller = undefined
 }
 
 onMounted(() => {

@@ -27,7 +27,7 @@
 .crm-native-schedule :is(form .grid, .member-row) { gap: 0.75rem; }
 .crm-native-schedule form .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
 .crm-native-schedule label { display: block; margin-block: 0.25rem; }
-.crm-native-schedule :is(input:not([type='checkbox']), select, textarea, button) {
+.crm-native-schedule :is(input:not([type='checkbox']), select, textarea, button:not(.timeline-block, .timeline-marker)) {
   min-height: 2rem;
   max-width: 100%;
   padding: 0.25rem 0.5rem;
@@ -38,7 +38,7 @@
 }
 .crm-native-schedule :is(input:not([type='checkbox']), select, textarea) { width: 100%; }
 .crm-native-schedule input[type='checkbox'] { accent-color: var(--crm-jade); }
-.crm-native-schedule button { margin: 0.25rem 0.25rem 0.25rem 0; }
+.crm-native-schedule button:not(.timeline-block, .timeline-marker) { margin: 0.25rem 0.25rem 0.25rem 0; }
 .crm-native-schedule button:not(:disabled):hover { background: var(--surface-gray-3); }
 .crm-native-schedule button:disabled { opacity: 0.5; }
 .crm-native-schedule button.primary { background: var(--surface-gray-7); color: var(--ink-white); }

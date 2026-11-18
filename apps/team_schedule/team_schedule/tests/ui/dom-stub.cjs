@@ -129,6 +129,8 @@ class Element extends EventTarget {
 
   scrollIntoView() {}
 
+  focus() { this.ownerDocument.activeElement = this; }
+
   click() {
     return this.dispatchEvent({type: 'click', target: this, preventDefault() { this.defaultPrevented = true; }});
   }

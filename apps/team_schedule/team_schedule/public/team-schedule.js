@@ -833,12 +833,14 @@
 
     async function saveSchedule(event) {
       event.preventDefault();
+      if ($('schedule-submit').disabled) return;
       const epoch = state.epoch;
+      const editingName = $('editing-name').value;
+      const expectedRevision = Number($('editing-revision').value);
       $('schedule-submit').disabled = true;
       message('schedule-status', '正在解析当地时间…');
       try {
         const range = await resolveFormRange('schedule', epoch);
-        const editingName = $('editing-name').value;
         const values = {
           title: $('schedule-title').value,
           description: $('schedule-description').value,
@@ -859,7 +861,7 @@
         if (editingName) {
           result = await client.post('update', {
             name: editingName,
-            expected_revision: Number($('editing-revision').value),
+            expected_revision: expectedRevision,
             changes: {
               title: values.title,
               description: values.description,
@@ -889,9 +891,25 @@
       }
     }
 
+    function openCreate() {
+      try { check(); } catch { return; }
+      if ($('schedule-submit').disabled) return;
+      if ($('editing-name').value) {
+        if (!window.confirm('放弃当前未保存的修改，改为创建新日程？现有日程不会更改。')) return;
+        // A native confirmation may outlast the current CRM account epoch.
+        try { check(); } catch { return; }
+        resetEditor();
+        message('schedule-status', '');
+      }
+      const editor = $('editor-section');
+      editor.open = true;
+      editor.scrollIntoView({block: 'start'});
+      $('schedule-title').focus({preventScroll: true});
+    }
+
     function editSelected() {
       const schedule = state.selected;
-      if (!schedule) return;
+      if (!schedule || $('schedule-submit').disabled) return;
       $('editor-section').open = true;
       $('editing-name').value = schedule.name;
       $('editing-revision').value = String(schedule.revision);
@@ -1159,7 +1177,11 @@
     for (const option of $('schedule-availability').querySelectorAll('option')) option.textContent = enumText(option.value);
     listen($('reload-page'), 'click', recheck, false);
     listen($('schedule-form'), 'submit', saveSchedule);
-    listen($('schedule-reset'), 'click', () => { resetEditor(); message('schedule-status', '编辑已清空。'); });
+    listen($('schedule-reset'), 'click', () => {
+      if ($('schedule-submit').disabled) return;
+      resetEditor();
+      message('schedule-status', '编辑已清空。');
+    });
     listen($('schedule-form'), 'input', event => {
       if (!$('editing-name').value) state.createRequestId = window.crypto.randomUUID();
       if (['schedule-start', 'schedule-end', 'schedule-timezone'].includes(event.target.id)) {
@@ -1229,7 +1251,7 @@
     }
     if (autoLoad) void loadDay(0, true);
 
-    return () => {
+    function dispose() {
       if (disposed) return;
       disposed = true;
       lifetime.abort();
@@ -1240,7 +1262,8 @@
       for (const id of ['session', 'list', 'schedule', 'detail', 'grant', 'busy', 'source', 'ics']) {
         message(id + '-status', '');
       }
-    };
+    }
+    return {dispose, openCreate};
   }
 
   const exported = {
