@@ -7,11 +7,20 @@
   <title>团队日程 · 哲人石CRM</title>
   <link rel="stylesheet" href="/assets/team_schedule/crm-theme.css">
   <link rel="stylesheet" href="/assets/team_schedule/team-schedule.css">
+  <style>
+    /* team-schedule.css 由冻结的 dark-ui 基线整体交付，本页样式才随本页 wording 覆盖一起发布。 */
+    .schedule-return-bar { position: sticky; top: 0; z-index: 2; display: flex; padding: 8px 0; background: var(--crm-bg); }
+    .schedule-return { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 16px; border: 1px solid var(--crm-control-border); border-left: 3px solid var(--crm-jade); border-radius: 8px; background: var(--crm-raised); color: var(--crm-text); font-size: 16px; font-weight: 650; text-decoration: none; }
+    .schedule-return:hover, .schedule-return:focus-visible { background: var(--crm-surface); border-color: var(--crm-secondary); }
+  </style>
   <script defer src="/assets/team_schedule/crm-zh-cn.js"></script>
   <script defer src="/assets/team_schedule/team-schedule.js"></script>
 </head>
 <body class="crm-standalone" data-current-user="{{ session_user | e }}">
 <main class="schedule-workspace">
+  <nav class="schedule-return-bar" aria-label="返回CRM">
+    <a class="schedule-return" href="/crm"><span aria-hidden="true">←</span> 返回 CRM</a>
+  </nav>
   <header class="crm-header schedule-header">
     <a class="crm-brand" href="/crm">哲人石CRM</a>
     <h1>团队日程</h1>

@@ -34,6 +34,23 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
             self.assertIn(f'id="{element_id}"', source)
         self.assertNotIn("30/60", source)
 
+    def test_explicit_return_to_crm_needs_no_history_or_browser_chrome(self):
+        source = (WWW_DIR / "team-schedule.html").read_text(encoding="utf-8")
+        script = (PUBLIC_DIR / "team-schedule.js").read_text(encoding="utf-8")
+        self.assertEqual(source.count('href="/crm"'), 2)
+        self.assertIn('<a class="schedule-return" href="/crm"><span aria-hidden="true">←</span> 返回 CRM</a>', source)
+        self.assertIn('<a class="crm-brand" href="/crm">哲人石CRM</a>', source)
+        self.assertLess(source.index('class="schedule-return-bar"'), source.index('class="crm-brand"'))
+        self.assertLess(source.index('class="schedule-return-bar"'), source.index('id="day-form"'))
+        self.assertNotIn('target=', source)
+        for forbidden in ("history.back", "history.go", "onclick=", "javascript:", 'tabindex="-1"'):
+            self.assertNotIn(forbidden, source)
+        self.assertNotIn("schedule-return", script)
+        self.assertNotIn("history.", script)
+        self.assertLess(source.index("<style>"), source.index("</head>"))
+        self.assertIn(".schedule-return-bar { position: sticky; top: 0;", source)
+        self.assertIn(".schedule-return:focus-visible", source)
+
     def test_script_has_no_html_execution_or_persistent_business_cache(self):
         source = (PUBLIC_DIR / "team-schedule.js").read_text(encoding="utf-8")
         for forbidden in ("innerHTML", "outerHTML", "document.write", "eval(", "localStorage", "sessionStorage", "indexedDB", "serviceWorker"):
