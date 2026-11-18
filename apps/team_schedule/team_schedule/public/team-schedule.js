@@ -434,16 +434,20 @@
       return value === '' ? null : Number(value);
     }
 
-    async function resolveFormRange(prefix, epoch) {
+    function readRangeInput(prefix) {
+      return {
+        startLocal: $(prefix + '-start').value,
+        endLocal: $(prefix + '-end').value,
+        timezone: $(prefix + '-timezone').value,
+        startOffset: selectedOffset(prefix, 'start'),
+        endOffset: selectedOffset(prefix, 'end')
+      };
+    }
+
+    async function resolveFormRange(prefix, epoch, input = readRangeInput(prefix)) {
       assertOperation(state, epoch);
       try {
-        const range = await resolveRange(client, {
-          startLocal: $(prefix + '-start').value,
-          endLocal: $(prefix + '-end').value,
-          timezone: $(prefix + '-timezone').value,
-          startOffset: selectedOffset(prefix, 'start'),
-          endOffset: selectedOffset(prefix, 'end')
-        }, () => assertOperation(state, epoch));
+        const range = await resolveRange(client, input, () => assertOperation(state, epoch));
         assertOperation(state, epoch);
         return range;
       } catch (error) {
@@ -470,9 +474,14 @@
       clearOffset('schedule', 'end');
     }
 
+    function setEditorPending(pending) {
+      $('schedule-form').inert = pending;
+      $('schedule-submit').disabled = pending;
+    }
+
     function clearBusiness({clearDrafts = false} = {}) {
       resetMemoryState(state);
-      $('schedule-submit').disabled = false;
+      setEditorPending(false);
       $('schedule-list').replaceChildren();
       $('list-more').hidden = true;
       $('list-more').disabled = false;
@@ -835,28 +844,31 @@
       event.preventDefault();
       if ($('schedule-submit').disabled) return;
       const epoch = state.epoch;
-      const editingName = $('editing-name').value;
-      const expectedRevision = Number($('editing-revision').value);
-      $('schedule-submit').disabled = true;
-      message('schedule-status', '正在解析当地时间…');
+      setEditorPending(true);
       try {
-        const range = await resolveFormRange('schedule', epoch);
+        const rangeInput = readRangeInput('schedule');
+        const editingName = $('editing-name').value;
+        const expectedRevision = Number($('editing-revision').value);
         const values = {
           title: $('schedule-title').value,
           description: $('schedule-description').value,
-          timezone: $('schedule-timezone').value,
+          timezone: rangeInput.timezone,
           availability: $('schedule-availability').value
         };
         if (!values.title.trim()) throw new ExpectedError('标题不能为空。');
-        if (range.start_utc >= range.end_utc) throw new ExpectedError('结束必须晚于开始。');
         const members = editingName ? [] : collectMembers($('create-member-rows'));
-        message('schedule-status', '正在检查本人忙闲交叠…');
+        const requestId = state.createRequestId;
+        message('schedule-status', '正在解析当地时间；保存期间暂不能编辑。');
+        const range = await resolveFormRange('schedule', epoch, rangeInput);
+        if (range.start_utc >= range.end_utc) throw new ExpectedError('结束必须晚于开始。');
+        message('schedule-status', '正在检查本人忙闲交叠；保存期间暂不能编辑。');
         const confirmed = await confirmOwnOverlap(range, values.timezone, epoch);
         if (epoch !== state.epoch) return;
         if (!confirmed) {
           message('schedule-status', '未保存；可修改时间后重试。');
           return;
         }
+        message('schedule-status', '正在保存日程；保存期间暂不能编辑。');
         let result;
         if (editingName) {
           result = await client.post('update', {
@@ -872,7 +884,7 @@
             }
           });
         } else {
-          result = await client.post('create', createSchedulePayload(values, range, members, state.createRequestId));
+          result = await client.post('create', createSchedulePayload(values, range, members, requestId));
         }
         if (epoch !== state.epoch) return;
         const saved = result.schedule;
@@ -887,7 +899,7 @@
         if (error instanceof ExpectedError) message('schedule-status', error.message, true);
         else fail(error, 'schedule-status');
       } finally {
-        if (epoch === state.epoch) $('schedule-submit').disabled = false;
+        if (epoch === state.epoch) setEditorPending(false);
       }
     }
 
@@ -1183,6 +1195,7 @@
       message('schedule-status', '编辑已清空。');
     });
     listen($('schedule-form'), 'input', event => {
+      if ($('schedule-submit').disabled) return;
       if (!$('editing-name').value) state.createRequestId = window.crypto.randomUUID();
       if (['schedule-start', 'schedule-end', 'schedule-timezone'].includes(event.target.id)) {
         clearOffset('schedule', 'start');

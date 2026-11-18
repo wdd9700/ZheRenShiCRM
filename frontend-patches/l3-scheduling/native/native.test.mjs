@@ -200,6 +200,86 @@ test('native header protects the edit draft, then creates without touching the o
   }
 })
 
+for (const method of ['create', 'update']) {
+  test(`${method} keeps the submitted UTC snapshot when timezone changes during delayed resolution`, async () => {
+    const firstResolution = deferred()
+    const writeResponse = deferred()
+    const resolutions = [], writes = [], busyQueries = []
+    const original = schedule('old-id', '00', '10')
+    const { document, window } = createDom(page, async (url, options) => {
+      const payload = JSON.parse(options.body)
+      const endpoint = url.split('.').at(-1)
+      if (endpoint === 'resolve_local') {
+        resolutions.push(payload)
+        return resolutions.length === 1 ? firstResolution.promise : resolveUtc(payload)
+      }
+      if (endpoint === 'query') {
+        busyQueries.push(payload)
+        return jsonResponse({ message: { busy: [] } })
+      }
+      writes.push({ endpoint, payload })
+      return writeResponse.promise
+    })
+    let requestId
+    const newUuid = window.crypto.randomUUID
+    window.crypto.randomUUID = () => (requestId = newUuid())
+    const $ = id => document.getElementById(id)
+    const { dispose } = init(document, window, { root: document.body, standalone: false })
+    if (method === 'update') {
+      $('editing-name').value = original.name
+      $('editing-revision').value = String(original.revision)
+    } else {
+      await $('add-create-member').click()
+      $('create-member-rows').querySelector('.member-user').value = 'reader@example.test'
+    }
+    $('schedule-title').value = 'submitted title'
+    $('schedule-description').value = 'submitted description'
+    $('schedule-availability').value = 'Free'
+    $('schedule-start').value = '2026-11-01T10:00'
+    $('schedule-end').value = '2026-11-01T10:05'
+    $('schedule-start-offset').value = '0'
+    $('schedule-end-offset').value = '0'
+    const expectedId = requestId
+    const form = $('schedule-form')
+    const pending = fire(form, 'submit')
+    await flush()
+    assert.equal(resolutions.length, 1)
+    const lockedAtResolution = form.inert
+    // Bypass the user-input lock programmatically to prove the RPC uses one snapshot.
+    $('schedule-timezone').value = 'Asia/Shanghai'
+    $('schedule-start').value = '2026-11-01T14:00'
+    $('schedule-start-offset').value = '480'
+    $('schedule-end-offset').value = '480'
+    $('schedule-title').value = 'not submitted'
+    $('schedule-description').value = 'not submitted'
+    $('schedule-availability').value = 'Busy'
+    if (method === 'create') $('create-member-rows').querySelector('.member-user').value = 'other@example.test'
+    await fire(form, 'input', { target: $('schedule-timezone') })
+    firstResolution.resolve(resolveUtc(resolutions[0]))
+    for (let i = 0; i < 8 && writes.length === 0; i++) await flush()
+    const lockedAtWrite = form.inert
+    writeResponse.resolve(jsonResponse({ message: { schedule: original } }))
+    await pending
+    assert.deepEqual(writes.map(x => x.endpoint), [method])
+    const fields = {
+      title: 'submitted title', description: 'submitted description', availability: 'Free',
+      start_utc: '2026-11-01T10:00:00Z', end_utc: '2026-11-01T10:05:00Z', source_timezone: 'UTC',
+    }
+    assert.deepEqual(writes[0].payload, method === 'create'
+      ? { ...fields, members: [{ user: 'reader@example.test', access: 'Read' }], request_id: expectedId }
+      : { name: original.name, expected_revision: original.revision, changes: fields })
+    assert.deepEqual(resolutions, ['10:00', '10:05'].map(minute => ({
+      local: `2026-11-01T${minute}`, timezone: 'UTC', offset_minutes: 0,
+    })))
+    assert.deepEqual(busyQueries.map(query => query.display_timezone), ['UTC'])
+    assert.equal(lockedAtResolution, true)
+    assert.equal(lockedAtWrite, true)
+    assert.equal(form.inert, false)
+    assert.equal($('schedule-submit').disabled, false)
+    dispose()
+  })
+}
+
 test('resume captures no schedule drafts, reloads CRM guards before commit, and rejects unavailable permission', async () => {
   const calls = []
   const initial = { name: 'TeamSchedule', fullPath: '/team-schedule' }
