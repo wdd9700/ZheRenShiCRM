@@ -62,9 +62,57 @@ raw_non_target_snapshot() {
 non_target_snapshot() { raw_non_target_snapshot | canonical_snapshot; }
 
 check_unchanged() {
-    local now
-    now=$(non_target_snapshot) && [ "$now" = "$(<"$mixed/non-target.before")" ] || return 1
+    local snapshot=${1:-$mixed/non-target.before} now
+    [ -f "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
+    now=$(non_target_snapshot) && [ "$now" = "$(<"$snapshot")" ] || return 1
     docker inspect --format '{{.Name}} {{.Id}} {{.State.StartedAt}} {{.Image}}' "$front"
+}
+
+stable_snapshot() {
+    python3 -B -c '
+import sys
+lines = sys.stdin.read().splitlines()
+names = sys.argv[1:]
+if len(lines) < len(names) + 3 or not all(value.isdigit() for value in lines[-2:]):
+    raise SystemExit("Malformed non-target snapshot")
+for name, line in zip(names, lines):
+    fields = line.split(" ", 10)
+    if len(fields) != 11 or fields[0] != name or not fields[5].isdigit() or not fields[7].isdigit():
+        raise SystemExit("Malformed container snapshot: " + name)
+    for index in (3, 5, 7):  # StartedAt, host PID, RestartCount
+        fields[index] = "-"
+    print(" ".join(fields))
+# Preserve volume names, network ID/IPAM, and nginx master UID. Only drop its start tick.
+for line in lines[len(names):-1]:
+    print(line)
+' "$@"
+}
+
+non_targets_healthy() {
+    local svc
+    for svc in frontend "${infra[@]}"; do
+        [ "$(docker inspect --format '{{.State.Health.Status}}' "$project-$svc-1")" = healthy ] || return 1
+    done
+    for svc in frontend scheduler websocket queue-short queue-long; do
+        [ "$(docker inspect --format '{{.State.Status}} {{.State.OOMKilled}}' "$project-$svc-1")" = 'running false' ] || return 1
+    done
+    [ "$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}}' "$project-configurator-1")" = 'exited 0 false' ]
+}
+
+capture_rollback_window() {
+    local original=$mixed/non-target.before snapshot=$mixed/rollback-window.before current old_stable new_stable svc
+    local names=()
+    for svc in "${infra[@]}" "${apps[@]}"; do names+=("/$project-$svc-1"); done
+    [ -f "$original" ] && [ ! -L "$original" ] && [ ! -e "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
+    non_targets_healthy && current=$(non_target_snapshot) || return 1
+    old_stable=$(stable_snapshot "${names[@]}" < "$original") &&
+        new_stable=$(printf '%s\n' "$current" | stable_snapshot "${names[@]}") || return 1
+    if [ "$old_stable" != "$new_stable" ]; then
+        printf 'ERROR: non-target stable identity differs from the release snapshot\n' >&2
+        return 1
+    fi
+    (set -C; printf '%s\n' "$current" > "$snapshot") || return 1
+    printf 'PASS: non-target stable identity verified; captured strict planned rollback snapshot\n'
 }
 
 check_prereqs() {
@@ -134,11 +182,12 @@ dns_matches() {
 }
 
 fix_route() {
-    local prior=$1 ip
+    local prior=$1 snapshot=${2:-$mixed/non-target.before} ip
     ip=$(backend_ip) && [ -n "$ip" ] && dns_matches "$ip" && ping "$back" 8000 || return 1
     printf 'Backend IP: %s -> %s\n' "$prior" "$ip"
     if [ "$prior" != "$ip" ] || ! ping "$front" 8080; then
-        check_unchanged && docker exec "$front" nginx -t && docker exec "$front" nginx -s reload || return 1
+        check_unchanged "$snapshot" && docker exec "$front" nginx -t && check_unchanged "$snapshot" &&
+            docker exec "$front" nginx -s reload || return 1
         printf 'Original frontend nginx: graceful reload issued\n'
     fi
     local i
@@ -152,20 +201,43 @@ fix_route() {
 replace() { compose "$@" up -d --no-deps --pull never --no-build --force-recreate backend; }
 
 rollback() {
-    local prior
+    local snapshot=$1 phase=$2 prior
     prior=$(backend_ip 2>/dev/null) || prior=unknown
-    state_write "backend-only rollback base=$base candidate=$new" || return 1
-    check_unchanged && replace && wait_backend && image_is "$back" "$base" && html_is "$old_html" && fix_route "$prior" && check_unchanged || return 1
-    trial check || return 1
+    check_unchanged "$snapshot" && state_write "backend-only $phase base=$base candidate=$new" &&
+        check_unchanged "$snapshot" && replace && wait_backend && image_is "$back" "$base" &&
+        html_is "$old_html" && fix_route "$prior" "$snapshot" && non_targets_healthy &&
+        trial check && check_unchanged "$snapshot" || return 1
     printf 'PASS: original backend and template restored; confirm direct HTTPS before restoring ready state\n'
-    state_write "backend-only rollback-awaiting-https base=$base candidate=$new"
+    state_write "backend-only $phase-awaiting-https base=$base candidate=$new"
+}
+
+planned_rollback() {
+    local snapshot=$mixed/rollback-window.before
+    active_state "backend-only active base=$base candidate=$new override=$mixed/backend.yml" || fail 'planned rollback requires the active S011 state'
+    [ -f "$mixed/state.before" ] && [ ! -L "$mixed/state.before" ] &&
+        [ "$(<"$mixed/state.before")" = "ready image=$base" ] || fail 'invalid saved base state'
+    image_is "$back" "$new" && trial check || fail 'candidate backend or base rollback image not confirmed'
+    capture_rollback_window || fail 'cannot start planned rollback window; original state and evidence retained'
+    if ! rollback "$snapshot" rollback-planned; then
+        state_write "backend-only rollback-planned-failed base=$base candidate=$new" || true
+        fail 'planned rollback did not finish; preserve the window and inspect actual containers'
+    fi
+}
+
+accept_rollback() {
+    local snapshot=$1 phase=$2
+    active_state "backend-only $phase-awaiting-https base=$base candidate=$new" || return 1
+    [ -f "$mixed/state.before" ] && [ ! -L "$mixed/state.before" ] &&
+        [ "$(<"$mixed/state.before")" = "ready image=$base" ] || return 1
+    check_unchanged "$snapshot" && non_targets_healthy && image_is "$back" "$base" && html_is "$old_html" &&
+        ping "$back" 8000 && ping "$front" 8080 && check_unchanged "$snapshot" && restore_state
 }
 
 switch_failed() {
     local rc=$?
     trap - EXIT HUP INT TERM
     if [ "$rc" != 0 ]; then
-        if ! rollback; then
+        if ! rollback "$mixed/non-target.before" rollback; then
             state_write "backend-only rollback-failed base=$base candidate=$new" || true
             printf 'ERROR: S011 rollback did not finish; preserve current state and escalate immediately\n' >&2
         fi
@@ -173,12 +245,7 @@ switch_failed() {
     exit "$rc"
 }
 
-check_prereqs
-[ ! -L "$stage/backend-only.lock" ] || fail 'release lock is a symlink'
-exec 9>> "$stage/backend-only.lock"
-flock -n 9 || fail 'S011 release lock is busy'
-check_prereqs
-
+dispatch() {
 case "${1:-}" in
 preflight)
     check_baseline
@@ -240,18 +307,39 @@ accept)
     ;;
 rollback)
     stable_dir "$mixed" || fail 'missing backend-only records'
-    case "$(<"$state")" in 'backend-only '*) ;; *) fail 'not in backend-only state' ;; esac
-    if ! rollback; then
-        state_write "backend-only rollback-failed base=$base candidate=$new" || true
-        fail 'rollback did not finish; preserve current state'
+    if [ "${2:-}" = --confirm-exclusive ]; then
+        planned_rollback
+    else
+        [ "$#" = 1 ] || fail 'unrecognized rollback option'
+        if ! active_state "backend-only awaiting-https base=$base candidate=$new override=$mixed/backend.yml" &&
+            ! active_state "backend-only switching base=$base candidate=$new override=$mixed/backend.yml" &&
+            ! active_state "backend-only rollback-failed base=$base candidate=$new"; then
+            fail 'not in the release window; planned rollback requires --confirm-exclusive and an active release'
+        fi
+        if ! rollback "$mixed/non-target.before" rollback; then
+            state_write "backend-only rollback-failed base=$base candidate=$new" || true
+            fail 'rollback did not finish; preserve current state'
+        fi
     fi
     ;;
 accept-rollback)
+    stable_dir "$mixed" || fail 'missing backend-only records'
     [ "${2:-}" = --confirm-https ] || fail 'operator must confirm direct HTTPS after rollback'
-    active_state "backend-only rollback-awaiting-https base=$base candidate=$new" || fail 'rollback not awaiting HTTPS'
-    check_unchanged
-    image_is "$back" "$base" && html_is "$old_html" && ping "$front" 8080 || fail 'original backend or route not confirmed'
-    restore_state
+    if active_state "backend-only rollback-planned-awaiting-https base=$base candidate=$new"; then
+        accept_rollback "$mixed/rollback-window.before" rollback-planned || fail 'planned rollback identity or health changed; do not restore ready'
+    else
+        accept_rollback "$mixed/non-target.before" rollback || fail 'release-window rollback identity, state or health not confirmed; do not restore ready'
+    fi
     ;;
-*) fail 'specify switch, accept, rollback, or accept-rollback' ;;
+*) fail 'specify preflight, switch, accept, rollback, or accept-rollback' ;;
 esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    check_prereqs
+    [ ! -L "$stage/backend-only.lock" ] || fail 'release lock is a symlink'
+    exec 9>> "$stage/backend-only.lock"
+    flock -n 9 || fail 'S011 release lock is busy'
+    check_prereqs
+    dispatch "$@"
+fi

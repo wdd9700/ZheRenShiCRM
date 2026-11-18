@@ -654,8 +654,18 @@ M48 授权仅新增现有日程页的显式返回入口。严格使用既有 pin
 
 用户确认普通身份已登录及短排他窗口后，按以上路径执行。首轮脚本加载候选后在非目标快照门禁安全停止：只读 diff 唯一差异是 websocket 的 `Mounts` 数组把原 sites/logs 两项对调，容器、进程、网络、挂载字段均相同；原 backend/frontend、模板和 ready/锁未动。按主控允许，仅规范化挂载数组顺序，保留全部字段与重复项。用首轮服务器快照验证对调通过、实际 `RW` 翻转与复制一条挂载均拒绝；锁内复验同一快照，原样保留首轮脚本与 `backend-only.first-attempt/`，不覆盖证据。
 
-本地源码对应远端执行文件 `/home/dev/c1118-schedule-return-d4330d3/backend-only-r2.sh`，SHA256 `652e95f339c4b9a5b27bb405b3dbacf2b8812c3de76f2100971166d56929302b`。R2 `switch --confirm-exclusive --preserve-unapplied-first-attempt` 实际 exit 0；保持原 Compose 文件、release/layers 与 `CRM_IMAGE=sha256:c2601699…`，仅按第三份持久覆层重建 backend。新 backend `d94d088f47e910887b6a044b668a7657077e88d4e5c8ff9d2c5a573beb1db2fc` 于 12:03:10 UTC 启动，config `42f21f63…` healthy，实际 HTML 原始字节 SHA `cdb9e49a…`。动态 IP 实际仍为 `172.18.0.7`；原 frontend Docker DNS 唯一解析一致，backend 8000 / frontend 8080 均 `pong`，**没有执行 Nginx reload、frontend restart 或 recreate**。原 frontend `5aabd604…`、StartedAt、Nginx master、挂载与网络不变；DB/双 Redis healthy 且 ID 不变，scheduler、websocket、双队列、configurator、命名卷及网络的非目标快照保持。未接触 Aegis、业务数据、客户端、TLS 或权限；不宣宿主重启演练或全站业务回归。
+发布时提交 `740112b` 的脚本对应远端执行文件 `/home/dev/c1118-schedule-return-d4330d3/backend-only-r2.sh`，SHA256 `652e95f339c4b9a5b27bb405b3dbacf2b8812c3de76f2100971166d56929302b`。R2 `switch --confirm-exclusive --preserve-unapplied-first-attempt` 实际 exit 0；保持原 Compose 文件、release/layers 与 `CRM_IMAGE=sha256:c2601699…`，仅按第三份持久覆层重建 backend。新 backend `d94d088f47e910887b6a044b668a7657077e88d4e5c8ff9d2c5a573beb1db2fc` 于 12:03:10 UTC 启动，config `42f21f63…` healthy，实际 HTML 原始字节 SHA `cdb9e49a…`。动态 IP 实际仍为 `172.18.0.7`；原 frontend Docker DNS 唯一解析一致，backend 8000 / frontend 8080 均 `pong`，**没有执行 Nginx reload、frontend restart 或 recreate**。原 frontend `5aabd604…`、StartedAt、Nginx master、挂载与网络不变；DB/双 Redis healthy 且 ID 不变，scheduler、websocket、双队列、configurator、命名卷及网络的非目标快照保持。未接触 Aegis、业务数据、客户端、TLS 或权限；不宣宿主重启演练或全站业务回归。
 
 真实可信 `https://8.133.190.46` 普通已登录内置浏览器 `panel-tab-396` 从 generation 2 重新加载至 generation 3，实际链接快照 `elements-b3363e79-d640-484e-9f8c-7aedb44e5902` 显示“← 返回 CRM”；点击凭证 `r-1170a32987ea`，同 tab 到达同源 `/crm/leads/view/list` 并加载“线索”，未重登、登出、打开侧栏或写业务。随后实际 `accept --confirm-authenticated-https` exit 0，活动状态是 `backend-only active`，指向 `/home/dev/c1118-schedule-return-d4330d3/backend-only/backend.yml`。立即通知 tower 独立验收 Windows Electron；这些浏览器证据不代替实体 Electron。
 
-下次标准维护前，读取覆层目录 `MAINTENANCE`，不要运行旧全栈 `up/update-site-image/maintenance-stop/restore-old-lock`。如获准回退，使用 R2 文件的 `rollback`，仅用原两份 Compose 与已保留旧锁恢复 backend；原 frontend 内仅在必要时 `nginx -t` 后 graceful reload，无权重建。确认旧站真实 HTTPS 后再 `accept-rollback --confirm-https` 恢复原状态字节。旧镜像/四件备份和状态/非目标快照均在位；回滚未实际执行。
+下次标准维护前，读取覆层目录 `MAINTENANCE`，不要运行旧全栈 `up/update-site-image/maintenance-stop/restore-old-lock`。R2 的 `rollback` 与 `accept-rollback --confirm-https` 均严格依赖发布前完整非目标快照，只适用于快照仍完全一致的短窗口。正常重启也可能让它拒绝；不得手工改历史快照或写 ready 绕过。旧镜像/四件备份及状态/非目标快照在发布时均在位；从未执行线上回滚。标记激活后如计划回滚，先审定并获准应用下节脚本，不把仓库代码当成服务器已升级。
+
+### 24.5 seq163：后续计划回滚窗口（仅本地）
+
+本次只修改仓库的 `deploy/schedule-return/backend-only.sh` 和本地替身测试。不访问生产、不上传脚本、不改线上部署或 `MAINTENANCE` 记录；§24.4 的 R2 SHA 与实际发布证据保持不变。
+
+此版获单独批准部署后，针对 `backend-only active` 在排他窗口运行 `rollback --confirm-exclusive`。复核候选 backend 镜像、旧锁及可用旧镜像、原 frontend 和所有非目标的健康及身份。与历史发布快照比较时只允许 `StartedAt`、宿主 PID、`RestartCount`、原 Nginx master 启动 tick 的变化；容器 ID、镜像、Compose config hash、状态/退出码/OOM、各挂载完整字段、网络、卷及 Nginx UID 仍须相同。旧快照保留；只在全部通过时创建独立 `backend-only/rollback-window.before`。覆层、其他容器及 TLS 不变，仍只用旧锁与原两份 Compose 重建 backend。若 Nginx 必须重新解析，仍只在原容器通过 `nginx -t` 和严格快照检查后执行 graceful reload。
+
+从启动回滚、代理修复到 `accept-rollback --confirm-https`，都按该窗口完整快照比较（含生命周期字段）；只有确认旧版直 HTTPS、内部双 pong、健康及原身份后恢复原 ready 字节。窗内再漂移、身份异常或回滚失败保留状态与证据，不自动重采样、不重建 frontend。发布当次失败的自动和手工回滚仍严格使用发布快照。替身验证不代表已在线执行或授权回滚。
+
+本地 `python -B deploy/schedule-return/test_backend_only.py -v` 八项通过：健康的同 ID 重启及挂载换序可建立新窗口，身份、挂载、配置、网络、卷和状态实质变化拒绝；窗口中途或 HTTPS 确认前有新漂移不写 ready，发布当次仍严格使用原快照。
