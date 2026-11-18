@@ -1,4 +1,23 @@
-# L3 日程 CRM 导航补丁（D040300 / M30）
+# L3 日程 CRM 导航补丁
+
+## 当前路径：S020 原生团队日程
+
+当前实现以 `native/` 为最终叠加阶段。它在固定上游和 e14b6 品牌/安全补丁之后接入 `/crm/team-schedule`，保留 CRM Layout 和原生侧栏。**以下 §1–8 是 M30 冻结阶段的历史记录**，不是 S020 的当前路由或验收结论。不要把 `native/` 提前到 M30 或品牌阶段替代其输入。
+
+```sh
+PATCH=frontend-patches/l3-scheduling/native
+APP=apps/team_schedule/team_schedule     # 内层 app 包目录
+python "$PATCH/apply.py" "$CRM" --app-source "$APP" --check
+python "$PATCH/apply.py" "$CRM" --app-source "$APP"
+python "$PATCH/apply.py" "$CRM" --app-source "$APP" --verify
+```
+
+- 构建：检查 CRM HEAD `36bd8859…`、五处精确前置文件、四份日程源码和四处新增路径；精确变换、校验结果 SHA 后写入，再走标准 CRM 前端构建。`manifest.json` 定义九个目标及源哈希；上游按原始 LF 字节，app 源码允许 CRLF 检出并归一为 LF。拒绝未知字节、已应用状态、链接及目标碰撞；任何中途 I/O 错误都应重建干净的候选层。M30 的目录及快照完整性检查仍按各自原有合成阶段运行。
+- 界面：`TeamSchedule.vue` 使用 CRM 的 `LayoutHeader`、按钮和色板。长表单、时间轴、API 操作和字典从现有 app 源生成局部 Vue 模板/模块；页面不执行旧页 HTML 文档或全局脚本。日程控制器只在当前 CRM 身份内绑定，离页取消请求、解绑并清掉列表、详情、权限草稿和 ICS 数据。标签切换走 CRM 的身份复核；只恢复原生路由和新数据，不恢复日程草稿。旧独立页面仍可按原链路保留冻结静态资产。
+- 兼容启用：发布需实际部署新 CRM 前端包和 `apps/team_schedule/team_schedule/www/team_schedule.py`。旧地址默认继续显示兼容页。新前端生效后，先从登录账号验证 `/crm/team-schedule` 加载的是真实新包、操作 API 可用，再将该站点配置 `team_schedule_native_workspace` **设为 JSON 布尔 true 或整数 1**。旧地址此后以 302 进入原生路由；Guest 走固定同站标准登录回程，不透传用户提供的目标或查询。回滚先关开关，再回退前端／后端；不卸载 app，不泄露或删除历史日程。
+- 本地检查：`python -B frontend-patches/l3-scheduling/native/check_apply.py`（设置 `CRM_FRONTEND_COMPILER_ROOT` 可用固定 Vue 编译器额外验证）。Frappe 兼容开关矩阵和共享控制器业务操作：`python -B apps/team_schedule/team_schedule/tests/ui/test_team_schedule_ui.py`。源码、编译器和 DOM 替身不是已部署的浏览器证据；用实际候选做线索→日程→商机、前进后退、刷新、Guest 回程及会话/双账号清理，独立记录浏览器和已安装 Windows 客户端。
+
+## 冻结历史：D040300 / M30 同源链接
 
 状态：导航补丁与源码级验证交付；R1 审查 P2-2/P2-3/P2-4 已修复（tip `4ff499e`）。M9 已在 full951 组合候选上完成标准生产构建与原生测试，主控/M27 报告记录了真实 CRM↔日程双向点击；本 worker 未重跑环境或构建，也不把该窗口扩大为完整 M24/M29 或 L3 通过（依赖 M24/M29 仍会阻止最终 merge），证据与边界见 §8。本补丁只增加正常 CRM 侧栏中的一个同源链接行，不实现排班功能，不提前 L3.5。
 

@@ -10,6 +10,10 @@ class EventTarget {
     this.listeners.get(type).push(listener);
   }
 
+  removeEventListener(type, listener) {
+    this.listeners.set(type, (this.listeners.get(type) || []).filter(item => item !== listener));
+  }
+
   async dispatchEvent(event) {
     event.target = event.target || this;
     for (const listener of this.listeners.get(event.type) || []) await listener(event);
@@ -26,6 +30,7 @@ class TextNode {
 
 function matches(element, selector) {
   if (!(element instanceof Element)) return false;
+  if (selector.startsWith('#')) return element.id === selector.slice(1);
   let remaining = selector;
   if (remaining.endsWith(':checked')) {
     if (!element.checked) return false;
@@ -124,6 +129,8 @@ class Element extends EventTarget {
 
   scrollIntoView() {}
 
+  focus() { this.ownerDocument.activeElement = this; }
+
   click() {
     return this.dispatchEvent({type: 'click', target: this, preventDefault() { this.defaultPrevented = true; }});
   }
@@ -203,6 +210,7 @@ class Window extends EventTarget {
       postMessage(data) {
         for (const channel of channels) if (channel !== this) channel.onmessage?.({data});
       }
+      close() { channels.splice(channels.indexOf(this), 1); }
     };
     let sequence = 0;
     this.crypto = {randomUUID: () => '00000000-0000-4000-8000-' + String(++sequence).padStart(12, '0')};

@@ -47,13 +47,16 @@
     return code && text ? code + '；' + text : code;
   }
 
-  function createClient({fetchImpl, csrfToken}) {
+  function createClient({fetchImpl, csrfToken, signal, check = () => {}}) {
     async function post(method, payload, namespace = 'team_schedule.api') {
+      check();
       let response;
       try {
         response = await fetchImpl(API_PREFIX + namespace + '.' + method, {
           method: 'POST',
           credentials: 'same-origin',
+          cache: 'no-store',
+          signal,
           headers: {
             'Content-Type': 'application/json',
             'X-Frappe-CSRF-Token': csrfToken
@@ -61,14 +64,18 @@
           body: JSON.stringify(payload)
         });
       } catch {
+        check();
         throw new ApiError('NETWORK_ERROR');
       }
+      check();
       let body = null;
       try {
         body = await response.json();
       } catch {
+        check();
         throw new ApiError(response.ok ? 'INVALID_RESPONSE' : 'FRAMEWORK_REJECTED', response.status);
       }
+      check();
       const message = body && body.message;
       const businessError = Boolean(message && message.error && typeof message.error === 'object' && message.error.code);
       if (!response.ok) {
@@ -289,12 +296,39 @@
     return bytesToBase64(bytes);
   }
 
-  function init(document, window) {
-    const $ = id => document.getElementById(id);
-    const currentUser = document.body.dataset.currentUser;
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-    const client = createClient({fetchImpl: window.fetch.bind(window), csrfToken});
-    const catalog = window.PhilosopherCRMText || {};
+  function init(document, window, {
+    root = null,
+    currentUser = document.body.dataset.currentUser,
+    csrfToken = document.querySelector('meta[name="csrf-token"]').content,
+    catalog = window.PhilosopherCRMText || {},
+    assertSession = () => {},
+    onAccessFailure = () => {},
+    recheck = () => window.location.reload(),
+    standalone = true,
+    autoLoad = false,
+  } = {}) {
+    const $ = root ? id => root.querySelector('#' + id) : id => document.getElementById(id);
+    const all = selector => (root || document).querySelectorAll(selector);
+    const lifetime = new AbortController();
+    const listeners = [];
+    let disposed = false;
+    function check() {
+      if (disposed) throw new StaleOperation();
+      try { assertSession(); } catch { throw new StaleOperation(); }
+    }
+    const client = createClient({fetchImpl: window.fetch.bind(window), csrfToken, signal: lifetime.signal, check});
+    function guard(handler) {
+      return event => {
+        try { check(); }
+        catch { event.preventDefault?.(); return; }
+        return handler(event);
+      };
+    }
+    function listen(target, event, handler, guarded = true) {
+      const listener = guarded ? guard(handler) : handler;
+      target.addEventListener(event, listener);
+      listeners.push(() => target.removeEventListener(event, listener));
+    }
     const enumFallback = {Busy: '占用', Free: '空闲', Active: '进行中', Cancelled: '已取消', Read: '只读', Edit: '可编辑'};
     const enumText = value => catalog.enums?.[value] || enumFallback[value] || value;
     const timelineText = (key, fallback) => catalog.timeline?.[key] || fallback;
@@ -329,7 +363,7 @@
       element.type = 'button';
       element.textContent = text;
       if (className) element.className = className;
-      element.addEventListener('click', handler);
+      element.addEventListener('click', guard(handler));
       return element;
     }
 
@@ -362,7 +396,7 @@
       const fallback = ['UTC', 'Asia/Shanghai', 'Asia/Kolkata', 'America/New_York'];
       const supported = typeof window.Intl.supportedValuesOf === 'function' ? window.Intl.supportedValuesOf('timeZone') : [];
       const zones = [...new Set([...fallback, ...supported])].sort((a, b) => a === 'UTC' ? -1 : b === 'UTC' ? 1 : a.localeCompare(b));
-      for (const select of document.querySelectorAll('select.timezone-select')) {
+      for (const select of all('select.timezone-select')) {
         for (const zone of zones) {
           const option = document.createElement('option');
           option.value = zone;
@@ -400,16 +434,20 @@
       return value === '' ? null : Number(value);
     }
 
-    async function resolveFormRange(prefix, epoch) {
+    function readRangeInput(prefix) {
+      return {
+        startLocal: $(prefix + '-start').value,
+        endLocal: $(prefix + '-end').value,
+        timezone: $(prefix + '-timezone').value,
+        startOffset: selectedOffset(prefix, 'start'),
+        endOffset: selectedOffset(prefix, 'end')
+      };
+    }
+
+    async function resolveFormRange(prefix, epoch, input = readRangeInput(prefix)) {
       assertOperation(state, epoch);
       try {
-        const range = await resolveRange(client, {
-          startLocal: $(prefix + '-start').value,
-          endLocal: $(prefix + '-end').value,
-          timezone: $(prefix + '-timezone').value,
-          startOffset: selectedOffset(prefix, 'start'),
-          endOffset: selectedOffset(prefix, 'end')
-        }, () => assertOperation(state, epoch));
+        const range = await resolveRange(client, input, () => assertOperation(state, epoch));
         assertOperation(state, epoch);
         return range;
       } catch (error) {
@@ -436,14 +474,23 @@
       clearOffset('schedule', 'end');
     }
 
+    function setEditorPending(pending) {
+      $('schedule-form').inert = pending;
+      $('schedule-submit').disabled = pending;
+    }
+
     function clearBusiness({clearDrafts = false} = {}) {
       resetMemoryState(state);
-      $('schedule-submit').disabled = false;
+      setEditorPending(false);
       $('schedule-list').replaceChildren();
       $('list-more').hidden = true;
       $('list-more').disabled = false;
       $('detail-panel').hidden = true;
       $('detail-content').replaceChildren();
+      $('member-rows').replaceChildren();
+      $('member-panel').hidden = true;
+      $('participation-panel').hidden = true;
+      $('occupies').checked = false;
       $('busy-results').replaceChildren();
       $('ics-preview-panel').hidden = true;
       $('ics-preview-table').replaceChildren();
@@ -454,10 +501,10 @@
       $('ics-file').value = '';
       if (clearDrafts) {
         resetEditor();
-        $('source-label').value = '';
-        $('existing-source-id').value = '';
-        $('viewer-user').value = '';
-        $('busy-users').value = '';
+        for (const id of ['source-form', 'existing-source-form', 'grant-form', 'availability-form', 'list-form']) $(id).reset();
+        for (const prefix of ['list', 'busy']) { clearOffset(prefix, 'start'); clearOffset(prefix, 'end'); }
+        $('include-cancelled').checked = false;
+        for (const id of ['list', 'schedule', 'detail', 'grant', 'busy', 'source', 'ics']) message(id + '-status', '');
       }
     }
 
@@ -471,6 +518,7 @@
       clearBusiness({clearDrafts});
       message(statusId, safeErrorText(error, catalog), true);
       message('session-status', clearDrafts ? '身份、权限、版本或Framework拒绝边界已触发；内存业务数据和敏感草稿已清除。' : '请求失败；已清除旧业务显示，请重新加载并核验。', true);
+      if (['AUTH_REQUIRED', 'FORBIDDEN'].includes(error.code) || [401, 403].includes(error.status)) onAccessFailure(error);
     }
 
     function addMemberRow(container, member = null) {
@@ -794,33 +842,38 @@
 
     async function saveSchedule(event) {
       event.preventDefault();
+      if ($('schedule-submit').disabled) return;
       const epoch = state.epoch;
-      $('schedule-submit').disabled = true;
-      message('schedule-status', '正在解析当地时间…');
+      setEditorPending(true);
       try {
-        const range = await resolveFormRange('schedule', epoch);
+        const rangeInput = readRangeInput('schedule');
         const editingName = $('editing-name').value;
+        const expectedRevision = Number($('editing-revision').value);
         const values = {
           title: $('schedule-title').value,
           description: $('schedule-description').value,
-          timezone: $('schedule-timezone').value,
+          timezone: rangeInput.timezone,
           availability: $('schedule-availability').value
         };
         if (!values.title.trim()) throw new ExpectedError('标题不能为空。');
-        if (range.start_utc >= range.end_utc) throw new ExpectedError('结束必须晚于开始。');
         const members = editingName ? [] : collectMembers($('create-member-rows'));
-        message('schedule-status', '正在检查本人忙闲交叠…');
+        const requestId = state.createRequestId;
+        message('schedule-status', '正在解析当地时间；保存期间暂不能编辑。');
+        const range = await resolveFormRange('schedule', epoch, rangeInput);
+        if (range.start_utc >= range.end_utc) throw new ExpectedError('结束必须晚于开始。');
+        message('schedule-status', '正在检查本人忙闲交叠；保存期间暂不能编辑。');
         const confirmed = await confirmOwnOverlap(range, values.timezone, epoch);
         if (epoch !== state.epoch) return;
         if (!confirmed) {
           message('schedule-status', '未保存；可修改时间后重试。');
           return;
         }
+        message('schedule-status', '正在保存日程；保存期间暂不能编辑。');
         let result;
         if (editingName) {
           result = await client.post('update', {
             name: editingName,
-            expected_revision: Number($('editing-revision').value),
+            expected_revision: expectedRevision,
             changes: {
               title: values.title,
               description: values.description,
@@ -831,7 +884,7 @@
             }
           });
         } else {
-          result = await client.post('create', createSchedulePayload(values, range, members, state.createRequestId));
+          result = await client.post('create', createSchedulePayload(values, range, members, requestId));
         }
         if (epoch !== state.epoch) return;
         const saved = result.schedule;
@@ -846,13 +899,29 @@
         if (error instanceof ExpectedError) message('schedule-status', error.message, true);
         else fail(error, 'schedule-status');
       } finally {
-        if (epoch === state.epoch) $('schedule-submit').disabled = false;
+        if (epoch === state.epoch) setEditorPending(false);
       }
+    }
+
+    function openCreate() {
+      try { check(); } catch { return; }
+      if ($('schedule-submit').disabled) return;
+      if ($('editing-name').value) {
+        if (!window.confirm('放弃当前未保存的修改，改为创建新日程？现有日程不会更改。')) return;
+        // A native confirmation may outlast the current CRM account epoch.
+        try { check(); } catch { return; }
+        resetEditor();
+        message('schedule-status', '');
+      }
+      const editor = $('editor-section');
+      editor.open = true;
+      editor.scrollIntoView({block: 'start'});
+      $('schedule-title').focus({preventScroll: true});
     }
 
     function editSelected() {
       const schedule = state.selected;
-      if (!schedule) return;
+      if (!schedule || $('schedule-submit').disabled) return;
       $('editor-section').open = true;
       $('editing-name').value = schedule.name;
       $('editing-revision').value = String(schedule.revision);
@@ -1078,7 +1147,7 @@
       const epoch = state.epoch;
       if (!state.ics.receipt || !$('ics-confirm').checked) return;
       try {
-        const selected = new Set([...document.querySelectorAll('input.ics-resolution:checked')].map(input => Number(input.dataset.index)));
+        const selected = new Set([...all('input.ics-resolution:checked')].map(input => Number(input.dataset.index)));
         const resolutions = collectResolutions(state.ics.items, selected);
         const result = await client.post('apply', {
           receipt: state.ics.receipt,
@@ -1118,10 +1187,15 @@
     populateTimezones();
     resetEditor();
     for (const option of $('schedule-availability').querySelectorAll('option')) option.textContent = enumText(option.value);
-    $('reload-page').addEventListener('click', () => window.location.reload());
-    $('schedule-form').addEventListener('submit', saveSchedule);
-    $('schedule-reset').addEventListener('click', () => { resetEditor(); message('schedule-status', '编辑已清空。'); });
-    $('schedule-form').addEventListener('input', event => {
+    listen($('reload-page'), 'click', recheck, false);
+    listen($('schedule-form'), 'submit', saveSchedule);
+    listen($('schedule-reset'), 'click', () => {
+      if ($('schedule-submit').disabled) return;
+      resetEditor();
+      message('schedule-status', '编辑已清空。');
+    });
+    listen($('schedule-form'), 'input', event => {
+      if ($('schedule-submit').disabled) return;
       if (!$('editing-name').value) state.createRequestId = window.crypto.randomUUID();
       if (['schedule-start', 'schedule-end', 'schedule-timezone'].includes(event.target.id)) {
         clearOffset('schedule', 'start');
@@ -1130,17 +1204,17 @@
     });
     for (const prefix of ['list', 'busy']) {
       for (const field of ['start', 'end', 'timezone']) {
-        $(prefix + '-' + field).addEventListener('input', () => { clearOffset(prefix, 'start'); clearOffset(prefix, 'end'); });
+        listen($(prefix + '-' + field), 'input', () => { clearOffset(prefix, 'start'); clearOffset(prefix, 'end'); });
       }
     }
-    $('add-create-member').addEventListener('click', () => addMemberRow($('create-member-rows')));
-    $('add-member').addEventListener('click', () => addMemberRow($('member-rows')));
+    listen($('add-create-member'), 'click', () => addMemberRow($('create-member-rows')));
+    listen($('add-member'), 'click', () => addMemberRow($('member-rows')));
     $('day-date').value = zonedLocalInput(new Date().toISOString(), 'UTC').slice(0, 10);
-    $('day-form').addEventListener('submit', event => { event.preventDefault(); return loadDay(); });
-    $('day-prev').addEventListener('click', () => loadDay(-1));
-    $('day-next').addEventListener('click', () => loadDay(1));
-    $('day-today').addEventListener('click', () => loadDay(0, true));
-    $('list-form').addEventListener('submit', async event => {
+    listen($('day-form'), 'submit', event => { event.preventDefault(); return loadDay(); });
+    listen($('day-prev'), 'click', () => loadDay(-1));
+    listen($('day-next'), 'click', () => loadDay(1));
+    listen($('day-today'), 'click', () => loadDay(0, true));
+    listen($('list-form'), 'submit', async event => {
       event.preventDefault();
       const epoch = state.epoch;
       const generation = beginList();
@@ -1161,31 +1235,48 @@
         else fail(error, 'list-status');
       }
     });
-    $('list-more').addEventListener('click', () => { if (state.listQuery) fetchList(state.listQuery, true, state.epoch); });
-    $('edit-schedule').addEventListener('click', editSelected);
-    $('cancel-schedule').addEventListener('click', cancelSelected);
-    $('save-members').addEventListener('click', saveMembers);
-    $('save-participation').addEventListener('click', saveParticipation);
-    $('grant-form').addEventListener('submit', saveGrant);
-    $('availability-form').addEventListener('submit', queryAvailability);
-    $('source-form').addEventListener('submit', createSource);
-    $('existing-source-form').addEventListener('submit', useExistingSource);
-    $('ics-file').addEventListener('change', fileChanged);
-    $('ics-preview').addEventListener('click', previewIcs);
-    $('ics-confirm').addEventListener('change', updateIcsApply);
-    $('ics-apply').addEventListener('click', applyIcs);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) sessionInvalidated('页面重新可见，会话可能已变化。'); });
-    window.addEventListener('pageshow', event => { if (event.persisted) sessionInvalidated('浏览器恢复了历史页面。'); });
-    window.addEventListener('storage', () => sessionInvalidated('同源浏览器存储发生变化。'));
+    listen($('list-more'), 'click', () => { if (state.listQuery) fetchList(state.listQuery, true, state.epoch); });
+    listen($('edit-schedule'), 'click', editSelected);
+    listen($('cancel-schedule'), 'click', cancelSelected);
+    listen($('save-members'), 'click', saveMembers);
+    listen($('save-participation'), 'click', saveParticipation);
+    listen($('grant-form'), 'submit', saveGrant);
+    listen($('availability-form'), 'submit', queryAvailability);
+    listen($('source-form'), 'submit', createSource);
+    listen($('existing-source-form'), 'submit', useExistingSource);
+    listen($('ics-file'), 'change', fileChanged);
+    listen($('ics-preview'), 'click', previewIcs);
+    listen($('ics-confirm'), 'change', updateIcsApply);
+    listen($('ics-apply'), 'click', applyIcs);
     let accountChannel = null;
-    try {
-      if (typeof window.BroadcastChannel === 'function') {
-        accountChannel = new window.BroadcastChannel('crm-account-boundary-c011000');
-        accountChannel.onmessage = event => {
-          if (event.data === 'changed') sessionInvalidated('另一标签的账号会话发生变化。');
-        };
+    if (standalone) {
+      listen(document, 'visibilitychange', () => { if (!document.hidden) sessionInvalidated('页面重新可见，会话可能已变化。'); }, false);
+      listen(window, 'pageshow', event => { if (event.persisted) sessionInvalidated('浏览器恢复了历史页面。'); }, false);
+      listen(window, 'storage', () => sessionInvalidated('同源浏览器存储发生变化。'), false);
+      try {
+        if (typeof window.BroadcastChannel === 'function') {
+          accountChannel = new window.BroadcastChannel('crm-account-boundary-c011000');
+          accountChannel.onmessage = event => {
+            if (!disposed && event.data === 'changed') sessionInvalidated('另一标签的账号会话发生变化。');
+          };
+        }
+      } catch {}
+    }
+    if (autoLoad) void loadDay(0, true);
+
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      lifetime.abort();
+      for (const remove of listeners.splice(0)) remove();
+      if (accountChannel) { accountChannel.onmessage = null; accountChannel.close(); }
+      clearBusiness({clearDrafts: true});
+      $('current-user').textContent = '';
+      for (const id of ['session', 'list', 'schedule', 'detail', 'grant', 'busy', 'source', 'ics']) {
+        message(id + '-status', '');
       }
-    } catch {}
+    }
+    return {dispose, openCreate};
   }
 
   const exported = {
