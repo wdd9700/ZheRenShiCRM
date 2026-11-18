@@ -25,7 +25,15 @@ compose() { docker compose -p "$project" --env-file "$runtime/.env" --env-file "
 trial() { CRM_TRIAL_RUNTIME_DIR="$runtime" CRM_TRIAL_DOCKER_SUDO=1 sh "$tools/trial.sh" "$@"; }
 hash_is() { local actual; actual=$(sha256sum "$1") && [ "${actual%% *}" = "$2" ]; }
 image_is() { [ "$(docker inspect --format '{{.Image}}' "$1")" = "$2" ]; }
-html_is() { local actual; actual=$(docker exec "$back" sha256sum "$html") && [ "${actual%% *}" = "$1" ]; }
+html_is() { local actual; actual=$(docker exec "${2:-$back}" sha256sum "$html") && [ "${actual%% *}" = "$1" ]; }
+backend_id() {
+    local id
+    id=$(docker inspect --format '{{.Id}}' "$back") && [[ $id =~ ^[0-9a-f]{64}$ ]] && printf '%s\n' "$id"
+}
+backend_matches() {
+    local id=$1 image=$2 digest=$3
+    [ "$(backend_id)" = "$id" ] && image_is "$id" "$image" && html_is "$digest" "$id" && [ "$(backend_id)" = "$id" ]
+}
 state_write() { local tmp; tmp=$(mktemp "$runtime/.s011.XXXXXXXX") && printf '%s\n' "$1" > "$tmp" && mv -T "$tmp" "$state"; }
 restore_state() { local tmp; tmp=$(mktemp "$runtime/.s011.XXXXXXXX") && cp -- "$mixed/state.before" "$tmp" && mv -T "$tmp" "$state"; }
 active_state() { [ -f "$state" ] && [ ! -L "$state" ] && [ "$(<"$state")" = "$1" ]; }
@@ -100,7 +108,7 @@ non_targets_healthy() {
 }
 
 capture_rollback_window() {
-    local original=$mixed/non-target.before snapshot=$mixed/rollback-window.before current old_stable new_stable svc
+    local original=$mixed/non-target.before snapshot=$mixed/rollback-window.before current old_stable new_stable svc tmp
     local names=()
     for svc in "${infra[@]}" "${apps[@]}"; do names+=("/$project-$svc-1"); done
     [ -f "$original" ] && [ ! -L "$original" ] && [ ! -e "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
@@ -111,7 +119,8 @@ capture_rollback_window() {
         printf 'ERROR: non-target stable identity differs from the release snapshot\n' >&2
         return 1
     fi
-    (set -C; printf '%s\n' "$current" > "$snapshot") || return 1
+    tmp=$(mktemp "$mixed/.rollback-window.XXXXXXXX") && printf '%s\n' "$current" > "$tmp" &&
+        ln -T -- "$tmp" "$snapshot" && rm -- "$tmp" || return 1
     printf 'PASS: non-target stable identity verified; captured strict planned rollback snapshot\n'
 }
 
@@ -200,24 +209,44 @@ fix_route() {
 
 replace() { compose "$@" up -d --no-deps --pull never --no-build --force-recreate backend; }
 
+saved_base_state() {
+    [ -f "$mixed/state.before" ] && [ ! -L "$mixed/state.before" ] &&
+        [ "$(<"$mixed/state.before")" = "ready image=$base" ]
+}
+
 rollback() {
-    local snapshot=$1 phase=$2 prior
-    prior=$(backend_ip 2>/dev/null) || prior=unknown
-    check_unchanged "$snapshot" && state_write "backend-only $phase base=$base candidate=$new" &&
-        check_unchanged "$snapshot" && replace && wait_backend && image_is "$back" "$base" &&
-        html_is "$old_html" && fix_route "$prior" "$snapshot" && non_targets_healthy &&
-        trial check && check_unchanged "$snapshot" || return 1
+    local snapshot=$1 phase=$2 prior id
+    saved_base_state && check_unchanged "$snapshot" && non_targets_healthy && trial check || return 1
+    id=$(backend_id) && prior=$(backend_ip) && [ -n "$prior" ] || return 1
+    if backend_matches "$id" "$new" "$new_html"; then
+        state_write "backend-only $phase base=$base candidate=$new" && check_unchanged "$snapshot" &&
+            backend_matches "$id" "$new" "$new_html" && replace && id=$(backend_id) || return 1
+    elif ! backend_matches "$id" "$base" "$old_html"; then
+        printf 'ERROR: live backend is neither the verified candidate nor the verified base\n' >&2
+        return 1
+    fi
+    wait_backend && backend_matches "$id" "$base" "$old_html" && check_unchanged "$snapshot" &&
+        fix_route "$prior" "$snapshot" && non_targets_healthy &&
+        backend_matches "$id" "$base" "$old_html" && check_unchanged "$snapshot" || return 1
+    state_write "backend-only $phase-awaiting-https base=$base candidate=$new" || return 1
     printf 'PASS: original backend and template restored; confirm direct HTTPS before restoring ready state\n'
-    state_write "backend-only $phase-awaiting-https base=$base candidate=$new"
 }
 
 planned_rollback() {
-    local snapshot=$mixed/rollback-window.before
-    active_state "backend-only active base=$base candidate=$new override=$mixed/backend.yml" || fail 'planned rollback requires the active S011 state'
-    [ -f "$mixed/state.before" ] && [ ! -L "$mixed/state.before" ] &&
-        [ "$(<"$mixed/state.before")" = "ready image=$base" ] || fail 'invalid saved base state'
-    image_is "$back" "$new" && trial check || fail 'candidate backend or base rollback image not confirmed'
-    capture_rollback_window || fail 'cannot start planned rollback window; original state and evidence retained'
+    local snapshot=$mixed/rollback-window.before id
+    saved_base_state || fail 'invalid saved base state'
+    if active_state "backend-only active base=$base candidate=$new override=$mixed/backend.yml"; then
+        id=$(backend_id) && backend_matches "$id" "$new" "$new_html" && trial check ||
+            fail 'candidate backend or base rollback image not confirmed'
+        if [ -e "$snapshot" ] || [ -L "$snapshot" ]; then
+            check_unchanged "$snapshot" || fail 'sealed planned rollback snapshot drifted; do not recapture it'
+        else
+            capture_rollback_window || fail 'cannot start planned rollback window; original state and evidence retained'
+        fi
+    elif ! active_state "backend-only rollback-planned base=$base candidate=$new" &&
+        ! active_state "backend-only rollback-planned-failed base=$base candidate=$new"; then
+        fail 'not in the active or interrupted planned rollback state'
+    fi
     if ! rollback "$snapshot" rollback-planned; then
         state_write "backend-only rollback-planned-failed base=$base candidate=$new" || true
         fail 'planned rollback did not finish; preserve the window and inspect actual containers'
@@ -225,12 +254,11 @@ planned_rollback() {
 }
 
 accept_rollback() {
-    local snapshot=$1 phase=$2
-    active_state "backend-only $phase-awaiting-https base=$base candidate=$new" || return 1
-    [ -f "$mixed/state.before" ] && [ ! -L "$mixed/state.before" ] &&
-        [ "$(<"$mixed/state.before")" = "ready image=$base" ] || return 1
-    check_unchanged "$snapshot" && non_targets_healthy && image_is "$back" "$base" && html_is "$old_html" &&
-        ping "$back" 8000 && ping "$front" 8080 && check_unchanged "$snapshot" && restore_state
+    local snapshot=$1 phase=$2 id ip
+    active_state "backend-only $phase-awaiting-https base=$base candidate=$new" && saved_base_state || return 1
+    id=$(backend_id) && ip=$(backend_ip) && [ -n "$ip" ] && check_unchanged "$snapshot" && non_targets_healthy &&
+        backend_matches "$id" "$base" "$old_html" && dns_matches "$ip" && ping "$back" 8000 && ping "$front" 8080 &&
+        backend_matches "$id" "$base" "$old_html" && check_unchanged "$snapshot" && restore_state
 }
 
 switch_failed() {
@@ -313,6 +341,7 @@ rollback)
         [ "$#" = 1 ] || fail 'unrecognized rollback option'
         if ! active_state "backend-only awaiting-https base=$base candidate=$new override=$mixed/backend.yml" &&
             ! active_state "backend-only switching base=$base candidate=$new override=$mixed/backend.yml" &&
+            ! active_state "backend-only rollback base=$base candidate=$new" &&
             ! active_state "backend-only rollback-failed base=$base candidate=$new"; then
             fail 'not in the release window; planned rollback requires --confirm-exclusive and an active release'
         fi

@@ -22,11 +22,33 @@ dns_matches() { [ "$1" = 172.18.0.7 ]; }
 wait_backend() { :; }
 ping() { :; }
 trial() { [ "$*" = check ]; }
-image_is() {
-    [ "$1" = "$back" ] || return 1
-    if [ -f "$fixture/replaced" ]; then [ "$2" = "$base" ]; else [ "$2" = "$new" ]; fi
+live_image() {
+    if [ -f "$fixture/replaced" ]; then printf 'base\n'; else sed -n '1p' "$fixture/image"; fi
 }
-html_is() { [ -f "$fixture/replaced" ] && [ "$1" = "$old_html" ]; }
+id_for() {
+    case "$(live_image)" in
+        base) printf '%064d\n' 1 ;;
+        candidate) printf '%064d\n' 2 ;;
+        other) printf '%064d\n' 3 ;;
+        *) return 1 ;;
+    esac
+}
+image_is() {
+    [ "$1" = "$back" ] || [ "$1" = "$(id_for)" ] || return 1
+    case "$(live_image)" in
+        base) [ "$2" = "$base" ] ;;
+        candidate) [ "$2" = "$new" ] ;;
+        *) return 1 ;;
+    esac
+}
+html_is() {
+    [ ! -e "$fixture/wrong-html" ] && [ "${2:-$back}" = "$(id_for)" ] || return 1
+    case "$(live_image)" in
+        base) [ "$1" = "$old_html" ] ;;
+        candidate) [ "$1" = "$new_html" ] ;;
+        *) return 1 ;;
+    esac
+}
 compose() {
     [ "$*" = 'up -d --no-deps --pull never --no-build --force-recreate backend' ] || return 1
     [ ! -e "$fixture/replaced" ] || return 1
@@ -36,6 +58,7 @@ compose() {
 docker() {
     [ "$1" = inspect ] && [ "$2" = --format ] || return 1
     case "$3" in
+        '{{.Id}}') [ "$4" = "$back" ] && id_for ;;
         '{{.State.Health.Status}}')
             if [ -f "$fixture/unhealthy" ] && [ "$4" = "$front" ]; then printf 'unhealthy\n'; else printf 'healthy\n'; fi ;;
         '{{.State.Status}} {{.State.OOMKilled}}') printf 'running false\n' ;;
@@ -52,6 +75,14 @@ case "$1" in
         ;;
     awaiting-switch)
         state_write "backend-only awaiting-https base=$base candidate=$new override=$mixed/backend.yml"
+        ;;
+    interrupted)
+        case "$2" in
+            rollback|rollback-planned) state_write "backend-only $2 base=$base candidate=$new" ;;
+            active) : ;;
+            *) exit 1 ;;
+        esac
+        if [ "$2" != rollback ]; then capture_rollback_window; fi
         ;;
     *) dispatch "$@" ;;
 esac
@@ -89,6 +120,7 @@ class BackendOnlyRollback(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.fixture = Path(directory.name)
         self.write('current', snapshot())
+        self.write('image', 'candidate\n')
         self.call('init')
         self.original = (self.fixture / 'non-target.before').read_bytes()
         self.active = (self.fixture / 'state').read_bytes()
@@ -167,6 +199,64 @@ class BackendOnlyRollback(unittest.TestCase):
         self.write('current', snapshot('websocket', 'lifecycle'))
         self.call('accept-rollback', '--confirm-https', success=False)
         self.assertIn(b'rollback-planned-awaiting-https', (self.fixture / 'state').read_bytes())
+
+    def test_interrupted_release_rollback_resumes_on_candidate(self):
+        self.call('interrupted', 'rollback')
+        self.call('accept-rollback', '--confirm-https', success=False)
+        self.call('rollback')
+        self.assertTrue((self.fixture / 'replaced').exists())
+        self.assertIn(b'rollback-awaiting-https', (self.fixture / 'state').read_bytes())
+        self.call('accept-rollback', '--confirm-https')
+
+    def test_interrupted_planned_rollback_reuses_sealed_window(self):
+        self.write('current', snapshot('websocket', 'lifecycle'))
+        self.call('interrupted', 'active')
+        frozen = (self.fixture / 'rollback-window.before').read_bytes()
+        self.write('current', snapshot())
+        self.assertIn('snapshot drifted', self.call('rollback', '--confirm-exclusive', success=False))
+        self.assertEqual((self.fixture / 'state').read_bytes(), self.active)
+        self.write('current', snapshot('websocket', 'lifecycle'))
+        self.call('rollback', '--confirm-exclusive')
+        self.assertEqual((self.fixture / 'rollback-window.before').read_bytes(), frozen)
+        self.call('accept-rollback', '--confirm-https')
+
+    def test_interrupted_planned_marker_resumes_on_candidate(self):
+        self.call('interrupted', 'rollback-planned')
+        self.call('rollback', '--confirm-exclusive')
+        self.assertTrue((self.fixture / 'replaced').exists())
+        self.assertEqual((self.fixture / 'rollback-window.before').read_bytes(), self.original)
+        self.assertIn(b'rollback-planned-awaiting-https', (self.fixture / 'state').read_bytes())
+        self.call('accept-rollback', '--confirm-https')
+
+    def assert_restored_backend_needs_https(self, phase, *args):
+        self.call('interrupted', phase)
+        self.write('image', 'base\n')
+        self.call('accept-rollback', '--confirm-https', success=False)
+        self.call('rollback', *args)
+        self.assertFalse((self.fixture / 'replaced').exists())
+        self.assertIn((phase + '-awaiting-https').encode(), (self.fixture / 'state').read_bytes())
+        self.call('accept-rollback', success=False)
+        self.call('accept-rollback', '--confirm-https')
+        self.assertEqual((self.fixture / 'state').read_bytes(), (self.fixture / 'state.before').read_bytes())
+
+    def test_interrupted_release_with_base_backend_does_not_replace(self):
+        self.assert_restored_backend_needs_https('rollback')
+
+    def test_interrupted_planned_with_base_backend_does_not_replace(self):
+        self.assert_restored_backend_needs_https('rollback-planned', '--confirm-exclusive')
+
+    def test_interrupted_rollback_rejects_missing_or_wrong_backend(self):
+        self.call('interrupted', 'rollback-planned')
+        for actual, wrong_html in [('other', False), ('missing', False), ('candidate', True), ('base', True)]:
+            with self.subTest(actual=actual):
+                self.write('image', actual + '\n')
+                if wrong_html:
+                    self.write('wrong-html', '')
+                self.call('rollback', '--confirm-exclusive', success=False)
+                self.assertIn(b'rollback-planned-failed', (self.fixture / 'state').read_bytes())
+                self.assertFalse((self.fixture / 'replaced').exists())
+                self.assertEqual((self.fixture / 'rollback-window.before').read_bytes(), self.original)
+        self.call('accept-rollback', '--confirm-https', success=False)
 
     def test_release_window_stays_strict(self):
         self.call('awaiting-switch')

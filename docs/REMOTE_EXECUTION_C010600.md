@@ -668,4 +668,14 @@ M48 授权仅新增现有日程页的显式返回入口。严格使用既有 pin
 
 从启动回滚、代理修复到 `accept-rollback --confirm-https`，都按该窗口完整快照比较（含生命周期字段）；只有确认旧版直 HTTPS、内部双 pong、健康及原身份后恢复原 ready 字节。窗内再漂移、身份异常或回滚失败保留状态与证据，不自动重采样、不重建 frontend。发布当次失败的自动和手工回滚仍严格使用发布快照。替身验证不代表已在线执行或授权回滚。
 
-本地 `python -B deploy/schedule-return/test_backend_only.py -v` 八项通过：健康的同 ID 重启及挂载换序可建立新窗口，身份、挂载、配置、网络、卷和状态实质变化拒绝；窗口中途或 HTTPS 确认前有新漂移不写 ready，发布当次仍严格使用原快照。
+seq163 本地替身八项通过：健康的同 ID 重启及挂载换序可建立新窗口，身份、挂载、配置、网络、卷和状态实质变化拒绝；窗口中途或 HTTPS 确认前有新漂移不写 ready，发布当次仍严格使用原快照。
+
+### 24.6 seq165：中断后的定点续作（仅本地）
+
+本节只适用于另行部署并获准运行的仓库新版；没有访问生产、上传、切换或回滚，§24.4 的服务器 R2 不具备本节新增行为。
+
+- 发布窗口中断在 `rollback` 或 `rollback-failed`：在排他窗口重跑 `rollback`，严格使用 `non-target.before`。计划回滚中断在封存 `rollback-window.before` 后（状态仍是 `active`），或留在 `rollback-planned`/`rollback-planned-failed`：重跑 `rollback --confirm-exclusive`，必须沿用原计划窗口。计划快照通过完整临时文件发布，不覆盖已有证据；任何已有窗口都不重新采样。
+- 锁内核对非目标快照、健康、旧锁/镜像与实际 backend 容器 ID、镜像和模板 SHA。确切候选仍在才只替换 backend；已是确切旧版就不再重建，只复核健康、DNS、代理与原身份。backend 缺失、无法证实模板、镜像未知或快照有漂移时拒绝续作、保留证据；不得改快照、伪写 ready 或扩大为全栈恢复。
+- 续作成功只到 `rollback[-planned]-awaiting-https`。必须实际确认可信直连 HTTPS，再用 `accept-rollback --confirm-https`；确认仍复核原窗口、旧 backend 身份和内部健康，再恢复原 ready 字节。若原本已到等待 HTTPS 状态，直接走该确认流程，不重复回滚。
+
+本地命令：`python -B deploy/schedule-return/test_backend_only.py -v`。替身覆盖两个窗口的中间状态、计划封存后尚未改变状态的断点、已恢复旧版不重复重建、实际 backend/模板不符和窗口漂移拒绝，以及不得跳过 HTTPS 确认。
