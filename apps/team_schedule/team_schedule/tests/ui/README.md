@@ -1,6 +1,12 @@
 # Team Schedule UI 状态与测试约定
 
-## 状态文案生命周期
+## 当前原生路由（S020）
+
+- 正常入口：原生 CRM 侧栏 → `/crm/team-schedule`，复用 `LayoutHeader` 和 CRM 会话边界。默认自动读当前 UTC 日，可切换 IANA 时区；两次当地午夜、短块、成员、忙闲和 ICS 的操作逻辑仍由同一控制器处理。
+- 路由卸载和 CRM 会话失效均主动取消请求、解绑事件并清除旧业务 DOM、关联状态和草稿。恢复时完成 CRM 身份与正常路由守卫后，才从空工作区重新加载。原生页不再单独注册旧 standalone 的全局监听器；下面的 `BroadcastChannel` 和手动加载说明针对旧兼容页。
+- `python -B frontend-patches/l3-scheduling/native/check_apply.py` 执行原生补丁重放和原生模块/路由/恢复测试；可用 `CRM_FRONTEND_COMPILER_ROOT` 接真实 Vue 编译器。兼容控制器的账号/开关/固定回程矩阵纳入下方 Python 套件。声明、DOM 替身和编译检查不能替代真实全栈浏览器/Windows 客户端验收。
+
+## 状态文案生命周期（旧兼容页）
 
 - `session-status` 在页面重新可见、BFCache、同源存储变化或请求失败时显示安全边界提示。
 - CRM 现有 `crm-account-boundary-c011000` BroadcastChannel 的字符串 `changed` 也调用同一失效处理。仅接收该约定消息；API 不存在或构造失败时保留原有兜底，不写业务存储、不轮询。
@@ -52,6 +58,6 @@ access白底残留的实际缓存/执行节点/级联原因仍未知，不再调
 
 - 用户报告 Windows Electron 客户端（1.0.2，直连可信 HTTPS）进入 `/team-schedule` 后没有返程入口。该独立窗口没有地址栏，也没有系统浏览器后退入口；从侧栏进入或直达链接打开时都没有可用返程历史。页面原先只有未标明用途的品牌链接 `<a class="crm-brand" href="/crm">哲人石CRM</a>`。
 - 现在 `<main>` 首个子元素是 `nav.schedule-return-bar`（`aria-label="返回CRM"`），内含同源同窗原生链接 `<a class="schedule-return" href="/crm"><span aria-hidden="true">←</span> 返回 CRM</a>`。不依赖 `history.back`、脚本跳转、`target` 或动态目标，直接打开本页（无历史记录）同样能返回；它也是页面第一个 Tab 停靠点，装饰箭头不进入可访问名。
-- 品牌链接原样保留；`get_context` 的 Guest 重定向、CSRF、会话失效清屏与全部业务请求/权限行为未改。
+- S010 当时保留品牌和 `get_context` 行为；S020 保留品牌与兼容页，在明确开启 `team_schedule_native_workspace` 后才将旧网址的已登录导航和 Guest 登录回程切向原生路由。
 - 返回条用页内 `<style>` 加 theme token 实现 `position: sticky`，因为 `team-schedule.css` 在部署链中从冻结的 dark-ui 基线整体 overlay，改它不会随本页发布；HTML 本身是 `deploy/ui_wording_manifest.json` 的 wording 覆盖项，页内样式才随交付生效。`after` 必须取 Git blob 原始字节的 SHA256（`deploy/prepare_integration.committed_files` 用 `git cat-file blob`），不是工作区 CRLF 投影的摘要。
 - 静态合同测试 `test_explicit_return_to_crm_needs_no_history_or_browser_chrome` 锁住链接文本、位置、无 JS 与 sticky 声明。本地桌面窗口（约1152×720 CSS视口）静态预览只证明标记、样式意图与同窗原生导航：首屏可见、滚动后固定顶部、Tab 聚焦有可见outline、Enter 同窗跳转 `/crm`；它不是客户端证据。验收口径是已安装的 Windows Electron 1.0.2 直连真实 HTTPS：普通登录后从侧栏进入，并在同一真实客户端覆盖“无可用返程历史直接进入”，验证首屏可见、滚动后可达、Tab 焦点、Enter/点击回到同窗同源且仍登录的 `/crm`，另验 Guest 重定向。Edge 回环窗口只能作对照，不能用证书绕过或回环替代；本轮未执行该验收。

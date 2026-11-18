@@ -1,0 +1,56 @@
+{
+  "crm_commit": "36bd8859f2a6345a620477bc708d0546e8c3f08a",
+  "app_sources": {
+    "public/crm-zh-cn.js": "adde7e9408c4aaefc960e78bfc1d49df9a2bc0061e474536ddb62e5ecca75f96",
+    "public/team-schedule.css": "a8bd305e20e8f86e8a15c605cc6eb4ab4f97ff23219f22ddeec9fb6e3b5afffe",
+    "public/team-schedule.js": "b13c62157d1d8b903f0477b550330439e18796321f306877f2e84155d5210cb9",
+    "www/team-schedule.html": "cdb9e49ae2832574c231d4d9b4b0ee0b41abf6f8ed1e3b3e1c63a82f953a8f9f"
+  },
+  "targets": [
+    {
+      "target": "crm/www/crm.py",
+      "before": "5eda918e55a72ca318fd6800d302a6545f4181c7c8fa2e33816b585a099e79d3",
+      "after": "e7679115c5916e5e78f9e56213f981fbba9e191f8aa83f031aa2ea74a38faeb8"
+    },
+    {
+      "target": "frontend/node_modules/frappe-ui/src/resources/accountBoundary.js",
+      "before": "a899121b944a1ceb96ca13e258bc819ffd339418c018b3accd17714b7f4af421",
+      "after": "8f3c70c8f02ac7d86fc5bdc8e589b2aae9f6c5eca2778902a13b87d007f73555"
+    },
+    {
+      "target": "frontend/src/components/Layouts/AppSidebar.vue",
+      "before": "96633536c614db3655dfd4109525f8f21e5ab927c77a7ddebce1f9547095a75a",
+      "after": "a156f34bcdeea0768671c556e587facaf629ce0e7caa5c61aad6041919ce3415"
+    },
+    {
+      "target": "frontend/src/pages/TeamSchedule.vue",
+      "before": null,
+      "after": "2f68204af9b0f98564cdad4a07a4279f779469fe7164797095626c986cf31ce1"
+    },
+    {
+      "target": "frontend/src/pages/teamSchedule.css",
+      "before": null,
+      "after": "25bf46708b0b1fd0909b75f3bbd7eaa4e0b0c69b828d149254dd5e618a94c707"
+    },
+    {
+      "target": "frontend/src/pages/teamScheduleCatalog.mjs",
+      "before": null,
+      "after": "b43af0f96dd3681075229f613737994610ef15151dc57632e3fae0d5b8aec413"
+    },
+    {
+      "target": "frontend/src/pages/teamScheduleController.mjs",
+      "before": null,
+      "after": "b3ca733600c808997ca2c627d98a010819d57908cdd59f7bab6d0b37c8f1eff1"
+    },
+    {
+      "target": "frontend/src/resumeRuntime.js",
+      "before": "e152a6daecbe90330e2c55800efb8b1c28ae56bda92272efebbb442955a638ab",
+      "after": "f87ec8a3c19c862a9bddce9e663f11a8cb1b9eac4e8766d47b35d09c73f4a228"
+    },
+    {
+      "target": "frontend/src/router.js",
+      "before": "5978786c44b5a79a506e8316aa8f2c3db844d558d575b02bfbc6da76f4db9f6b",
+      "after": "6ec71635ff24efceda255be89070cf9cfe1bd54d35d052b32634dd503646786b"
+    }
+  ]
+}

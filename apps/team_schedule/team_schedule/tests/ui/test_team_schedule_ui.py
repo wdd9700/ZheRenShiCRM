@@ -19,6 +19,42 @@ class TeamScheduleStaticContractTests(unittest.TestCase):
         self.assertIn("frappe.sessions.get_csrf_token()", source)
         self.assertIn("context.no_cache = 1", source)
 
+    def test_legacy_compatibility_only_redirects_after_explicit_native_activation(self):
+        import runpy
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        class Redirect(Exception):
+            pass
+
+        frappe = SimpleNamespace(conf={}, session=SimpleNamespace(user="Guest"), Redirect=Redirect,
+                                 local=SimpleNamespace(flags=SimpleNamespace()),
+                                 sessions=SimpleNamespace(get_csrf_token=lambda: "stub-csrf"))
+        with patch.dict(sys.modules, {"frappe": frappe}):
+            get_context = runpy.run_path(str(WWW_DIR / "team_schedule.py"))["get_context"]
+        old_login = "/login?redirect-to=%2Fteam-schedule"
+        new_login = "/login?redirect-to=%2Fcrm%2Fteam-schedule"
+        for setting in (None, False, 0, "0", "false", "1", 2, 1.0, True, 1):
+            native = setting is True or type(setting) is int and setting == 1
+            frappe.conf = {} if setting is None else {"team_schedule_native_workspace": setting}
+            for user in ("Guest", "member@example.test"):
+                with self.subTest(setting=repr(setting), user=user):
+                    frappe.session.user = user
+                    context = SimpleNamespace()
+                    expected = (new_login if native else old_login) if user == "Guest" else ("/crm/team-schedule" if native else None)
+                    if expected:
+                        with self.assertRaises(Redirect) as captured:
+                            get_context(context)
+                        self.assertEqual(captured.exception.http_status_code, 302)
+                        self.assertEqual(frappe.local.flags.redirect_location, expected)
+                        self.assertFalse(hasattr(context, "csrf_token"))
+                    else:
+                        self.assertIs(get_context(context), context)
+                        self.assertEqual(context.session_user, user)
+                        self.assertEqual(context.csrf_token, "stub-csrf")
+                        self.assertEqual(context.no_cache, 1)
+
     def test_page_has_minute_forms_and_real_asset_entry_points(self):
         source = (WWW_DIR / "team-schedule.html").read_text(encoding="utf-8")
         self.assertIn('meta name="csrf-token"', source)

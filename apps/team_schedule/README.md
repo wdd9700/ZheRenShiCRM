@@ -60,6 +60,10 @@ For the preserved failed maintenance site, only M9 may execute an authorized con
 | Team Schedule Request | `ts_request_owner` | `owner, request_id` | 0 |
 | Team Schedule | `ts_start_name` | `start_utc, name` | 1 |
 
+## CRM workspace and legacy link (S020)
+
+The supported native workspace is `/crm/team-schedule`, using the existing CRM layout, login and API/CSRF contracts. Its Vue source is assembled by [`frontend-patches/l3-scheduling/native`](../../frontend-patches/l3-scheduling/README.md) and built with CRM. The app itself adds no Node dependency or separate build. `/team-schedule` remains the former standalone page until the new CRM build and backend have both been verified and the per-site `team_schedule_native_workspace` flag is explicitly enabled. See the patch documentation for activation, login return and rollback order.
+
 ## Data and access
 
 Seven app-owned DocTypes (including the tower-approved metadata-only internal Audit) use the normal `team_schedule/team_schedule/doctype` module path. UTC instants are strict fixed-width minute strings, never site-timezone Datetime fields. Sources and cancellation tombstones are retained. Source UID is case-sensitive: `uid_key` is SHA256 of exact UTF-8 UID and `(source,uid_key)` is unique, avoiding MariaDB case-insensitive collation changing identity. Creation requests are unique per `(owner,request_id)` and store only the canonical payload digest and target ID.

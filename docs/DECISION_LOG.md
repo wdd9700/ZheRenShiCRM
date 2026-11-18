@@ -27,6 +27,8 @@
 | D-007 | 2026-11-04 | 自主至 L3 与时间段级日程安排 | Validated（方向）；实现待验 | 本地日程、团队忙闲与合成 ICS 单向导入优先 | L1/L2 前置及 L3 出口实测；外部连接另授权 |
 | D-008 | 2026-11-04 | L3 app 与同源 CRM 集成路线（M22 B） | Provisional（中置信）；契约/功能待验 | 独立 team_schedule app/DocType，复用认证 ORM；UTC + IANA 源时区 | 局部 ACL、实际依赖、时间段 UI 与双普通成员全链验收 |
 | D-009 | 2026-11-04 | L3.5 CRM 与日程业务关联及开工顺序 | User Decision（已决定）；实现待验 | L3 约定功能实现完成且 L2 业务/权限验收无阻断后，测试 L3 与实现 L3.5 并行 | 双门槛证据、关联/写回权限及业务全链验收 |
+| D-010 | 2026-11-08 | 默认中性暗色与日程时间轴 | Provisional | 原生 dark scheme 与覆盖补丁；真实 UTC 分钟时间轴 | 固定上游升级、浏览器外观与可读性 |
+| D-011 | 2026-11-18 | 原生团队日程工作区 | Provisional | CRM Vue 路由与会话边界；旧地址默认兼容 | 固定组合变更、实站浏览器与 Windows 验收 |
 
 ### D-001｜团队为架构前提，跨端先复用 Web
 
@@ -202,6 +204,15 @@
 - **二轮短块可识别性修复（2026-11-08）**：Terra `visual-41366c0f-3805-47cc-bff2-ddcf313d64be` 已证1280×720主轴y264–704/约440px及10分钟12px、25分钟30px分列正确，但短块无可见标题/编号，未满足一眼看清安排。保真实高度，新增独立24px编号按钮/连接线（按横向列区间避让，不作占用）并把完整标题/起止/状态移同viewport侧栏；保原生button/get核权、Cancelled明确及原清屏，窄屏局部横滚、不缩正文/不改时间算法。access残留白底的缓存/节点/级联根因仍未知，不盲改色；仅在one-shot返回前/annotate后幂等刷新自有节点，归一化样式后同值不写，Observer仍只childList一份、权限不改。M37负责最终SHA版本化加载及另一路HelpModal品牌，非本分支热改。定向合同与源码验证后交新tip审/最终截图，不宣视觉已通过；无环境/build操作。
 
 - **v4独立页色彩边界修复（2026-11-08）**：`visual-ea0e8060-8589-4c4d-af52-64117705a295` 活动页h1近黑、Framework顶栏白、owned入口白黑，CRM同入口已过。源码层级确认活动页内层crm-standalone不含base navbar，h1旧规则没color而不能覆盖Framework自身heading声明，无root data-theme亦不匹配Vue暗token；公开固定v15.125 website变量headings gray900/navbar white作来源佐证，未采实际computed故不冒称残留入口根因已证。采用standalone h1–3显式中性浅字并仅team-activities body路由重声明同palette与Framework已有bg/fg/navbar/card/popover/border/icon变量及有限navbar/menu/hover/focus样式；owned入口继承body同palette，保fallback/脚本/路由。导入纯HTML标题同规则保护，不重写模板或增环境；不全局important、不删导航、不并改M37登录/已过CRM日轴。canonical/payload同源和manifest同步；定向CSS/模板合同2项、全既有UI7项（内调Node36）、精确patch5项与access原page.js回归均通过，git diff检查通过；这是源码声明/范围测试而非computed或浏览器布局引擎，新候选实际截图另验。
+
+### D-011｜团队日程成为 CRM 原生工作区（S020 / S021）
+
+- **日期/状态**：2026-11-18 / Provisional（用户方向已确认；源码、构建与浏览器验收分开判定）。
+- **触发与目标**：用户要求线索 → 团队日程 → 商机保持同一窗口、侧栏和登录。替代 D-008 的整页入口实现及 M47 独立页往返作为主路径；保留原数据模型、API、权限与时区，不开展 L3.5。
+- **候选与取舍**：继续独立整页即使颜色相同也会切换布局；iframe/复制侧栏会造成重复导航和额外会话边界；采用固定上游真实 Vue 路由、原生侧栏和 LayoutHeader，复用现有操作实现和会话组件。新补丁在 M30 与品牌/安全补丁之后叠加，不改冻结历史哈希。
+- **回退与上线门槛**：旧 `/team-schedule` 默认留在可用的兼容页面；仅在原生前端与后端实际就绪并验证后才启用站点开关 `team_schedule_native_workspace`，回滚先关闭开关，保留 L3 数据。此次只做本地实施与验证，无现网切换或 Windows 重新安装。
+- **置信度与复评**：固定路由和安全会话源码已核对，端到端待验证；本地用真实浏览器核验同窗侧栏、刷新、前进后退、旧链接及登录回程；Windows 客户端另计证据。上游或发布组合 SHA、网站登录回程逻辑、权限清理失效时复评。无新增必须用户决定的问题。
+- **本地源码证据**：`frontend-patches/l3-scheduling/native/check_apply.py` 6 项通过（含固定 Vue SFC 编译和 3 项原生目标运行测试）；`apps/team_schedule/team_schedule/tests/ui/test_team_schedule_ui.py` 9 项通过（含 36 项现有 Node 交互）。补丁测试覆盖严格基线/零写拒绝、实际路由守卫、刷新入口的固定登录目标、旧入口开关、CRM 会话恢复及无旧草稿重进。未部署；标准构建及浏览器/Windows 独立验证不从上述测试推断。
 
 ## 决策条目模板（复制到文件末尾，使用后删除本行提示）
 

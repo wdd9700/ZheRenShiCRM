@@ -1,0 +1,57 @@
+.crm-native-schedule {
+  --crm-surface: var(--surface-base);
+  --crm-raised: var(--surface-gray-2);
+  --crm-border: var(--outline-gray-2);
+  --crm-control-border: var(--outline-gray-3);
+  --crm-text: var(--ink-gray-9);
+  --crm-secondary: var(--ink-gray-6);
+  --crm-danger: var(--ink-red-4);
+  --crm-blue: var(--ink-blue-4);
+  --crm-gold: var(--ink-amber-4, #b8852a);
+  --crm-jade: var(--ink-green-4);
+  color: var(--crm-text);
+  font-size: 0.875rem;
+}
+.crm-native-schedule [hidden] { display: none !important; }
+.crm-native-schedule :is(section, .editor-section, .schedule-tool) {
+  padding: 1rem;
+  border: 1px solid var(--crm-border);
+  border-radius: 0.75rem;
+  background: var(--crm-surface);
+}
+.crm-native-schedule summary { cursor: pointer; font-weight: 600; }
+.crm-native-schedule .editor-section summary { font-size: 1rem; line-height: 1.5; }
+.crm-native-schedule :is(h2, h3) { font-weight: 600; }
+.crm-native-schedule h2 { font-size: 1.125rem; }
+.crm-native-schedule :is(p, form, fieldset, .offset-choice) { margin-block: 0.5rem; }
+.crm-native-schedule :is(form .grid, .member-row) { gap: 0.75rem; }
+.crm-native-schedule form .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+.crm-native-schedule label { display: block; margin-block: 0.25rem; }
+.crm-native-schedule :is(input:not([type='checkbox']), select, textarea, button) {
+  min-height: 2rem;
+  max-width: 100%;
+  padding: 0.25rem 0.5rem;
+  color: inherit;
+  border: 1px solid var(--crm-control-border);
+  border-radius: 0.375rem;
+  background: var(--crm-raised);
+}
+.crm-native-schedule :is(input:not([type='checkbox']), select, textarea) { width: 100%; }
+.crm-native-schedule input[type='checkbox'] { accent-color: var(--crm-jade); }
+.crm-native-schedule button { margin: 0.25rem 0.25rem 0.25rem 0; }
+.crm-native-schedule button:not(:disabled):hover { background: var(--surface-gray-3); }
+.crm-native-schedule button:disabled { opacity: 0.5; }
+.crm-native-schedule button.primary { background: var(--surface-gray-7); color: var(--ink-white); }
+.crm-native-schedule button.primary:not(:disabled):hover { background: var(--surface-gray-6); }
+.crm-native-schedule :is(button.danger, .status.error) { color: var(--crm-danger); }
+.crm-native-schedule :is(.muted, .schedule-session) { color: var(--crm-secondary); }
+.crm-native-schedule :focus-visible { outline: 2px solid var(--crm-blue); outline-offset: 2px; }
+.crm-native-schedule .status:empty { display: none; }
+.crm-native-schedule :is(.scroll, #busy-results) { overflow-x: auto; }
+.crm-native-schedule table { width: 100%; text-align: left; }
+.crm-native-schedule :is(th, td) { border-bottom: 1px solid var(--crm-border); padding: 0.4rem; }
+.crm-native-schedule #detail-panel { scroll-margin-top: 1rem; }
+@media (max-width: 640px) {
+  .crm-native-schedule .day-toolbar > div { flex-wrap: wrap; }
+  .crm-native-schedule .day-toolbar .timezone-select { max-width: 100%; }
+}
